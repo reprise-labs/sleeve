@@ -10,7 +10,7 @@ Schema: jaar_titel_formaat_label_land[_variant]_kant
 """
 import json, re, sys, unicodedata, urllib.request
 
-UA = 'Sleeve/0.3.0'
+UA = 'Sleeve/0.3.1'
 LANDEN = {'US': 'usa', 'USA': 'usa', 'UK': 'uk', 'Europe': 'europe', 'Netherlands': 'netherlands',
           'Germany': 'germany', 'Belgium': 'belgium', 'France': 'france', 'Japan': 'japan'}
 KLEUREN = ['black', 'white', 'red', 'orange', 'yellow', 'gold', 'silver', 'green', 'blue', 'pink', 'purple',

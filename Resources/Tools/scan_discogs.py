@@ -21,7 +21,7 @@ import cv2
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
-UA = 'Sleeve/0.3.0'
+UA = 'Sleeve/0.3.1'
 
 
 def get(url):
