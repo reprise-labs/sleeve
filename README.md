@@ -16,6 +16,8 @@ andere Mac is nog niet getest.
 
 ## Installeren
 
+Download het volledige app-pakket via [Releases](https://github.com/reprise-labs/sleeve/releases).
+
 1. Pak het volledige downloadpakket uit en verplaats `Sleeve.app` naar je Apps-map.
 2. Voer `Installeer beeldonderdelen.command` uit vanuit het uitgepakte pakket.
    Bewaar de meegeleverde `scripts`-map en `requirements.txt` ernaast.
@@ -68,7 +70,7 @@ testprojecten en lokale instellingen maken geen deel uit van deze repository.
 Xcode Command Line Tools en een geschikte Apple Silicon Mac zijn nodig:
 
 ```sh
-./build.sh
+zsh build.sh
 ```
 
 De OCR-helper wordt tijdens het bouwen gecompileerd, zodat de app daarvoor
@@ -77,7 +79,7 @@ geen bestanden in zijn eigen ondertekende pakket hoeft te wijzigen.
 ## Testen
 
 ```sh
-./scripts/check.sh
+zsh scripts/check.sh
 ```
 
 De controles maken tijdelijke bestanden en testen beeldvorm, beschadigde
