@@ -71,10 +71,11 @@ def job_folder(req,label):
 def run(args):
  global child
  emit('status',message='De verwerking loopt op je Mac.')
- stage='Verwerking';index=None;total=None
+ stage='Verwerking';index=None;total=None;resource_error=None
  child=subprocess.Popen([sys.executable,*map(str,args)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=True)
  for line in child.stdout:
   text=line.rstrip()
+  if text.startswith(('ValueError: Te weinig vrije schijfruimte','ValueError: Een afzonderlijke scan')):resource_error=text.split(': ',1)[1]
   if text:
    emit('log',message=text)
    if any(word in text.lower() for word in ('niet beschikbaar','niet betrouwbaar','mislukt')):emit('warning',message=text)
@@ -98,6 +99,7 @@ def run(args):
     emit('progress',fraction=None,index=index,total=total,phase='Controle en uitsnijden')
     emit('status',message=stage+' · samengestelde scan controleren…')
  rc=child.wait();child=None
+ if rc and resource_error:raise RuntimeError(resource_error)
  if rc:raise RuntimeError('De verwerking is gestopt op een controlefout. Bekijk het logboek; er wordt niets als compleet aangemerkt als het dat niet is.')
 
 def profile_for(rows):

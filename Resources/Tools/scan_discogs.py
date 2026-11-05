@@ -136,7 +136,8 @@ def main():
     round_ = small[..., 3].mean() / 255 < 0.9                 # transparante hoeken = plaat
     print(f'Discogs: {title} — foto {n + 1} past best ({k} overeenkomsten)')
 
-    out = raw.copy()
+    out = raw
+    del raw
     # kleur: vergelijk alleen gekleurde delen van de scan met dezelfde plek op Discogs
     if not a.alleen_stand:
         best = None                                           # foto met het meeste gekleurde vlak
@@ -159,13 +160,13 @@ def main():
             sr = float(np.median(s2[near] / np.maximum(s1[near], 1e-3)))
             vr = float(np.median(v2[near] / np.maximum(v1[near], 1e-3)))
             dh = float(np.clip(dh, -30, 30)); sr = float(np.clip(sr, 0.75, 1.35)); vr = float(np.clip(vr, 0.8, 1.25))
-            for y0 in range(0, out.shape[0], 1024):         # in stroken: weinig geheugen bij 1200 dpi
-                blk = out[y0:y0 + 1024, :, :3]
+            for y0 in range(0, out.shape[0], 256):         # in stroken: weinig geheugen bij 1200 dpi
+                blk = out[y0:y0 + 256, :, :3]
                 H, S, V = hsv_f(blk)
                 w = np.clip(1 - np.abs(((H - hc + 180) % 360) - 180) / 35, 0, 1) * np.clip((S - 0.2) / 0.2, 0, 1)
                 H = (H + dh * w) % 360; S = np.clip(S * (1 + (sr - 1) * w), 0, 1); V = np.clip(V * (1 + (vr - 1) * w), 0, 1)
                 hsv = np.dstack([H * 256 / 360, S * 255, V * 255]).clip(0, 255).astype(np.uint8)
-                out[y0:y0 + 1024, :, :3] = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR_FULL)
+                out[y0:y0 + 256, :, :3] = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR_FULL)
             print(f'kleur (foto {nc + 1}): hoofdtint {hc:.0f} graden -> {dh:+.1f}, verzadiging x{sr:.2f}, helderheid x{vr:.2f}')
         else:
             print('kleur: te weinig gekleurd vlak om te vergelijken, niet aangepast')
