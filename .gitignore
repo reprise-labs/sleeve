@@ -1,0 +1,8 @@
+*.app/
+*.zip
+.DS_Store
+__pycache__/
+.build/
+Testresultaten/
+*.anoukproject/
+*.sleeveproject/
