@@ -40,7 +40,7 @@ def get(url):
         return r.stdout
 
 
-def release_images(url):
+def release_images(url, with_metadata=False):
     m = re.search(r'/release/(\d+)', url)
     if not m:
         mm = re.search(r'/master/(\d+)', url)
@@ -51,14 +51,15 @@ def release_images(url):
     else:
         rid = m.group(1)
     rel = json.loads(get(f'https://api.discogs.com/releases/{rid}'))
-    out = []
+    out = []; roles=[]
     for im in rel.get('images', []):
         try:
             data = get(im['uri'])
             arr = np.asarray(Image.open(io.BytesIO(data)).convert('RGB'))
-            out.append(cv2.cvtColor(arr, cv2.COLOR_RGB2BGR))
+            out.append(cv2.cvtColor(arr, cv2.COLOR_RGB2BGR));roles.append(im.get("type","secondary"))
         except Exception:
             pass
+    if with_metadata:return rel.get('title',''),out,roles
     return rel.get('title', ''), out
 
 

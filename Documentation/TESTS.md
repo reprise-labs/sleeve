@@ -86,3 +86,62 @@ De afzonderlijke kleurcorrecties zijn pixelgelijk, inclusief alpha en metadata.
 Tests controleren ook opruimen van tijdelijke bestanden en de schijfruimtecontrole.
 De volledige FIRE-set met alle onderdelen is niet opnieuw als één app-opdracht
 verwerkt; de oorspronkelijke crashende frontgroep is wel volledig doorgerekend.
+
+
+## 0.4.2 — kleurstap en releasevoorstellen (5 november 2026)
+
+- De Discogs-hoeskleurcorrectie is verwijderd uit scanopdrachten, ook wanneer
+  oude projecten of wachtrijen useColour=true bewaren. De afzonderlijke kleurstap
+  voor hoezen en vinyl blijft beschikbaar; het beeldalgoritme is daarbij behouden.
+- Alle bestaande regressies voor beelden, metadata, geheugen, stoppen, voortgang,
+  projecten, wachtrij, eindcontrole, ronde uitsnede en herhalen: geslaagd.
+- Nieuwe tests: barcodecontrole, UPC/EAN-equivalentie, meerdere persingen,
+  zoekfilter, geen tekst, netwerkfout, beperkte bronselectie en oude kleurinstelling.
+- Echte Discogs-zoekopdracht vanuit de gebundelde adapter met de volledige
+  oorspronkelijke FIRE-bestandslijst: voltooid in circa 16,5 seconden. De barcode
+  en het catalogusnummer leverden uitgaven 33644769 en 33664818 op; bij de laatste
+  wordt de variant Orange getoond. Dit bevestigt dat de barcode niet uniek is.
+- Afbeeldingen worden lokaal verkleind en herkend. Alleen gerichte zoektermen
+  gaan naar de Discogs-API; geen scans of volledige OCR-tekst.
+- Native interface in een aparte testapp met eigen testbibliotheek gecontroleerd:
+  voorstellenvenster, variantkleur, expliciet kiezen vult de juiste link in,
+  venster sluit na kiezen en een hoes krijgt de passende-foto-methode.
+- Een voorstel wordt niet automatisch gekozen. De exacte persing en een
+  kleurvoorstel blijven handmatige beoordelingen. Herkenning kan mislukken.
+- De lopende FIRE-verwerking in de bestaande app is niet onderbroken.
+
+
+## 0.4.2 — FIRE-herstel en betrouwbare onderdeellabels
+
+De praktijkproef van 0.3.2 stopte bij kant A: Scan 23 was korter bijgesneden
+maar had dezelfde 1200 dpi. De oude groepsvergelijking maakte elke langste
+zijde even groot en verwierp die scan daardoor als een andere schaal.
+Groeperen gebeurt nu op dezelfde fysieke schaal bij bekende dpi; zonder dpi
+blijven gedeelde pixelschalen behouden. De acht echte vinylscans worden nu
+twee groepen van vier. Een synthetische test controleert ook dat een andere
+afbeelding apart blijft.
+
+Voorlopige bestanden krijgen niet standaard Voorkant. Bekende onderdelen
+worden per bestand bijgehouden in Studio-onderdelen.json; onbekende onderdelen
+heten Nog te bepalen. Oude afgebroken *_hoes-resultaten worden bij openen
+ook zo hersteld, tenzij een onderdeelmanifest de voorkant bevestigt.
+Onbekende onderdelen vereisen een keuze voordat namen worden voorgesteld.
+
+Bij een passende primaire Discogs-hoesfoto wordt de voorkant herkend. Een
+unieke barcode op een andere hoes helpt de achterkant te herkennen. Overige
+hoesonderdelen blijven voorstellen die de gebruiker visueel moet beoordelen.
+De primaire-fotostatus blijft correct als een eerdere foto niet kan worden
+opgehaald. De concrete melding over een onvolledige schijf wordt doorgegeven.
+
+Herstelproef met alle 28 originele FIRE-bestanden: zes onderdelen gevonden.
+De vier eerder voltooide hoezen zijn in deze proef hergebruikt; beide vinylkanten
+zijn opnieuw op volle resolutie samengevoegd, uitgesneden en met Discogs gedraaid.
+Alle zes definitieve namen zijn voltooid: front, back, inside, insert, sidea, sideb.
+Duur circa 18,6 minuten; gemeten maximale gezamenlijke RSS circa 2956 MiB en
+bemonsterde gezamenlijke fysieke footprint circa 4085 MiB. Dit is een meting
+van deze proef, geen harde geheugenlimiet voor alle invoer.
+
+Bij uitsnijden worden overtollige kopieën en kanalen vermeden en ongebruikte
+bronbuffers eerder vrijgegeven. RGB/RGBA-inlezen en de volledige uitsnede zijn
+met de oude implementatie pixel voor pixel vergeleken: identiek.
+Alle regressies, inclusief oude projecten, annulering en onderdeellabels, slagen.

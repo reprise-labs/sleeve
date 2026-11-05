@@ -193,8 +193,8 @@ def load_rgb(src):
     gaat mee in het eindmasker zodat lege randjes niet zwart worden."""
     raw = to_srgb(Image.open(src))
     if raw.mode != 'RGBA':
-        return raw.convert('RGB'), None
-    rgba = raw.convert('RGBA'); alpha = rgba.split()[3]
+        return raw, None
+    rgba = raw; alpha = rgba.getchannel('A')
     im = Image.new('RGB', rgba.size, (255, 255, 255)); im.paste(rgba, mask=alpha)
     return im, alpha
 
@@ -447,6 +447,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     box = (x0, y0, x0 + n, y0 + n)
     size = size or n
     sq = im.crop(box)
+    im.close()
     if size != n:
         sq = sq.resize((size, size), Image.LANCZOS)
     if auto:
@@ -485,9 +486,11 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
         if missing.sum() > 0.002 * max(1, interior.sum()) and not allow_incomplete:
             raise ValueError(f'Onvolledige schijf: {100*missing.sum()/max(1,interior.sum()):.1f}% ontbreekt. Selecteer alle deelscans samen.')
         m = np.minimum(m, aa)
+        del aa,expected,interior,missing
+        al.close();alpha.close()
     from PIL.PngImagePlugin import PngInfo
     metadata = PngInfo(); metadata.add_text('sleeve_disc_cut','3')
-    out = sq.convert('RGBA'); out.putalpha(Image.fromarray(m))
+    out = sq.convert('RGBA'); sq.close(); out.putalpha(Image.fromarray(m))
     # Clear hidden pixels in place; avoid another full RGBA copy on 8 GB Macs.
     transparent = Image.fromarray(m).point([255]+[0]*255)
     out.paste((0,0,0,0),(0,0,size,size),transparent)

@@ -10,3 +10,8 @@ assert [e['fraction'] for e in progress]==[None,0,.12,.37,None,None],progress
 assert all(e['index']==2 and e['total']==6 for e in progress)
 assert progress[-2]['phase']=='Beeld opslaan' and progress[-1]['phase']=='Controle en uitsnijden'
 (work/'RESULTAAT.json').write_text(json.dumps({'measured_worker_progress_forwarded':True,'no_invented_percentage_for_save_and_check':True},indent=2));print('Voortgang klopt met echte werkermeldingen; geen percentage tijdens opslaan/controleren.')
+
+worker.write_text("import sys\nprint('ValueError: Onvolledige schijf: 0.9% ontbreekt. Selecteer alle deelscans samen.')\nsys.exit(1)\n")
+p=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,timeout=10)
+assert p.returncode!=0 and 'RuntimeError: Onvolledige schijf: 0.9%' in p.stderr
+print('De concrete onvolledigheidsmelding blijft zichtbaar in de app.')

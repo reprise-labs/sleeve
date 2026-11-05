@@ -5,9 +5,9 @@ import ImageIO
 import Combine
 
 let supportedExtensions: Set<String> = ["png","jpg","jpeg","tif","tiff","bmp","webp"]
-let partChoices = ["front","back","inside","insert","inlay","sidea","sideb","sidec","sided","cd","cd1","cd2","sticker"]
+let partChoices = ["unknown","front","back","inside","insert","inlay","sidea","sideb","sidec","sided","cd","cd1","cd2","sticker"]
 func partLabel(_ value: String) -> String {
-    ["front":"Voorkant","back":"Achterkant","inside":"Binnenzijde","insert":"Inlegvel","inlay":"Inlay","sidea":"Kant A","sideb":"Kant B","sidec":"Kant C","sided":"Kant D","cd":"Cd","cd1":"Cd 1","cd2":"Cd 2","sticker":"Sticker"][value] ?? value
+    ["unknown":"Nog te bepalen","front":"Voorkant","back":"Achterkant","inside":"Binnenzijde","insert":"Inlegvel","inlay":"Inlay","sidea":"Kant A","sideb":"Kant B","sidec":"Kant C","sided":"Kant D","cd":"Cd","cd1":"Cd 1","cd2":"Cd 2","sticker":"Sticker"][value] ?? value
 }
 enum WorkMode: String, CaseIterable, Identifiable, Codable {
     case scans = "Scans verwerken", colour = "Kleur aanpassen", names = "Namen aanpassen"
@@ -18,7 +18,7 @@ enum WorkMode: String, CaseIterable, Identifiable, Codable {
 struct MediaItem: Identifiable, Hashable, Codable {
     var id = UUID()
     var url: URL
-    var part: String = "front"
+    var part: String = "unknown"
     var reference = false
     var source: URL? = nil
     var partial = false
@@ -44,6 +44,7 @@ struct BridgeEvent: Decodable {
     var index: Int?
     var total: Int?
     var phase: String?
+    var advice: ReleaseAdvice?
     var audits: [ImageAudit]?
 }
 
@@ -73,7 +74,19 @@ final class PipeReader: @unchecked Sendable {
     @Published var discogs = ""
     @Published var useNames = true
     @Published var useStand = true
+    // Kept for decoding older projects; scan requests always disable reference colour.
     @Published var useColour = false
+    @Published var discovering = false
+    @Published var adviceCandidates:[ReleaseCandidate] = []
+    @Published var adviceStatus = ""
+    @Published var adviceArtist = ""
+    @Published var adviceTitle = ""
+    @Published var adviceBarcode = ""
+    @Published var adviceCatalog = ""
+    @Published var adviceFormat = ""
+    var adviceProcess:Process?
+    var adviceWorkItem:DispatchWorkItem?
+    var adviceGeneration=UUID()
     @Published var variant = ""
     @Published var referenceFromDiscogs = true
     @Published var references: [MediaItem] = []
@@ -158,11 +171,15 @@ final class PipeReader: @unchecked Sendable {
     }
     func changeMode(_ newMode: WorkMode) {
         guard !busy else{return}
+        let preferredURL=selected?.url
+        cancelReleaseAdvice(clear:true)
         if newMode != mode && !outputs.isEmpty {inputs=outputs.map{MediaItem(url:$0.url,part:$0.part)};outputs=[];proposals=[];stateText="Resultaatbeelden klaar voor de volgende stap"}
-        mode=newMode;showResults=false;selectedID=inputs.first?.id;errorMessage=nil;zoom=1
+        mode=newMode;showResults=false;selectedID=inputs.first(where:{$0.url==preferredURL})?.id ?? inputs.first?.id;errorMessage=nil;zoom=1
+        if newMode == .colour {colourScope=selectedInput?.part.hasPrefix("side") == true ? "vinyl" : "photo"}
     }
     func newEdition() {
         guard !busy else{return}
+        cancelReleaseAdvice(clear:true)
         saveExistingProject();restoringProject=true;defer{restoringProject=false}
         panel=nil;projectID=UUID();projectURL=nil;editionTitle="";runs=[];reviews=[:];projectSaveText="Nog niet bewaard"
         errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];demo=false;stateText="Klaar voor een nieuwe uitgave";lastJobFolder=nil
@@ -202,11 +219,20 @@ final class PipeReader: @unchecked Sendable {
         showResults=false;selectedID=inputs.first?.id;proposals=[];demo=false
         if outputFolder==nil {outputFolder=files[0].deletingLastPathComponent()}
         stateText="\(inputCount) bronbeelden · \(inputs.filter{$0.reference}.count) referenties"
+        scheduleReleaseAdvice()
     }
     func inferredPart(_ name:String)->String {
         let stem=URL(fileURLWithPath:name).deletingPathExtension().lastPathComponent.lowercased().replacingOccurrences(of:#"(?:_kleur(?:_\d+)?)+$"#,with:"",options:.regularExpression)
         for part in partChoices.sorted(by:{$0.count>$1.count}) where stem.range(of:"_"+part+#"(?:_\d+)?$"#,options:.regularExpression) != nil{return part}
-        return "front"
+        return "unknown"
+    }
+    func repairLegacyResultPart(_ value:MediaItem)->MediaItem {
+        guard value.partial,value.part=="front",value.url.deletingPathExtension().lastPathComponent.range(of:#"_hoes(?:_\d+)?$"#,options:.regularExpression) != nil else{return value}
+        var item=value;item.part="unknown"
+        let manifest=value.url.deletingLastPathComponent().appendingPathComponent("Studio-onderdelen.json")
+        if let data=try? Data(contentsOf:manifest),let json=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],
+           let row=(json["files"] as? [[String:Any]])?.first(where:{$0["name"] as? String == value.url.lastPathComponent}),let part=row["part"] as? String,partChoices.contains(part) {item.part=part}
+        return item
     }
     func selectList(_ results:Bool) {showResults=results;selectedID=displayItems.first?.id;zoom=1}
     func updateSelectedPart(_ part:String) {
@@ -215,11 +241,11 @@ final class PipeReader: @unchecked Sendable {
     }
     func updateReference(_ value:Bool) {
         guard !busy,let item=selectedInput,let i=inputs.firstIndex(where:{$0.id==item.id}) else{return}
-        inputs[i].reference=value;proposals=[]
+        inputs[i].reference=value;proposals=[];cancelReleaseAdvice(clear:true)
     }
     func removeSelected() {
         guard !busy,let item=selectedInput else{return}
-        inputs.removeAll{$0.id==item.id};selectedID=inputs.first?.id;proposals=[]
+        inputs.removeAll{$0.id==item.id};selectedID=inputs.first?.id;proposals=[];cancelReleaseAdvice(clear:true)
     }
     func chooseOutput() {
         let p=NSOpenPanel();p.title="Kies waar nieuwe resultaten mogen komen";p.canChooseFiles=false;p.canChooseDirectories=true;p.canCreateDirectories=true
@@ -257,6 +283,7 @@ final class PipeReader: @unchecked Sendable {
     }
     func launch(action:String, rowsOverride:[MediaItem]? = nil, extra:[String:Any] = [:]) {
         guard !busy else{return}
+        cancelReleaseAdvice()
         guard let resources=Bundle.main.resourceURL else{errorMessage="De onderdelen van de app zijn niet beschikbaar.";return}
         if action != "references" && action != "audit" && (rowsOverride ?? inputs).isEmpty {errorMessage="Voeg eerst afbeeldingen toe.";return}
         if ["scan","colour","namesApply","manualCrop"].contains(action) && outputFolder==nil {chooseOutput();guard outputFolder != nil else{return}}
@@ -270,11 +297,12 @@ final class PipeReader: @unchecked Sendable {
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Jobs/"+UUID().uuidString)
         do {
             try FileManager.default.createDirectory(at:cache,withIntermediateDirectories:true)
-            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":useColour,"strength":strength,"scope":colourScope]
+            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":false,"strength":strength,"scope":colourScope]
             if let folder=outputFolder{req["output"]=folder.path}
             if let ref=referenceURL{req["reference"]=ref.path}
             if action=="namesApply" {req["proposals"]=try JSONSerialization.jsonObject(with:JSONEncoder().encode(proposals))}
             for (key,value) in extra {req[key]=value}
+            if action=="scan" {req["useColour"]=false}
             activeScanRecipe=action=="scan" ? StudioScanRecipe(inputs:rows,discogs:req["discogs"] as? String ?? "",variant:req["variant"] as? String ?? "",useNames:req["useNames"] as? Bool ?? true,useStand:req["useStand"] as? Bool ?? true,useColour:req["useColour"] as? Bool ?? false) : nil
             let request=cache.appendingPathComponent("request.json");try JSONSerialization.data(withJSONObject:req,options:.prettyPrinted).write(to:request)
             busy=true;measuredProgress=nil;currentPart=nil;totalParts=nil;progressPhase="";cancelled=false;reportedError=false;receivedComplete=false;activeAction=action;activeLogFolder=cache;startedAt=Date();logText="";warnings=[];errorMessage=nil;stateText=action=="references" ? "Discogs-foto’s ophalen…" : "Voorbereiden…"
@@ -333,7 +361,7 @@ final class PipeReader: @unchecked Sendable {
                 let url=URL(fileURLWithPath:file.path)
                 if !outputs.contains(where:{$0.url==url}){
                     let source=file.source.flatMap{$0.isEmpty ? nil : URL(fileURLWithPath:$0)}
-                    let part=file.part ?? inputs.first(where:{$0.url.resolvingSymlinksInPath().path == source?.resolvingSymlinksInPath().path})?.part ?? inferredPart(url.lastPathComponent)
+                    let part=file.part ?? inferredPart(url.lastPathComponent)
                     outputs.append(MediaItem(url:url,part:part,source:source,partial:file.partial ?? false))
                 }
             }

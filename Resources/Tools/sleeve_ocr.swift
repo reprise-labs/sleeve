@@ -1,6 +1,30 @@
 import Foundation
 import Vision
 import AppKit
+import ImageIO
+if CommandLine.arguments.count < 2 { exit(1) }
+if CommandLine.arguments.contains("--identify") {
+  let url = URL(fileURLWithPath: CommandLine.arguments[1])
+  guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache:false] as CFDictionary),
+    let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:2200] as CFDictionary) else {exit(1)}
+  var lines:[[String:Any]] = []
+  for (degree,orientation):(Int,CGImagePropertyOrientation) in [(0,.up),(90,.right),(180,.down),(270,.left)] {
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .fast
+    request.usesLanguageCorrection = false
+    try? VNImageRequestHandler(cgImage:image,orientation:orientation,options:[:]).perform([request])
+    for observation in request.results ?? [] {
+      if let candidate=observation.topCandidates(1).first {
+        lines.append(["text":candidate.string,"confidence":candidate.confidence,"height":observation.boundingBox.height,"rotation":degree])
+      }
+    }
+  }
+  let barcodeRequest = VNDetectBarcodesRequest()
+  try? VNImageRequestHandler(cgImage:image,options:[:]).perform([barcodeRequest])
+  let codes=(barcodeRequest.results ?? []).compactMap{$0.payloadStringValue}
+  if let data=try? JSONSerialization.data(withJSONObject:["lines":lines,"barcodes":codes]),let text=String(data:data,encoding:.utf8){print(text)}
+  exit(0)
+}
 // gebruik: sleeve_ocr <png> -> per gelezen regel: stand \t zekerheid \t tekst
 // Snelle tekstherkenning in alle vier de standen (0/90/180/270 tegen de klok in).
 // Het script kiest de stand waarin de meeste echte woorden gelezen worden.

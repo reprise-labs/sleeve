@@ -55,7 +55,7 @@ def inputs(req):
   p=Path(row['path']).expanduser().resolve()
   if not p.is_file() or p.suffix.lower() not in EXTS:raise ValueError('Deze afbeelding is niet beschikbaar: '+p.name)
   if str(p) in seen:continue
-  seen.add(str(p));out.append(dict(row,path=str(p),part=row.get('part','front') if row.get('part') in PARTS else 'front'))
+  seen.add(str(p));out.append(dict(row,path=str(p),part=row.get('part','front') if row.get('part') in PARTS|{'unknown'} else 'unknown'))
  return out
 
 def job_folder(req,label):
@@ -75,7 +75,7 @@ def run(args):
  child=subprocess.Popen([sys.executable,*map(str,args)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=True)
  for line in child.stdout:
   text=line.rstrip()
-  if text.startswith(('ValueError: Te weinig vrije schijfruimte','ValueError: Een afzonderlijke scan')):resource_error=text.split(': ',1)[1]
+  if text.startswith(('ValueError: Te weinig vrije schijfruimte','ValueError: Een afzonderlijke scan','ValueError: Onvolledige schijf','ValueError: De schijf valt buiten')):resource_error=text.split(': ',1)[1]
   if text:
    emit('log',message=text)
    if any(word in text.lower() for word in ('niet beschikbaar','niet betrouwbaar','mislukt')):emit('warning',message=text)
@@ -116,10 +116,13 @@ def profile_for(rows):
  return profile
 
 def report_outputs(folder,mapping=None,partial=False,part=None):
- files=[]
+ files=[];components={}
+ try:components={r['name']:r for r in json.loads((folder/'Studio-onderdelen.json').read_text()).get('files',[]) if isinstance(r,dict) and 'name' in r}
+ except (OSError,ValueError,TypeError):pass
  for p in sorted(folder.glob('*')):
   if p.is_file() and not p.name.startswith('.') and p.suffix.lower() in EXTS:
-   files.append({'path':str(p),'source':(mapping or {}).get(str(p),''),'partial':partial,**({'part':part} if part else {})})
+   match=re.search(r'_(side[abcd]|cd\d*|front|back|inside|insert|inlay|sticker)(?:_kleur)?(?:_\d+)?$',p.stem)
+   files.append({'path':str(p),'source':(mapping or {}).get(str(p),components.get(p.name,{}).get('source','')),'partial':partial,'part':part or (match[1] if match else components.get(p.name,{}).get('part','unknown'))})
  emit('outputs',files=files)
  return files
 
@@ -140,13 +143,13 @@ def scan(req,rows,work):
  import scan_naam as N
  selected=[row for row in rows if not row.get('reference')]
  if not selected:raise ValueError('Er zijn alleen referentiebeelden geselecteerd. Voeg ook de oorspronkelijke scans toe.')
- if req.get('discogs') and any(req.get(flag) for flag in ('useNames','useStand','useColour')):
+ if req.get('discogs') and any(req.get(flag) for flag in ('useNames','useStand')):
   url=release_url(req['discogs']);match=re.search(r'/(release|master)/(\d+)',urllib.parse.urlparse(url).path)
   emit('status',message='De Discogs-uitgave controleren…')
   metadata=N.get('https://api.discogs.com/'+('masters' if match[1]=='master' else 'releases')+'/'+match[2])
   if match[1]=='master':metadata=N.get('https://api.discogs.com/releases/'+str(metadata['main_release']))
-  if (req.get('useStand') or req.get('useColour')) and not metadata.get('images'):
-   raise ValueError('Deze uitgave heeft geen referentiefoto’s. Zet stand en hoeskleur uit of kies een andere uitgave.')
+  if req.get('useStand') and not metadata.get('images'):
+   raise ValueError('Deze uitgave heeft geen referentiefoto’s. Zet ‘Hoes en plaat juist draaien’ uit of kies een andere uitgave.')
  profile=profile_for(rows)
  if req.get('rerunPart'):
   part=req['rerunPart']
@@ -163,7 +166,6 @@ def scan(req,rows,work):
  if req.get('discogs'):
   url=release_url(req['discogs']);cmd+=['--discogs',url]
   if req.get('useStand'):cmd+=['--discogs-stand']
-  if req.get('useColour'):cmd+=['--discogs-kleur']
   if not req.get('useNames',True):cmd+=['--geen-discogs-namen']
  if req.get('variant'):cmd+=['--variant',req['variant']]
  if req.get('rerunPart'):cmd+=['--een-onderdeel']
@@ -208,7 +210,7 @@ def colour(req,rows,work):
   else:
    run([TOOLS/'scan_discogs.py',src,ref,'--alleen-kleur','--uit',temporary])
   os.replace(temporary,dst)
-  mapping[str(dst)]=str(src);emit('outputs',files=[{'path':str(dst),'source':str(src),'part':row.get('part','front'),'partial':False}])
+  mapping[str(dst)]=str(src);emit('outputs',files=[{'path':str(dst),'source':str(src),'part':row.get('part','unknown'),'partial':False}])
  files=report_outputs(output,mapping)
  if not files:raise ValueError('Er zijn geen kleurvoorstellen gemaakt. Kies ook een bronbeeld.')
  reference_folder=output/'Referentie';reference_folder.mkdir()
@@ -223,7 +225,9 @@ def names_preview(req,rows):
  proposals=[];used=set()
  for row in rows:
   if row.get('reference'):continue
-  p=Path(row['path']);part=row['part'];name=N.naam(url,part,req.get('variant',''))+p.suffix.lower()
+  p=Path(row['path']);part=row['part']
+  if part not in PARTS:raise ValueError('Kies eerst het onderdeel bij elk beeld voordat je bestandsnamen laat voorstellen.')
+  name=N.naam(url,part,req.get('variant',''))+p.suffix.lower()
   base=Path(name);i=2
   while name.casefold() in used:name=base.stem+'_'+str(i)+base.suffix;i+=1
   used.add(name.casefold());st=p.stat();proposals.append({'source':str(p),'newName':name,'part':part,'size':st.st_size,'mtime':st.st_mtime_ns})
@@ -264,7 +268,7 @@ def audit_files(req,files,action):
  for i,file in enumerate(files):
   p=Path(file['path']);row=rows.get(file.get('source',''),rows.get(str(p),{}))
   match=re.search(r'_(side[abcd]|cd\d*|front|back|inside|insert|inlay|sticker)(?:_kleur)?(?:_\d+)?$',p.stem)
-  part=file.get('part') or (match[1] if match else row.get('part','front'))
+  part=file.get('part') or (match[1] if match else row.get('part','unknown'))
   emit('progress',fraction=None,index=i+1,total=len(files),phase='Eindcontrole')
   emit('status',message=f'Bestandscontrole {i+1} van {len(files)}: {p.name}')
   result={'path':str(p),'readable':False,'part':part,'round':None,'missingInteriorPercent':None,
@@ -348,6 +352,19 @@ def main():
  req=json.loads(Path(sys.argv[1]).read_text());work=Path(sys.argv[1]).parent
  import cv2,PIL,numpy
  action=req.get('action')
+ if action=='releaseAdvice':
+  import scan_release_advice as A
+  def recognize_command(command):
+   global child
+   child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+   try:
+    stdout,_=child.communicate(timeout=20)
+    if child.returncode:raise ValueError('Tekstherkenning niet gelukt')
+    return stdout
+   except subprocess.TimeoutExpired:
+    os.killpg(child.pid,signal.SIGKILL);child.communicate();raise
+   finally:child=None
+  emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Releasevoorstellen opgehaald.');return
  if action=='references':reference_photos(req,work);emit('complete',message='Referentiefoto’s geladen. Kies de juiste foto.');return
  rows=inputs(req)
  CHECKING_AFTER_PROCESS=action in ('scan','colour','namesApply','manualCrop')
