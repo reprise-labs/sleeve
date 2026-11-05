@@ -398,6 +398,11 @@ return text returned of r''')
                 d = dpi_of(src)
                 mm = dia / d * 25.4 if d else None
                 soort = 'vinyl' if (mm is not None and mm > 140) else 'cd'
+        if a.een_onderdeel:
+            fixed=confirmed_parts.get(os.path.abspath(g[0]),'')
+            if fixed.startswith('side'):soort='vinyl'
+            elif fixed.startswith('cd'):soort='cd'
+            elif fixed:soort='hoes'
         if soort in ('cd', 'vinyl'):
             subprocess.run([PY, os.path.join(HERE, 'scan_cutout.py'), soort, src, dst, '--auto'], check=True)
         elif len(g) > 1:
