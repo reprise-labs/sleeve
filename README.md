@@ -6,7 +6,7 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Proefversie 0.3.0
+## Proefversie 0.3.1
 
 Apple Silicon, macOS 14 of nieuwer. De app is lokaal ondertekend en nog niet
 bij Apple genotariseerd. Deze proefversie heeft een eenmalige installatie van
