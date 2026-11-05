@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import Darwin
 import CryptoKit
 
-enum StudioPanel: String, Identifiable {case queue, review, crop, retry;var id:String{rawValue}}
+enum StudioPanel: String, Identifiable {case queue, review, crop, retry, advice;var id:String{rawValue}}
 
 let studioProjectType = UTType(exportedAs:"com.repriselabs.sleeve-project",conformingTo:.package)
 let legacyStudioProjectType = UTType(importedAs:"nl.anoukmusic.scan-project",conformingTo:.package)
@@ -195,8 +195,9 @@ extension JSONEncoder {
     }
     func captureProject() -> StudioProject {StudioProject(id:projectID,title:titleForEdition,workspace:captureWorkspace(),runs:runs)}
     func restoreWorkspace(_ snapshot: WorkspaceSnapshot) {
+        cancelReleaseAdvice(clear:true)
         restoringProject=true;defer{restoringProject=false}
-        mode=snapshot.mode;inputs=snapshot.inputs;outputs=snapshot.outputs;selectedID=snapshot.selectedID;showResults=snapshot.showResults
+        mode=snapshot.mode;inputs=snapshot.inputs;outputs=snapshot.outputs.map{repairLegacyResultPart($0)};selectedID=snapshot.selectedID;showResults=snapshot.showResults
         discogs=snapshot.discogs;useNames=snapshot.useNames;useStand=snapshot.useStand;useColour=snapshot.useColour;variant=snapshot.variant
         referenceFromDiscogs=snapshot.referenceFromDiscogs;references=snapshot.references;referenceURL=snapshot.referenceURL;strength=snapshot.strength
         colourScope=snapshot.colourScope;colourBatch=snapshot.colourBatch;proposals=snapshot.proposals;outputFolder=snapshot.outputFolder;lastJobFolder=snapshot.lastJobFolder
@@ -322,6 +323,7 @@ extension JSONEncoder {
         saveExistingProject()
     }
     func prepareForQuit() {
+        cancelReleaseAdvice()
         queueRunning=false
         if let id=activeQueueID,let i=queue.firstIndex(where:{$0.id==id}) {queue[i].state = .interrupted;queue[i].detail="De app is gesloten tijdens de taak.";queue[i].project=captureProject()}
         persistLibrary();saveExistingProject();cancel()

@@ -6,11 +6,12 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Testversie 0.4.1
+## Testversie 0.4.2
 
-Nieuw in deze ontwikkeltak: ronde uitsneden zelf bijstellen en één onderdeel
-opnieuw verwerken. De eerdere publieke download staat bij Releases; deze
-testversie wordt eerst lokaal gecontroleerd.
+Nieuw in deze testversie: Discogs-releasevoorstellen en een aparte kleurstap
+voor hoezen en platen. Ook beschikbaar: ronde uitsneden zelf bijstellen, één
+onderdeel opnieuw verwerken en de geheugenfix voor grote FIRE-scans.
+De eerdere publieke download staat bij Releases; deze versie wordt lokaal getest.
 
 Apple Silicon, macOS 14 of nieuwer. De app is lokaal ondertekend en nog niet
 bij Apple genotariseerd. Deze proefversie heeft een eenmalige installatie van
@@ -131,3 +132,35 @@ Bij een correctie of herhaling toont de bestaande voor/na-schuif **de vorige
 poging tegenover de nieuwe poging**. Via **Eerdere bewerkingen** kun je een
 oudere stand terugzien. Projecten bewaren deze geschiedenis en verwijzingen;
 laat dus ook de mappen met vorige versies staan.
+
+
+## Nieuw in 0.4.2: eerst verwerken, daarna kleur kiezen
+
+Bij Scans verwerken gebruikt Discogs alleen nog bestandsnamen en draairichting.
+Een opgeslagen oud vinkje voor hoeskleur schakelt geen kleurcorrectie meer in.
+Voor een hoes kies je later Kleur aanpassen → Hoes / ander beeld · passende foto.
+Voor vinyl blijft de aparte methode met behoud van het etiket beschikbaar.
+Bekijk en vergelijk het voorstel voordat je het verder gebruikt.
+
+## Nieuw in 0.4.2: mogelijke Discogs-uitgaven
+
+Na het laden van scans zonder uitgavelink leest Sleeve lokaal tekst en barcodes
+uit maximaal zes verkleinde beelden. Zodra een bruikbare barcode gevonden is,
+stopt het verder lezen. Alleen zoektermen gaan naar Discogs, geen afbeeldingen.
+Bekijk releasevoorstellen toont maximaal vijf mogelijke uitgaven, met formaat,
+jaar, land, catalogusnummer en eventuele variant/kleur. Een gedeelde barcode
+kan meerdere persingen opleveren. Pas Gebruik deze uitgave vult de link in.
+De zoekgegevens zijn aanpasbaar; zoeken kan worden gestopt en hervat.
+Een bestaande uitgavelink wordt niet automatisch vervangen. Je kunt ook zelf
+op Discogs zoeken en een link plakken. De herkenning kan onvolledige of
+verkeerd gelezen tekst opleveren en bevestigt de exacte persing niet.
+
+
+## Onderdelen en verschillend bijgesneden deelscans
+
+Scans met dezelfde dpi behouden bij het groeperen dezelfde fysieke schaal,
+ook als één deel kleiner is bijgesneden. Onbekende voorlopige resultaten heten
+Nog te bepalen. Een afgebroken naamgevingsstap maakt niet alle beelden Voorkant.
+Bekende onderdelen en hun bronbeelden worden bij elk resultaat bijgehouden.
+Voorkant en achterkant kunnen met de passende Discogs-hoesfoto en barcode
+worden voorgesteld; controleer de namen altijd in de eindcontrole.

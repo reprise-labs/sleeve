@@ -20,6 +20,33 @@ import SwiftUI
         precondition(model.measuredProgress==0.37 && model.currentPart==2 && model.totalParts==6)
         model.receive(BridgeEvent(event:"progress",fraction:nil,index:2,total:6,phase:"Beeld opslaan"))
         precondition(model.measuredProgress==nil && model.progressPhase=="Beeld opslaan","Geen schijnpercentage tijdens opslaan")
+        let candidate=ReleaseCandidate(id:33664818,title:"Anouk - Set This Thing On Fire",year:"2025",country:"Netherlands",format:"Vinyl",catno:"758 888-3",variant:"Orange",url:"https://www.discogs.com/release/33664818",reasons:["Barcode komt overeen"])
+        model.discogs="https://www.discogs.com/release/123"
+        model.adviceCandidates=[candidate]
+        precondition(model.discogs.hasSuffix("123"),"Voorstel mag een bestaande keuze niet vervangen")
+        model.chooseRelease(candidate)
+        precondition(model.discogs==candidate.url)
+        var unsafe=candidate;unsafe.url="https://example.com/release/33664818";model.chooseRelease(unsafe)
+        precondition(model.discogs==candidate.url)
+        let generation=model.adviceGeneration
+        model.adviceArtist="Anouk";model.adviceTitle="Set This Thing On Fire"
+        precondition(model.discogsSearchURL?.host=="www.discogs.com")
+        model.cancelReleaseAdvice(clear:true)
+        precondition(model.adviceGeneration != generation && model.adviceCandidates.isEmpty && model.adviceArtist.isEmpty)
+        model.inputs=[MediaItem(url:URL(fileURLWithPath:"/tmp/front.png"),part:"front"),MediaItem(url:source,part:"sidea")]
+        model.selectedID=model.inputs[0].id;model.changeMode(.colour)
+        precondition(model.colourScope=="photo","Hoes hoort bij de passende-foto-methode")
+        model.selectedID=model.inputs[1].id;model.changeMode(.colour)
+        precondition(model.colourScope=="vinyl","Plaat hoort standaard bij etiket behouden")
+        precondition(model.inferredPart("Scan 12_hoes.png")=="unknown")
+        precondition(partLabel("unknown")=="Nog te bepalen")
+        model.outputs=[];model.inputs=[MediaItem(url:source,part:"front")]
+        model.receive(BridgeEvent(event:"outputs",files:[BridgeFile(path:"/tmp/Scan 12_hoes.png",source:source.path)]))
+        precondition(model.outputs[0].part=="unknown","Een voorlopige bronrol is geen herkend resultaatonderdeel")
+        let legacy=MediaItem(url:URL(fileURLWithPath:"/tmp/Scan 12_hoes.png"),part:"front",partial:true)
+        precondition(model.repairLegacyResultPart(legacy).part=="unknown","Oud afgebroken resultaat mag niet als voorkant terugkomen")
+        let named=MediaItem(url:URL(fileURLWithPath:"/tmp/release_front.png"),part:"front",partial:true)
+        precondition(model.repairLegacyResultPart(named).part=="front","Een expliciete onderdeelsnaam moet behouden blijven")
         print("Modelcontroles geslaagd: onderdelen, bronverbinding, volgende stap, referentiekeuze.")
     }
 }

@@ -99,8 +99,17 @@ def groups(paths):
     feats = []
     sides = [disc_side(p) for p in paths]
     print("labelkanten:", [(os.path.basename(p), side) for p, side in zip(paths, sides) if side], flush=True)
-    for p in paths:
-        im, f = small(p)
+    # A shorter cropped scan at the same DPI must retain the same physical scale.
+    # Resizing every file to the same longest side made these scans fail rigid matching.
+    headers=[]
+    for path in paths:
+        with Image.open(path) as image:headers.append((max(image.size),dpi_of(path)))
+    calibrated=all(dpi for _,dpi in headers)
+    span=max((pixels/dpi if calibrated else pixels) for pixels,dpi in headers)
+    target=min(1400/span,min(dpi for _,dpi in headers)) if calibrated else 1400/span
+    for p,(_,dpi) in zip(paths,headers):
+        f=min(1.0,target/dpi if calibrated else target)
+        im=ST.load(p,f)
         g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
         # deksel/glasplaat niet meetellen: stofjes daarop staan in elke scan op dezelfde plek
         valid = (~ST.background_mask(im)).astype(np.uint8) * 255
@@ -342,11 +351,12 @@ return k as text''')
         voorstel = 'v2' if bestaat else ''
         variant = osa(f'''set r to display dialog "Variant (optioneel)" & return & return & "Alleen nodig als er meer uitgaven zijn die anders dezelfde naam krijgen, bv. twee promo's van dezelfde single: remixes, radio, v2 …" & return & return & "{'Let op: deze naam bestaat al in de map verwerkt.' if bestaat else 'Leeg laten = geen variant.'}" default answer "{voorstel}" buttons {{"OK"}} default button "OK" with title "Sleeve · Scans verwerken"
 return text returned of r''')
-    references = []
+    references = [];primary_positions=set()
     if url and (a.discogs_stand or a.discogs_kleur):
         try:
             import scan_discogs
-            _, imgs = scan_discogs.release_images(url)
+            _, imgs, roles = scan_discogs.release_images(url, with_metadata=True)
+            primary_positions={i+1 for i,role in enumerate(roles) if role=="primary"}
             for i, img in enumerate(imgs):
                 path = os.path.join(tmp, f'discogs_{i}.png')
                 cv2.imwrite(path,img); references.append(path)
@@ -366,6 +376,12 @@ return text returned of r''')
     print(f'{len(gs)} onderdelen gevonden', flush=True)
 
     results = []                                       # (pad, soort, bron)
+    detected_cover_parts={};component_records=[]
+    def save_components():
+        import json
+        path=os.path.join(out,'Studio-onderdelen.json');temporary=path+'.tmp'
+        with open(temporary,'w') as file:json.dump({'files':component_records},file,ensure_ascii=False,indent=2)
+        os.replace(temporary,path)
     twijfel = set()
     for n, g in enumerate(gs, 1):
         if len(g) == 1:
@@ -378,7 +394,7 @@ return text returned of r''')
                 log('Overgeslagen: vrijwel lege scan zonder betrouwbare overlap: '+os.path.basename(g[0]))
                 continue
         print(f'[{n}/{len(gs)}] ' + ', '.join(os.path.basename(x) for x in g), flush=True)
-        src = g[0]
+        src = g[0];matched_primary=False
         dst = os.path.join(tmp, f'deel{n}.png')
         if len(g) > 1:
             src = os.path.join(tmp, f'deel{n}_samengevoegd.png')
@@ -424,6 +440,9 @@ return text returned of r''')
                 if not a.discogs_stand: cmd.append('--alleen-kleur')
             r = subprocess.run(cmd, capture_output=True,text=True)
             log(r.stdout.strip() if r.returncode == 0 else 'Discogs-referentie past niet betrouwbaar; scan behouden.')
+            import re
+            match=re.search(r'foto (\d+) past best',r.stdout) if r.returncode==0 else None
+            matched_primary=soort=='hoes' and match is not None and int(match[1]) in primary_positions
         # meteen veiligstellen in 'verwerkt' (voorlopige naam); hernoemen gebeurt straks
         veilig = os.path.join(out, f'{os.path.splitext(os.path.basename(g[0]))[0]}_{soort}.png'); m = 2
         while os.path.exists(veilig):
@@ -432,20 +451,34 @@ return text returned of r''')
         if dst in twijfel:
             twijfel.discard(dst); twijfel.add(veilig)
         results.append((veilig, soort, g[0]))
+        if matched_primary:detected_cover_parts[veilig]='front'
+        component_records.append({'name':os.path.basename(veilig),'part':confirmed_parts.get(os.path.abspath(g[0]),detected_cover_parts.get(veilig,'unknown')),'type':soort,'source':os.path.realpath(g[0]),'scans':[os.path.realpath(p) for p in g]})
+        save_components()
 
     # namen
     import scan_naam
     # hoezen: minste tekst eerst (= voorkant), dan de rest
     hz = [r for r in results if r[1] == 'hoes']
     if len(hz) > 1 and not confirmed_groups:
-        hz.sort(key=lambda r: text_amount(r[0]))
+        # The matching primary Discogs image identifies the front. A unique barcode
+        # on another cover identifies the back; don't sort a lyric sheet into front.
+        if detected_cover_parts:
+            from scan_release_advice import recognize
+            backs=[]
+            for path,_,_ in hz:
+                if path not in detected_cover_parts and recognize([{'path':path,'part':'back'}]).get('barcode'):backs.append(path)
+            if len(backs)==1:detected_cover_parts[backs[0]]='back'
+            hz.sort(key=lambda row:{'front':0,'back':1}.get(detected_cover_parts.get(row[0]),2))
+        else:
+            hz.sort(key=lambda r: text_amount(r[0]))
         results = hz + [r for r in results if r[1] != 'hoes']
     cover_reps = []
+    used_cover_parts=set(detected_cover_parts.values())|{part for part in confirmed_parts.values() if part in ('front','back','inside','insert','inlay','sticker')}
     teller = {'hoes': 0, 'vinyl': 0, 'cd': 0}
     gebruikt = set()
     for dst, soort, bron in results:
         i = teller[soort]; teller[soort] += 1
-        fixed_part = confirmed_parts.get(os.path.abspath(bron),'')
+        fixed_part = confirmed_parts.get(os.path.abspath(bron),detected_cover_parts.get(dst,''))
         if fixed_part:
             kant = fixed_part
         elif soort == 'hoes':
@@ -454,7 +487,8 @@ return text returned of r''')
                 kant = duplicate
                 log('Herhaalde hoes apart bewaard (scanreeksen niet gemengd): '+os.path.basename(bron))
             else:
-                kant = ['front','back','inside','insert'][min(len(cover_reps),3)]
+                kant = next((part for part in ['front','back','inside','insert'] if part not in used_cover_parts),'insert')
+                used_cover_parts.add(kant)
                 cover_reps.append((dst,kant))
         elif soort == 'vinyl':
             label_side = disc_side(bron)
@@ -491,6 +525,9 @@ return item 1 of d''')
             final = os.path.join(out, f'{base}_{m}.png'); m += 1
         gebruikt.add(final)
         __import__("shutil").move(dst, final)
+        for record in component_records:
+            if record['name']==os.path.basename(dst):record['name']=os.path.basename(final);record['part']=kant
+        save_components()
         cover_reps = [(final if path == dst else path,k) for path,k in cover_reps]
         print(f'  -> {os.path.basename(final)}')
     __import__('shutil').rmtree(tmp, ignore_errors=True)

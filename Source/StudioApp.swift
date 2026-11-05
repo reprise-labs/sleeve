@@ -84,6 +84,7 @@ struct StudioView: View {
         .onOpenURL{url in model.openProject(url)}
         .sheet(item:$model.panel){panel in
             switch panel {
+            case .advice:ReleaseAdviceSheet(model:model)
             case .queue:StudioQueueView(model:model)
             case .review:StudioReviewView(model:model)
             case .crop:if let item=model.cropTarget{StudioCircleView(model:model,target:item)}
@@ -189,13 +190,21 @@ struct StudioView: View {
             if model.projectURL != nil {Text(model.projectSaveText).font(.caption).foregroundStyle(.secondary)}
             sectionTitle("01", "Uitgave & referentie")
             TextField("Discogs-link (optioneel bij scans)",text:$model.discogs).textFieldStyle(.roundedBorder).disabled(model.busy)
-                .onChange(of:model.discogs){ model.proposals=[];model.references=[];if model.referenceFromDiscogs {model.referenceURL=nil}}
+                .onChange(of:model.discogs){ model.cancelReleaseAdvice();model.proposals=[];model.references=[];if model.referenceFromDiscogs {model.referenceURL=nil}}
             if model.mode == .scans {
                 Text("Gebruik van Discogs").font(.system(size:12,weight:.semibold))
-                Toggle("Bestandsnamen",isOn:$model.useNames)
-                Toggle("Stand van hoes en plaat",isOn:$model.useStand)
-                Toggle("Kleur van de hoes",isOn:$model.useColour)
-                Text("Kleur van een vinylplaat pas je apart aan met een gekozen foto. Controleer altijd de juiste uitgave.").font(.caption).foregroundStyle(.secondary)
+                Toggle("Bestandsnamen overnemen",isOn:$model.useNames)
+                Toggle("Hoes en plaat juist draaien",isOn:$model.useStand)
+                Text("Bekijk eerst je resultaten. Kleuren van hoezen en platen kun je daarna onder ‘Kleur aanpassen’ bijstellen.").font(.caption).foregroundStyle(.secondary)
+            }
+            if !model.inputs.isEmpty {
+                VStack(alignment:.leading,spacing:7) {
+                    HStack {
+                        if model.discovering {ProgressView().controlSize(.small)}
+                        Text(model.discovering ? "Uitgave herkennen…" : model.adviceCandidates.isEmpty ? "Hulp bij de juiste uitgave" : "\(model.adviceCandidates.count) mogelijke Discogs-uitgaven").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("Bekijk releasevoorstellen…"){model.panel = .advice}
+                }
             }
             if model.mode == .colour {
                 Button("Foto’s van Discogs ophalen") {model.loadReferences()}.disabled(model.busy || model.discogs.isEmpty)
@@ -217,12 +226,12 @@ struct StudioView: View {
                     }
                 }
                 Divider();sectionTitle("02","Kleurvoorstel")
-                Picker("Methode",selection:$model.colourScope) {Text("Vinyl · etiket behouden").tag("vinyl");Text("Passende foto · volledig beeld").tag("photo")}.labelsHidden()
+                Picker("Methode",selection:$model.colourScope) {Text("Vinyl · etiket behouden").tag("vinyl");Text("Hoes / ander beeld · passende foto").tag("photo")}.labelsHidden()
                 if model.colourScope == "vinyl" {
                     Text("Gebruik een foto van de volledige plaat. Het etiket en de transparante uitsnede blijven behouden.").font(.caption).foregroundStyle(.secondary)
                     HStack{Text("Sterkte");Spacer();Text("\(Int(model.strength*100))%").monospacedDigit()}.font(.caption)
                     Slider(value:$model.strength,in:0...1)
-                } else {Text("Gebruik een referentie van hetzelfde beeld. De kleuren van het hele beeld worden aangepast.").font(.caption).foregroundStyle(.secondary)}
+                } else {Text("Kies een foto van dezelfde hoes of hetzelfde beeld. De dominante kleur wordt waar mogelijk bijgestuurd; details en uitsnede blijven behouden. Vergelijk het voorstel met je scan.").font(.caption).foregroundStyle(.secondary)}
                 Toggle("Alle bronbeelden aanpassen",isOn:$model.colourBatch)
                 Text(model.colourBatch ? "Controleer of elk bronbeeld bij deze referentie past." : "Alleen het geselecteerde bronbeeld wordt verwerkt.").font(.caption).foregroundStyle(.secondary)
             }
