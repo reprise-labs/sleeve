@@ -22,6 +22,7 @@ struct MediaItem: Identifiable, Hashable, Codable {
     var reference = false
     var source: URL? = nil
     var partial = false
+    var previousVersion: URL? = nil
     var title: String { url.lastPathComponent }
 }
 struct NameProposal: Codable, Identifiable {
@@ -32,7 +33,7 @@ struct NameProposal: Codable, Identifiable {
     var mtime: Int64
     var id: String { source }
 }
-struct BridgeFile: Decodable { var path: String; var source: String?; var title: String?; var partial: Bool? }
+struct BridgeFile: Decodable { var path: String; var source: String?; var title: String?; var partial: Bool?; var part: String? }
 struct BridgeEvent: Decodable {
     var event: String
     var message: String?
@@ -111,6 +112,12 @@ final class PipeReader: @unchecked Sendable {
     @Published var panel: StudioPanel?
     var showQueue: Bool {get{panel == .queue} set{if newValue{panel = .queue}else if panel == .queue{panel=nil}}}
     var showReview: Bool {get{panel == .review} set{if newValue{panel = .review}else if panel == .review{panel=nil}}}
+    @Published var cropTarget: MediaItem?
+    @Published var retryTarget: MediaItem?
+    var editingSession: StudioEditingSession?
+    var lastEditingWasRetry=false
+    var activeScanRecipe: StudioScanRecipe?
+    var activeProcessedPaths:[URL]?
     var libraryURL: URL?
     var libraryWritable = true
     var restoringProject = false
@@ -129,11 +136,12 @@ final class PipeReader: @unchecked Sendable {
     var selected: MediaItem? { displayItems.first(where: {$0.id == selectedID}) ?? displayItems.first }
     var selectedInput: MediaItem? {
         guard let selected else { return nil }
+        if showResults && selected.previousVersion != nil {return selected}
         if showResults, let source = selected.source { return inputs.first(where: {$0.url.resolvingSymlinksInPath().path == source.resolvingSymlinksInPath().path}) }
         return inputs.first(where: {$0.id == selected.id})
     }
     var selectedProposal: NameProposal? { guard let selected else{return nil};return proposals.first(where: {$0.source == selected.url.path || $0.source == selected.source?.path}) }
-    var beforeURL: URL? { showResults ? selected?.source : nil }
+    var beforeURL: URL? { showResults ? (selected?.previousVersion ?? selected?.source) : nil }
     var inputCount: Int { inputs.filter{!$0.reference}.count }
     var canStart: Bool {
         guard !busy, inputCount > 0, outputFolder != nil else { return false }
@@ -247,14 +255,16 @@ final class PipeReader: @unchecked Sendable {
         if outputFolder==nil {outputFolder=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask).first}
         stateText="Voorbeeldbeelden · er is nog niets verwerkt"
     }
-    func launch(action:String) {
+    func launch(action:String, rowsOverride:[MediaItem]? = nil, extra:[String:Any] = [:]) {
         guard !busy else{return}
         guard let resources=Bundle.main.resourceURL else{errorMessage="De onderdelen van de app zijn niet beschikbaar.";return}
-        if action != "references" && action != "audit" && inputs.isEmpty {errorMessage="Voeg eerst afbeeldingen toe.";return}
-        if ["scan","colour","namesApply"].contains(action) && outputFolder==nil {chooseOutput();guard outputFolder != nil else{return}}
+        if action != "references" && action != "audit" && (rowsOverride ?? inputs).isEmpty {errorMessage="Voeg eerst afbeeldingen toe.";return}
+        if ["scan","colour","namesApply","manualCrop"].contains(action) && outputFolder==nil {chooseOutput();guard outputFolder != nil else{return}}
         if action=="references" || action=="namesPreview",discogs.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {errorMessage="Vul eerst de Discogs-link van de juiste uitgave in.";return}
         let rows: [MediaItem]
-        if action=="audit" {rows=outputs}
+        if let supplied=rowsOverride {rows=supplied}
+        else if action=="audit" {rows=outputs}
+        else if action=="colour" && showResults && colourBatch && outputs.contains(where:{$0.previousVersion != nil}) {rows=outputs}
         else if action=="colour" && !colourBatch {rows=selectedInput.map{[$0]} ?? []} else{rows=inputs}
         if action=="colour" && rows.isEmpty {errorMessage="Selecteer een bronbeeld voor het kleurvoorstel.";return}
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Jobs/"+UUID().uuidString)
@@ -264,9 +274,11 @@ final class PipeReader: @unchecked Sendable {
             if let folder=outputFolder{req["output"]=folder.path}
             if let ref=referenceURL{req["reference"]=ref.path}
             if action=="namesApply" {req["proposals"]=try JSONSerialization.jsonObject(with:JSONEncoder().encode(proposals))}
+            for (key,value) in extra {req[key]=value}
+            activeScanRecipe=action=="scan" ? StudioScanRecipe(inputs:rows,discogs:req["discogs"] as? String ?? "",variant:req["variant"] as? String ?? "",useNames:req["useNames"] as? Bool ?? true,useStand:req["useStand"] as? Bool ?? true,useColour:req["useColour"] as? Bool ?? false) : nil
             let request=cache.appendingPathComponent("request.json");try JSONSerialization.data(withJSONObject:req,options:.prettyPrinted).write(to:request)
             busy=true;measuredProgress=nil;currentPart=nil;totalParts=nil;progressPhase="";cancelled=false;reportedError=false;receivedComplete=false;activeAction=action;activeLogFolder=cache;startedAt=Date();logText="";warnings=[];errorMessage=nil;stateText=action=="references" ? "Discogs-foto’s ophalen…" : "Voorbereiden…"
-            if ["scan","colour","namesApply"].contains(action) {outputs=[];showResults=false}
+            if ["scan","colour","namesApply","manualCrop"].contains(action) {outputs=[];showResults=false}
             let p=Process();let runtime=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Runtime/bin/python3");p.executableURL=FileManager.default.isExecutableFile(atPath:runtime.path) ? runtime : URL(fileURLWithPath:"/usr/bin/python3");p.arguments=[resources.appendingPathComponent("studio_bridge.py").path,request.path]
             var env=ProcessInfo.processInfo.environment;env["PYTHONUNBUFFERED"]="1";env["PYTHONDONTWRITEBYTECODE"]="1";p.environment=env
             let pipe=Pipe();p.standardOutput=pipe;p.standardError=pipe;let token=UUID();currentToken=token
@@ -284,7 +296,7 @@ final class PipeReader: @unchecked Sendable {
                 DispatchQueue.main.async {guard let self,self.currentToken==token else{return};self.didFinish(p.terminationStatus)}
             }
         } catch {
-            busy=false;stateText="Niet gestart";errorMessage="De verwerking kon niet worden gestart: "+error.localizedDescription
+            busy=false;finishEditing(success:false);lastEditingWasRetry=false;stateText="Niet gestart";errorMessage="De verwerking kon niet worden gestart: "+error.localizedDescription
         }
     }
     func receive(_ event:BridgeEvent) {
@@ -321,7 +333,7 @@ final class PipeReader: @unchecked Sendable {
                 let url=URL(fileURLWithPath:file.path)
                 if !outputs.contains(where:{$0.url==url}){
                     let source=file.source.flatMap{$0.isEmpty ? nil : URL(fileURLWithPath:$0)}
-                    let part=inputs.first(where:{$0.url.resolvingSymlinksInPath().path == source?.resolvingSymlinksInPath().path})?.part ?? inferredPart(url.lastPathComponent)
+                    let part=file.part ?? inputs.first(where:{$0.url.resolvingSymlinksInPath().path == source?.resolvingSymlinksInPath().path})?.part ?? inferredPart(url.lastPathComponent)
                     outputs.append(MediaItem(url:url,part:part,source:source,partial:file.partial ?? false))
                 }
             }
@@ -339,9 +351,13 @@ final class PipeReader: @unchecked Sendable {
             stateText="Gestopt op een fout";showLog=true
         }
         if status==0 && !warnings.isEmpty {stateText += " · \(warnings.count) opmerkingen in het logboek";showLog=true}
-        if ["scan","colour","namesApply"].contains(activeAction) && !outputs.isEmpty {showResults=true;selectedID=outputs.first?.id;if activeQueueID==nil && panel != .queue{showReview=true}}
-        let success=status==0 && receivedComplete && !cancelled
-        if !success && ["scan","colour","namesApply"].contains(activeAction) {for i in outputs.indices {outputs[i].partial=true}}
+        if ["scan","colour","namesApply","manualCrop"].contains(activeAction) && !outputs.isEmpty {showResults=true;selectedID=outputs.first?.id;if activeQueueID==nil && panel != .queue{showReview=true}}
+        if editingSession != nil && outputs.count != 1 && status==0 && receivedComplete && !cancelled {errorMessage="De nieuwe verwerking leverde niet precies één beeld op. De vorige resultaten blijven behouden."}
+        let success=status==0 && receivedComplete && !cancelled && (editingSession==nil || outputs.count==1)
+        if !success && ["scan","colour","namesApply","manualCrop"].contains(activeAction) {for i in outputs.indices {outputs[i].partial=true}}
+        activeProcessedPaths=outputs.map{$0.url}
+        let edited=finishEditing(success:success)
+        if edited {showResults=true;if success{showReview=true}}
         recordFinishedRun(action:activeAction,success:success)
         saveExistingProject()
         finishQueueItem(success:success,detail:stateText)

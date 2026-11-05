@@ -80,6 +80,8 @@ struct StudioReviewCard:View {
             VStack(spacing:10) {
                 StudioThumbnail(url:item.url,maxPixel:320).frame(width:140,height:140).background(studioPaper,in:RoundedRectangle(cornerRadius:10))
                 Button("Open volledig beeld"){NSWorkspace.shared.open(item.url)}.font(.caption)
+                if item.part.hasPrefix("side") || item.part.hasPrefix("cd") {Button("Uitsnede bijstellen…"){model.openCrop(item)}.font(.caption).disabled(model.busy || model.queueRunning)}
+                Button("Onderdeel opnieuw…"){model.openRetry(item)}.font(.caption).disabled(model.busy || model.queueRunning)
             }
             VStack(alignment:.leading,spacing:8) {
                 HStack{Text(partLabel(item.part)).font(.headline);Spacer();if record.completed && !item.partial {Label("Door jou akkoord",systemImage:"checkmark.circle.fill").font(.caption).foregroundStyle(studioAccent)}}
