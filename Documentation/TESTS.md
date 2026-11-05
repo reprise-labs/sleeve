@@ -164,3 +164,29 @@ native testapp met eigen gegevens visueel gecontroleerd. De lopende app is niet
 vervangen. De nieuwe versie is niet opnieuw met de hele FIRE-set doorgerekend.
 De volledige 28-scans-praktijkrun van 0.4.2 is intussen succesvol afgerond met
 zes resultaten en eindcontrole; de gemeten totale duur was 39 minuten 50 seconden.
+
+
+## 0.4.4 — kleurbediening en meerdere vinylkanten
+
+- Expliciete checkboxselectie van vinylkanten, met aparte keuze voor één hoes.
+  Hoezen worden vooraf uit een vinylkleuraanvraag geweerd. Alle geselecteerde
+  bronbeelden worden gecontroleerd voordat de eerste kleurkopie wordt gemaakt.
+- Nieuwe kleurkopieën blijven samen zichtbaar. Opnieuw aanpassen van één kant
+  vervangt alleen diens actuele voorstel; eerdere bestanden blijven op schijf.
+  Bij verdergaan naar namen blijven de andere hoezen en beelden behouden.
+- Selecties en de herkomst van kleurkopieën overleven het opslaan van projecten.
+  Padvergelijkingen houden rekening met onder andere /var en /private/var.
+- Native integratietest verwerkt A en B samen, daarna alleen B; controleert
+  behoud van A, van de bronbestanden, van de hoes bij de volgende stap, en van
+  de aangevinkte selectie na opnieuw openen. Alle regressies slagen.
+- Native UI met een aparte testbibliotheek: A en B aangevinkt, oranje referentie
+  gekozen, beide met één knop verwerkt. Geen automatische eindcontrolemelding;
+  beide kleurkopieën zichtbaar, Nieuwe kleur standaard geselecteerd. Wisselen
+  naar Origineel en terug toont de juiste selectie en uitleg.
+- De twee echte FIRE-platen zijn op volle resolutie met de door de gebruiker
+  gekozen Foto 7 uit Discogs verwerkt: 151 seconden, maximaal gemeten RSS circa
+  1724 MiB. Beide bestanden leesbaar, ronde uitsneden en 0,0% ontbrekend beeld
+  in de gemeten binnenring. Beide hebben colourApplied=true. De bestaande
+  pixeltests controleren behoud van etiketten, alpha en originele bestanden.
+- Dit bepaalt de kleur op basis van de gekozen foto; een referentiefoto is geen
+  gekalibreerde meting van de fysieke plaat. De gebruiker beoordeelt het resultaat.

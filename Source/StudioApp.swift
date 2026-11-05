@@ -56,7 +56,7 @@ struct StudioView: View {
                         Spacer()
                         if !model.outputs.isEmpty {
                             Picker("Beelden",selection:Binding(get:{model.showResults},set:{model.selectList($0)})) {
-                                Text("Bronnen").tag(false);Text("Resultaten").tag(true)
+                                Text(model.mode == .colour ? "Originelen" : "Bronnen").tag(false);Text(model.mode == .colour ? "Nieuwe kleuren" : "Resultaten").tag(true)
                             }.pickerStyle(.segmented).labelsHidden().frame(width:205)
                         }
                     }.padding(22)
@@ -127,6 +127,7 @@ struct StudioView: View {
     @ViewBuilder var preview: some View {
         if let item=model.selected {
             VStack(spacing:12) {
+                if model.mode == .colour {StudioColourResultHeader(model:model)}
                 HStack {
                     Text(item.title).font(.system(size:12,weight:.medium)).lineLimit(1).truncationMode(.middle)
                     Spacer()
@@ -142,14 +143,16 @@ struct StudioView: View {
                             if let beforeURL=model.beforeURL,model.mode == .colour {
                                 StudioThumbnail(url:beforeURL,maxPixel:2000).padding(12).frame(width:geo.size.width,height:geo.size.height)
                                     .mask(alignment:.leading){Rectangle().frame(width:geo.size.width*model.compare)}
-                                Rectangle().fill(.white).frame(width:2).offset(x:(model.compare-0.5)*geo.size.width)
-                                VStack {HStack{Text("Voor");Spacer();Text("Na")}.font(.system(size:11,weight:.semibold)).padding(8).background(.regularMaterial);Spacer()}.padding(12)
+                                if model.compare>0 && model.compare<1 {
+                                    Rectangle().fill(.white).frame(width:2).offset(x:(model.compare-0.5)*geo.size.width)
+                                    VStack {HStack{Text("Origineel");Spacer();Text("Nieuwe kleur")}.font(.system(size:11,weight:.semibold)).padding(8).background(.regularMaterial);Spacer()}.padding(12)
+                                }
                             }
                         }
                     }
                 }
                 if model.mode == .colour && model.beforeURL != nil {
-                    HStack {Text("Voor");Slider(value:$model.compare,in:0...1);Text("Na")}.font(.caption).padding(.horizontal,30)
+                    HStack {Text("Origineel");Slider(value:Binding(get:{1-model.compare},set:{model.compare=1-$0}),in:0...1);Text("Nieuwe kleur")}.font(.caption).padding(.horizontal,30)
                 }
                 if model.mode == .names,let row=model.selectedProposal {
                     VStack(alignment:.leading,spacing:5) {Text("VOORGESTELDE NAAM").font(.system(size:9,weight:.bold)).tracking(1);Text(row.newName).font(.system(size:12,weight:.medium)).textSelection(.enabled)}.padding(12).frame(maxWidth:.infinity,alignment:.leading).background(studioAccent.opacity(0.08),in:RoundedRectangle(cornerRadius:9))
@@ -176,14 +179,17 @@ struct StudioView: View {
                                 StudioThumbnail(url:item.url,maxPixel:220).padding(5)
                                 if item.reference {Image(systemName:"bookmark.fill").font(.caption).padding(4).background(.regularMaterial,in:Circle())}
                             }.frame(width:88,height:80).overlay(RoundedRectangle(cornerRadius:7).stroke(model.selected?.id==item.id ? studioAccent : .clear,lineWidth:2))
-                            Text(model.showResults ? partLabel(item.part) : item.title).font(.system(size:10)).lineLimit(1).truncationMode(.middle).frame(width:88)
+                            Text(model.mode == .colour ? partLabel(item.part) : model.showResults ? partLabel(item.part) : item.title).font(.system(size:10)).lineLimit(1).truncationMode(.middle).frame(width:88)
                         }.opacity(item.reference ? 0.65 : 1)
                     }.buttonStyle(.plain)
                 }
             }.padding(16)
         }.frame(height:132).background(studioPaper)
     }
-    var inspector: some View {
+    @ViewBuilder var inspector: some View {
+        if model.mode == .colour {StudioColourControls(model:model)} else {standardInspector}
+    }
+    var standardInspector: some View {
         VStack(alignment:.leading,spacing:18) {
             TextField("Naam van project / uitgave",text:$model.editionTitle).textFieldStyle(.roundedBorder)
             HStack{Text(model.projectURL?.lastPathComponent ?? "Project nog niet bewaard").lineLimit(1).truncationMode(.middle);Spacer();if model.projectURL != nil {Image(systemName:"externaldrive.badge.checkmark")}}.font(.caption).foregroundStyle(.secondary)
@@ -205,35 +211,6 @@ struct StudioView: View {
                     }
                     Button("Bekijk releasevoorstellen…"){model.panel = .advice}
                 }
-            }
-            if model.mode == .colour {
-                Button("Foto’s van Discogs ophalen") {model.loadReferences()}.disabled(model.busy || model.discogs.isEmpty)
-                Button("Kies eigen referentiefoto…") {model.chooseReference()}.disabled(model.busy)
-                if !model.references.isEmpty {
-                    LazyVGrid(columns:[GridItem(.adaptive(minimum:65))]) {
-                        ForEach(model.references) {ref in
-                            Button{model.referenceURL=ref.url;model.referenceFromDiscogs=true} label:{
-                                StudioThumbnail(url:ref.url,maxPixel:180).frame(height:65).padding(3).background(Color.white).overlay(RoundedRectangle(cornerRadius:4).stroke(model.referenceURL==ref.url ? studioAccent : .clear,lineWidth:2))
-                            }.buttonStyle(.plain).accessibilityLabel(ref.title).disabled(model.busy)
-                        }
-                    }
-                    if model.referenceURL==nil {Text("Kies hierboven de foto die bij je beeld past. Voor vinyl: de volledige plaat.").font(.caption).foregroundStyle(.secondary)}
-                }
-                if let ref=model.referenceURL {
-                    HStack {
-                        StudioThumbnail(url:ref,maxPixel:250).frame(width:65,height:65).background(Color.white)
-                        Text(ref.lastPathComponent).font(.caption).lineLimit(3)
-                    }
-                }
-                Divider();sectionTitle("02","Kleurvoorstel")
-                Picker("Methode",selection:$model.colourScope) {Text("Vinyl · etiket behouden").tag("vinyl");Text("Hoes / ander beeld · passende foto").tag("photo")}.labelsHidden()
-                if model.colourScope == "vinyl" {
-                    Text("Gebruik een foto van de volledige plaat. Het etiket en de transparante uitsnede blijven behouden.").font(.caption).foregroundStyle(.secondary)
-                    HStack{Text("Sterkte");Spacer();Text("\(Int(model.strength*100))%").monospacedDigit()}.font(.caption)
-                    Slider(value:$model.strength,in:0...1)
-                } else {Text("Kies een foto van dezelfde hoes of hetzelfde beeld. De dominante kleur wordt waar mogelijk bijgestuurd; details en uitsnede blijven behouden. Vergelijk het voorstel met je scan.").font(.caption).foregroundStyle(.secondary)}
-                Toggle("Alle bronbeelden aanpassen",isOn:$model.colourBatch)
-                Text(model.colourBatch ? "Controleer of elk bronbeeld bij deze referentie past." : "Alleen het geselecteerde bronbeeld wordt verwerkt.").font(.caption).foregroundStyle(.secondary)
             }
             if model.mode == .names {
                 TextField("Extra variant (optioneel)",text:$model.variant).textFieldStyle(.roundedBorder).onChange(of:model.variant){ model.proposals=[]}
@@ -258,10 +235,10 @@ struct StudioView: View {
     }
     var saveControls: some View {
         VStack(alignment:.leading,spacing:12) {
-            sectionTitle("↗","Bewaren")
+            sectionTitle("↗",model.mode == .colour ? "Nieuwe kleur bewaren" : "Bewaren")
             Button {model.chooseOutput()} label:{HStack{Image(systemName:"folder");Text(model.outputFolder?.lastPathComponent ?? "Kies een resultatenmap…").lineLimit(1);Spacer();Image(systemName:"chevron.down").font(.caption2)}}.disabled(model.busy)
-            Text("Een nieuwe submap per verwerking. Originelen blijven behouden.").font(.caption).foregroundStyle(.secondary)
-            Button {model.start()} label:{Text(model.mode == .scans ? "Verwerk scans" : model.mode == .colour ? "Maak kleurvoorstel" : "Bewaar met nieuwe namen").frame(maxWidth:.infinity).padding(.vertical,5)}.buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart)
+            Text(model.mode == .colour ? "Je krijgt nieuwe kleurkopieën in een aparte map. De originele beelden blijven behouden." : "Een nieuwe submap per verwerking. Originelen blijven behouden.").font(.caption).foregroundStyle(.secondary)
+            Button {model.start()} label:{Text(model.mode == .scans ? "Verwerk scans" : model.mode == .colour ? model.colourActionTitle : "Bewaar met nieuwe namen").frame(maxWidth:.infinity).padding(.vertical,5)}.buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart)
             Button("Zet deze taak in de wachtrij"){model.enqueueCurrent()}.disabled(!model.canStart)
             if model.projectURL==nil {Button("Bewaar als project…"){model.saveProjectAs()}.font(.caption)}
             if model.demo {Text("Dit zijn verkleinde voorbeeldbeelden om de app uit te proberen.").font(.caption).foregroundStyle(.secondary)}

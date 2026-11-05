@@ -6,7 +6,7 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Testversie 0.4.3
+## Testversie 0.4.4
 
 Nieuw in deze testversie: Discogs-releasevoorstellen en een aparte kleurstap
 voor hoezen en platen. Ook beschikbaar: ronde uitsneden zelf bijstellen, één
@@ -176,3 +176,24 @@ gebaseerd op getelde beelden, vergelijkingen of verwerkte beeldstroken.
 Bij opslaan, tekstherkenning en Discogs vergelijken wordt geen percentage
 geraden: je ziet een activiteitbalk en de naam en duur van die stap.
 Een fasepercentage is geen percentage van de gehele opdracht of een tijdschatting.
+
+
+## Nieuw in 0.4.4: duidelijke kleurstap en meerdere vinylkanten
+
+1. Open Kleur aanpassen en voeg de afgewerkte beelden toe.
+2. Kies Vinylplaten: vink kant A en B aan. Hoezen worden apart gehouden.
+3. Haal Discogs-foto’s op en klik op de volledige plaat met de gewenste kleur.
+4. Klik Maak nieuwe kleur voor 2 vinylkanten.
+
+Beide nieuwe kleurkopieën worden meteen opgeslagen en samen getoond.
+Er is geen aparte knop Overnemen nodig. De knoppen Origineel, Vergelijken en
+Nieuwe kleur maken duidelijk wat je bekijkt. De nieuwe kleur is standaard
+volledig zichtbaar; de vergelijkingsschuif loopt van origineel naar nieuwe kleur.
+De eindcontrole opent pas als je die zelf kiest. Via Toon dit kleurbestand in
+Finder vind je precies het geselecteerde bestand.
+
+Een eerdere kleurkopie van A blijft in beeld als je later alleen B opnieuw
+verwerkt. Bij de stap Namen aanpassen blijven de hoezen en beide kleurkopieën
+samen beschikbaar. Je aangevinkte beelden worden in projecten bewaard.
+Voor een hoes kies je Hoes en één passende hoesreferentie. Bij wisselen tussen
+hoes en vinyl moet je opnieuw een passende referentiefoto kiezen.

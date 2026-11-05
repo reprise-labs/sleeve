@@ -17,7 +17,7 @@ import CryptoKit
         let originalRef=root.appendingPathComponent("Tijdelijke-referentie.png")
         try FileManager.default.copyItem(at:Bundle.main.resourceURL!.appendingPathComponent("Samples/Oranje-referentie.png"),to:originalRef)
         let sourceHash=SHA256.hash(data:try Data(contentsOf:sample))
-        let m=StudioModel(libraryDirectory:library);m.mode = .colour;m.inputs=[MediaItem(url:sample,part:"sidea")];m.selectedID=m.inputs[0].id;m.referenceURL=originalRef;m.references=[MediaItem(url:originalRef)];m.outputFolder=out;m.editionTitle="Uitgave één";m.strength=0.6
+        let m=StudioModel(libraryDirectory:library);m.mode = .colour;m.inputs=[MediaItem(url:sample,part:"sidea")];m.selectedID=m.inputs[0].id;m.resetColourSelection();m.referenceURL=originalRef;m.references=[MediaItem(url:originalRef)];m.outputFolder=out;m.editionTitle="Uitgave één";m.strength=0.6
         let project=root.appendingPathComponent("Eerste.sleeveproject");m.projectURL=project;m.saveExistingProject()
         let legacy=root.appendingPathComponent("Legacy.anoukproject");try FileManager.default.copyItem(at:project,to:legacy);let legacyDocument=try ProjectFiles.read(legacy);precondition(legacyDocument.title==m.titleForEdition,"Oud project niet leesbaar")
         let moved=root.appendingPathComponent("Verplaatst.sleeveproject");try FileManager.default.moveItem(at:project,to:moved)
@@ -29,7 +29,7 @@ import CryptoKit
         m.strength=0.1;m.editionTitle="Later gewijzigd"
         precondition(m.queue[0].project.workspace.strength==0.6 && m.queue[0].project.title=="Uitgave één","Wachtrij-instellingen veranderen mee")
         let retained=m.queue[0].project.workspace.referenceURL!;precondition(retained.path != doc.workspace.referenceURL!.path && FileManager.default.fileExists(atPath:retained.path))
-        m.newEdition();m.mode = .colour;m.inputs=[MediaItem(url:sample,part:"sideb")];m.selectedID=m.inputs[0].id;m.referenceURL=retained;m.outputFolder=out;m.editionTitle="Uitgave twee";m.strength=0.8;m.projectURL=root.appendingPathComponent("Tweede.sleeveproject");m.saveExistingProject();m.enqueueCurrent()
+        m.newEdition();m.mode = .colour;m.inputs=[MediaItem(url:sample,part:"sideb")];m.selectedID=m.inputs[0].id;m.resetColourSelection();m.referenceURL=retained;m.outputFolder=out;m.editionTitle="Uitgave twee";m.strength=0.8;m.projectURL=root.appendingPathComponent("Tweede.sleeveproject");m.saveExistingProject();m.enqueueCurrent()
         let second=m.queue[1].id;m.moveQueuedItem(second,by:-1);precondition(m.queue[0].id==second);m.moveQueuedItem(second,by:1)
         let restarted=StudioModel(libraryDirectory:library);precondition(restarted.pendingCount==2 && !restarted.queueRunning)
         m.startQueue();try await waitForIdle(m)
@@ -53,8 +53,8 @@ import CryptoKit
         reopened.auditCurrentResults();try await waitForIdle(reopened)
         precondition(reopened.reviews[result.url.path]?.audit?.readable==true && reopened.reviewCount==0,"Opnieuw controleren neemt oude goedkeuring over")
         reopened.exportReview();let exported=try FileManager.default.contentsOfDirectory(atPath:result.url.deletingLastPathComponent().path);precondition(exported.contains{$0.hasPrefix("Eindcontrole-")})
-        m.queue=[];m.newEdition();m.mode = .colour;m.inputs=[MediaItem(url:root.appendingPathComponent("ontbreekt.png"),part:"sidea")];m.selectedID=m.inputs[0].id;m.referenceURL=retained;m.outputFolder=out;m.editionTitle="Opzettelijk ontbrekende bron";m.enqueueCurrent()
-        m.newEdition();m.mode = .colour;m.inputs=[MediaItem(url:sample,part:"sidea")];m.selectedID=m.inputs[0].id;m.referenceURL=retained;m.outputFolder=out;m.editionTitle="Wachten na fout";m.enqueueCurrent();m.startQueue();try await waitForIdle(m)
+        m.queue=[];m.newEdition();m.mode = .colour;m.inputs=[MediaItem(url:root.appendingPathComponent("ontbreekt.png"),part:"sidea")];m.selectedID=m.inputs[0].id;m.resetColourSelection();m.referenceURL=retained;m.outputFolder=out;m.editionTitle="Opzettelijk ontbrekende bron";m.enqueueCurrent()
+        m.newEdition();m.mode = .colour;m.inputs=[MediaItem(url:sample,part:"sidea")];m.selectedID=m.inputs[0].id;m.resetColourSelection();m.referenceURL=retained;m.outputFolder=out;m.editionTitle="Wachten na fout";m.enqueueCurrent();m.startQueue();try await waitForIdle(m)
         precondition(m.queue[0].state == .failed && m.queue[1].state == .waiting && !m.queueRunning,"Fout stopt de wachtrij niet")
         m.removeQueuedItem(m.queue[0].id);m.startQueue();precondition(m.busy);m.cancel();try await waitForIdle(m)
         precondition(m.queue[0].state == .cancelled && !m.queueRunning,"Stoppen niet correct vastgelegd")

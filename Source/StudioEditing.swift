@@ -67,7 +67,7 @@ extension StudioModel {
         restoreWorkspace(session.workspace)
         warnings=messages;logText=log;stateText=state;errorMessage=error
         if success,produced.count==1 {
-            var replacement=produced[0];replacement.id=session.target.id;replacement.previousVersion=session.target.url
+            var replacement=produced[0];replacement.id=session.target.id;replacement.previousVersion=session.target.url;replacement.colourSource=session.target.colourSource
             if session.retry{replacement.part=session.target.part}
             if let index=outputs.firstIndex(where:{$0.id==session.target.id}) {outputs[index]=replacement}else{outputs.append(replacement)}
             if let record=newReviews[replacement.url.path]{reviews[replacement.url.path]=record}

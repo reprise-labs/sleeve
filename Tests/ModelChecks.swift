@@ -34,10 +34,10 @@ import SwiftUI
         model.cancelReleaseAdvice(clear:true)
         precondition(model.adviceGeneration != generation && model.adviceCandidates.isEmpty && model.adviceArtist.isEmpty)
         model.inputs=[MediaItem(url:URL(fileURLWithPath:"/tmp/front.png"),part:"front"),MediaItem(url:source,part:"sidea")]
-        model.selectedID=model.inputs[0].id;model.changeMode(.colour)
-        precondition(model.colourScope=="photo","Hoes hoort bij de passende-foto-methode")
-        model.selectedID=model.inputs[1].id;model.changeMode(.colour)
-        precondition(model.colourScope=="vinyl","Plaat hoort standaard bij etiket behouden")
+        model.mode = .scans;model.changeMode(.colour)
+        precondition(model.colourScope=="vinyl" && model.colourTargets.count==1,"Platen worden gekozen zonder de hoes mee te nemen")
+        model.colourScope="photo";model.resetColourSelection()
+        precondition(model.colourTargets.first?.part=="front","Een hoes wordt apart gekozen")
         precondition(model.inferredPart("Scan 12_hoes.png")=="unknown")
         precondition(partLabel("unknown")=="Nog te bepalen")
         model.outputs=[];model.inputs=[MediaItem(url:source,part:"front")]
@@ -56,6 +56,10 @@ import SwiftUI
         model.receive(BridgeEvent(event:"progress",total:6,phase:"Namen maken",scope:"finishing",completedParts:6))
         precondition(model.currentPart==nil && model.completedParts==6 && model.progressDetail.isEmpty)
         precondition(durationText(500)=="8:20" && durationText(3661)=="1:01:01")
+        model.inputs=[];model.outputs=[];model.mode = .scans;model.changeMode(.colour)
+        precondition(model.colourScope=="vinyl","Begin zonder beelden standaard bij vinyl")
+        model.referenceURL=URL(fileURLWithPath:"/tmp/plate-reference.png");model.chooseColourKind("photo")
+        precondition(model.referenceURL==nil,"Een plaatreferentie mag niet vanzelf op een hoes worden gebruikt")
         print("Modelcontroles geslaagd: onderdelen, bronverbinding, volgende stap, referentiekeuze.")
     }
 }
