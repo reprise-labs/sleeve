@@ -39,3 +39,26 @@ Voer scripts/check.sh uit om de zelfstandige controles opnieuw te doen.
 
 Bij de finale distributiecontrole is het bouwdoel gecorrigeerd naar macOS 14.0
 voor zowel de app als de OCR-helper. Dit is gecontroleerd in de Mach-O-bestanden.
+
+
+## Uitbreiding 0.4.0
+
+- Handmatige cirkel: echte ronde alfa, onveranderde RGB-pixels binnen de bron,
+  behoud van eerder transparante delen, ICC en DPI; bronbytes onveranderd.
+- EXIF-oriëntatie van de bewaarde uitsnede komt overeen met de native preview.
+- Ongeldige cirkels en gewijzigde bronbestanden worden geweigerd.
+- Echte scanverwerking van een expliciet gekozen onderdeel levert precies één
+  bestand met het juiste onderdeel op.
+- Modelcontroles met echte processen: alleen het gekozen resultaat vervangen,
+  vorige versie vergelijken, oude bestanden behouden, bronkeuze vastleggen,
+  correctie als bron voor een volgende kleurstap gebruiken, andere resultaten
+  en goedkeuringen behouden, fout en annulering terugdraaien, project heropenen.
+- Tussentijds bewaren tijdens een correctie bewaart de voorafgaande resultaten.
+- Native venster: grenzen van de cirkel, per pixel bijstellen, live uitsnede,
+  990×990-resultaat opslaan en controleren; daarna één onderdeel opnieuw
+  verwerken, voor/na-verwijzing en geschiedenis controleren en project bewaren.
+- Bestaande controles voor wachtrij, projecten, kleur, voortgang en stoppen slagen.
+
+Deze uitbreiding is niet opnieuw op alle grote albumscans doorgerekend.
+De cirkel maakt ontbrekende scaninhoud niet terug; kies daarvoor een volledige
+bron. Er is nog geen algemene handmatige correctie van perspectief of hoesranden.
