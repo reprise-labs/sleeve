@@ -6,7 +6,11 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Proefversie 0.3.1
+## Testversie 0.4.0
+
+Nieuw in deze ontwikkeltak: ronde uitsneden zelf bijstellen en één onderdeel
+opnieuw verwerken. De eerdere publieke download staat bij Releases; deze
+testversie wordt eerst lokaal gecontroleerd.
 
 Apple Silicon, macOS 14 of nieuwer. De app is lokaal ondertekend en nog niet
 bij Apple genotariseerd. Deze proefversie heeft een eenmalige installatie van
@@ -91,3 +95,39 @@ synthetische checks bewijzen niet dat elke mogelijke scan correct wordt verwerkt
 
 Sleeve is een apart project naast [Reprise](https://github.com/reprise-labs/reprise).
 De twee apps hebben eigen versies en downloads. Deze repository wijzigt Reprise niet.
+
+## Nieuw: uitsnede bijstellen
+
+Selecteer een geladen cd- of vinylbeeld en kies **Ronde uitsnede bijstellen…**.
+Sleep de cirkel of gebruik de schuiven; de plus/min-knoppen verplaatsen het
+middelpunt of de diameter per pixel. **Toon uitgeknipt voorbeeld** laat het
+resultaat direct zien. Een cirkel buiten de bron kan niet worden bewaard.
+
+Kies **Kies oorspronkelijke scan…** als een eerdere uitsnede al te veel heeft
+verwijderd. De nieuwe uitsnede blijft een echte cirkel, zonder uitrekken van
+het beeld. Alleen de buitenrand verandert: het middengat en eventuele gaten
+blijven zoals in de bron. Pixels binnen de cirkel, DPI en ICC-profiel blijven
+behouden. De buitenste rand krijgt een zachte overgang van één pixel.
+
+**Bewaar nieuwe uitsnede** maakt een nieuwe PNG en vervangt alleen het gekozen
+resultaat in het project. De bron en de vorige poging blijven op schijf staan.
+De nieuwe versie vraagt opnieuw een eindcontrole.
+
+## Nieuw: één onderdeel opnieuw verwerken
+
+Selecteer een resultaat en kies **Dit onderdeel opnieuw verwerken…**, of kies
+**Onderdeel opnieuw…** in de eindcontrole. Controleer de aangevinkte bronbeelden;
+als niet bekend is welke scans bij het onderdeel horen, kies je ze zelf.
+Gebruik één bronmap. De selectie wordt als één onderdeel verwerkt, bijvoorbeeld
+alleen kant B. Er moet precies één nieuw resultaat ontstaan; anders blijft de
+vorige versie actief. Bij een fout of annulering blijven de andere resultaten
+én hun beoordelingen behouden.
+
+De oorspronkelijke Discogs-instellingen worden uit de bewerkingsgeschiedenis
+gebruikt als die beschikbaar is. Vinylkleur pas je daarna zo nodig apart toe.
+De gebruikte bronkeuze wordt bewaard voor een volgende poging.
+
+Bij een correctie of herhaling toont de bestaande voor/na-schuif **de vorige
+poging tegenover de nieuwe poging**. Via **Eerdere bewerkingen** kun je een
+oudere stand terugzien. Projecten bewaren deze geschiedenis en verwijzingen;
+laat dus ook de mappen met vorige versies staan.
