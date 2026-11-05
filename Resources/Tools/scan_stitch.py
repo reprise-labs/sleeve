@@ -23,7 +23,8 @@ Gebruik:
 Uitvoer: png met transparantie waar geen scan was. Daarna eventueel
 scan_cutout.py (cover/vinyl) en de watermerkstap.
 """
-import argparse, os, sys
+import argparse, os, sys, gc, contextlib
+from scan_memory import MappedScanStore,MappedArrayStore,render_tile_size,drop_array_pages
 import numpy as np
 import cv2
 
@@ -215,7 +216,7 @@ def feather_weight(mask):
     return (np.minimum(d, FEATHER) / FEATHER) ** 2 + (mask * 1e-4)
 
 
-def gain_correct(im, mask, comp, cmask, step=16):
+def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None):
     """Pas im aan zodat het in de overlap gelijk is aan comp.
 
     Per kanaal een vlak a + b*x + c*y in log(comp/im), robuust geschat op
@@ -226,7 +227,10 @@ def gain_correct(im, mask, comp, cmask, step=16):
     sm = lambda x: cv2.resize(x, (w // step, h // step), interpolation=cv2.INTER_AREA)
     ov = ((mask & cmask) & (cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5) > EDGE)
           & (cv2.distanceTransform(cmask.astype(np.uint8), cv2.DIST_L2, 5) > EDGE)).astype(np.uint8)
-    A = sm(cv2.GaussianBlur(im, (0, 0), 3)); B = sm(cv2.GaussianBlur(comp, (0, 0), 3))
+    A = sm(cv2.GaussianBlur(im, (0, 0), 3))
+    if release:release()
+    B = sm(cv2.GaussianBlur(comp, (0, 0), 3))
+    if release:release()
     ovs = sm(ov.astype(np.float32)) > 0.99
     g = cv2.cvtColor(np.clip(A, 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY).astype(np.float32)
     grad = np.hypot(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
@@ -237,8 +241,9 @@ def gain_correct(im, mask, comp, cmask, step=16):
         return im, None
     yy, xx = np.nonzero(ok)
     X = np.stack([np.ones_like(xx), xx / (w / step), yy / (h / step)], 1).astype(np.float64)
-    fy, fx = np.mgrid[0:h, 0:w].astype(np.float32)
-    out = im.copy(); gm = np.ones(im.shape, np.float32)
+    fx=np.arange(w,dtype=np.float32)[None,:]
+    out=allocator("corrected",im.shape) if allocator else np.empty_like(im)
+    gm=allocator("gain",im.shape) if allocator else np.empty_like(im)
     for c in range(3):
         r = np.log(B[ok, c] / A[ok, c])
         sel = np.ones(len(r), bool)
@@ -246,9 +251,12 @@ def gain_correct(im, mask, comp, cmask, step=16):
             coef, *_ = np.linalg.lstsq(X[sel], r[sel], rcond=None)
             res = r - X @ coef
             sel = np.abs(res) < max(2.5 * np.std(res[sel]), 0.01)
-        gmap = np.exp(coef[0] + coef[1] * fx / w + coef[2] * fy / h)
-        gm[..., c] = np.clip(gmap, 0.85, 1.15)
-        out[..., c] = im[..., c] * gm[..., c]
+        for y0 in range(0,h,256):
+            y1=min(h,y0+256);fy=np.arange(y0,y1,dtype=np.float32)[:,None]
+            gmap=np.exp(coef[0]+coef[1]*fx/w+coef[2]*fy/h)
+            gm[y0:y1,:,c]=np.clip(gmap,0.85,1.15)
+            out[y0:y1,:,c]=im[y0:y1,:,c]*gm[y0:y1,:,c]
+            if release:release()
     return out, gm
 
 
@@ -384,74 +392,83 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
     wo, ho = out_small_wh
     O2 = O[:2]
     def to_out(m, interp):                              # kaart canvas -> uitvoer (klein)
-        return cv2.warpAffine(m, O2, (wo, ho), flags=interp, borderMode=cv2.BORDER_CONSTANT)
-    W_o = {k: to_out(wts[k].astype(np.float32), cv2.INTER_LINEAR) for k in ks}
-    V_o = {k: to_out(masks[k].astype(np.uint8), cv2.INTER_NEAREST) for k in ks}
-    G_o = {k: to_out(gainm[k], cv2.INTER_LINEAR) if gainm.get(k) is not None else None for k in ks}
+        result=cv2.warpAffine(m,O2,(wo,ho),flags=interp,borderMode=cv2.BORDER_CONSTANT)
+        drop_array_pages(m)
+        return result
+    W_o = {k: to_out(wts.pop(k).astype(np.float32,copy=False), cv2.INTER_LINEAR) for k in ks}
+    V_o = {k: to_out(masks.pop(k).astype(np.uint8), cv2.INTER_NEAREST) for k in ks}
+    G_o = {}
+    for k in ks:
+        gain=gainm.pop(k,None)
+        G_o[k]=to_out(gain,cv2.INTER_LINEAR) if gain is not None else None
+    gain=None
+    gc.collect()
     B_o = to_out(best.astype(np.uint8), cv2.INTER_NEAREST)
     F_o = to_out(flat.astype(np.float32), cv2.INTER_LINEAR) if flat is not None else None
-    srcs, M, polys = {}, {}, {}
-    for k in ks:
-        srcs[k] = load(paths[k], 1.0)
-        hk, wk = srcs[k].shape[:2]
-        source_Si = np.diag([source_scales[k],source_scales[k],1.0]) if source_scales is not None else Si
-        M[k] = S @ O @ Tsh @ H[k] @ source_Si                    # bron (vol) -> uitvoer (vol)
-        e = 6 / source_scales[k] if source_scales is not None else 6*s
-        c = np.float64([[e, e, 1], [wk - e, e, 1], [wk - e, hk - e, 1], [e, hk - e, 1]])
-        polys[k] = (c @ M[k].T)[:, :2]
-    if shape[0] == 'disc':
-        cx, cy, r = shape[1]
-        cxo, cyo = (O @ [cx, cy, 1])[:2] * s; ro = r * s
-    sig = DETAIL_SIGMA * s; pad = int(3 * sig) + 8
-    out = np.zeros((Hf, Wf, 4), np.uint8)
-    def sample(m, x0, y0, w, h, interp):               # kleine kaart -> blok op volle schaal
-        A = np.array([[f, 0, (x0 + 0.5) * f - 0.5], [0, f, (y0 + 0.5) * f - 0.5]])
-        return cv2.warpAffine(m, A, (w, h), flags=interp | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REPLICATE)
-    nty = (Hf + TILE - 1) // TILE; ntx = (Wf + TILE - 1) // TILE
-    for ty in range(nty):
-        for tx in range(ntx):
-            x0, y0 = tx * TILE - pad, ty * TILE - pad
-            w = min(TILE, Wf - tx * TILE) + 2 * pad; h = min(TILE, Hf - ty * TILE) + 2 * pad
-            T = np.array([[1, 0, -x0], [0, 1, -y0], [0, 0, 1]], float)
-            low = np.zeros((h, w, 3), np.float32); high = np.zeros((h, w, 3), np.float32)
-            acc = np.zeros((h, w), np.float32); anym = np.zeros((h, w), bool)
-            bt = sample(B_o, x0, y0, w, h, cv2.INTER_NEAREST)
-            for n, k in enumerate(ks):
-                pk = polys[k] - [x0, y0]
-                if pk[:, 0].max() < 0 or pk[:, 1].max() < 0 or pk[:, 0].min() > w or pk[:, 1].min() > h:
-                    continue
-                fr = np.zeros((h, w), np.uint8)
-                cv2.fillPoly(fr, [np.round(pk * 16).astype(np.int32)], 1, shift=4)
-                if shape[0] == 'square':
-                    mk = fr > 0
-                elif shape[0] == 'disc':
-                    yy, xx = np.ogrid[0:h, 0:w]
-                    mk = (fr > 0) & ((xx + x0 - cxo) ** 2 + (yy + y0 - cyo) ** 2 <= ro * ro)
-                else:
-                    mk = (fr > 0) & (sample(V_o[k], x0, y0, w, h, cv2.INTER_NEAREST) > 0)
-                if not mk.any():
-                    continue
-                im = cv2.warpAffine(srcs[k], (T @ M[k])[:2], (w, h), flags=cv2.INTER_LANCZOS4,
-                                    borderMode=cv2.BORDER_REPLICATE).astype(np.float32)
-                if G_o[k] is not None:
-                    im *= sample(G_o[k], x0, y0, w, h, cv2.INTER_LINEAR)
-                mf = mk.astype(np.float32)
-                wk = (np.maximum(sample(W_o[k], x0, y0, w, h, cv2.INTER_LINEAR), 0) + 1e-4) * mf
-                mb = cv2.GaussianBlur(mf, (0, 0), sig)
-                lk = cv2.GaussianBlur(im * mf[..., None], (0, 0), sig) / np.maximum(mb, 1e-6)[..., None]
-                low += lk * wk[..., None]; acc += wk
-                win = cv2.GaussianBlur(((bt == n) & mk).astype(np.float32), (0, 0), 2 * s)
-                high += (im - lk) * win[..., None]
-                anym |= mk
-            res = low / np.maximum(acc, 1e-6)[..., None] + high
-            if F_o is not None:
-                res *= sample(F_o, x0, y0, w, h, cv2.INTER_LINEAR)[..., None]
-            blk = np.zeros((h, w, 4), np.uint8)
-            blk[..., :3] = np.clip(res + 0.5, 0, 255).astype(np.uint8); blk[..., 3] = np.where(anym, 255, 0)
-            out[ty * TILE:ty * TILE + h - 2 * pad, tx * TILE:tx * TILE + w - 2 * pad] = blk[pad:h - pad, pad:w - pad]
-        print(f'  {int(100 * (ty + 1) / nty)}%', flush=True)
-    del srcs
-    return out
+    with MappedScanStore(paths,ks,load,output_bytes=Wf*Hf*4) as srcs:
+        M, polys = {}, {}
+        for k in ks:
+            hk, wk = srcs[k].shape[:2]
+            source_Si = np.diag([source_scales[k],source_scales[k],1.0]) if source_scales is not None else Si
+            M[k] = S @ O @ Tsh @ H[k] @ source_Si                    # bron (vol) -> uitvoer (vol)
+            e = 6 / source_scales[k] if source_scales is not None else 6*s
+            c = np.float64([[e, e, 1], [wk - e, e, 1], [wk - e, hk - e, 1], [e, hk - e, 1]])
+            polys[k] = (c @ M[k].T)[:, :2]
+        if shape[0] == 'disc':
+            cx, cy, r = shape[1]
+            cxo, cyo = (O @ [cx, cy, 1])[:2] * s; ro = r * s
+        sig = DETAIL_SIGMA * s; pad = int(3 * sig) + 8
+        tile=render_tile_size()
+        print(f'geheugenbegrensd: bronbeelden via tijdelijke schijfblokken, uitvoerblokken {tile} px',flush=True)
+        out = np.zeros((Hf, Wf, 4), np.uint8)
+        def sample(m, x0, y0, w, h, interp):               # kleine kaart -> blok op volle schaal
+            A = np.array([[f, 0, (x0 + 0.5) * f - 0.5], [0, f, (y0 + 0.5) * f - 0.5]])
+            return cv2.warpAffine(m, A, (w, h), flags=interp | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REPLICATE)
+        nty = (Hf + tile - 1) // tile; ntx = (Wf + tile - 1) // tile
+        for ty in range(nty):
+            for tx in range(ntx):
+                x0, y0 = tx * tile - pad, ty * tile - pad
+                w = min(tile, Wf - tx * tile) + 2 * pad; h = min(tile, Hf - ty * tile) + 2 * pad
+                T = np.array([[1, 0, -x0], [0, 1, -y0], [0, 0, 1]], float)
+                low = np.zeros((h, w, 3), np.float32); high = np.zeros((h, w, 3), np.float32)
+                acc = np.zeros((h, w), np.float32); anym = np.zeros((h, w), bool)
+                bt = sample(B_o, x0, y0, w, h, cv2.INTER_NEAREST)
+                for n, k in enumerate(ks):
+                    pk = polys[k] - [x0, y0]
+                    if pk[:, 0].max() < 0 or pk[:, 1].max() < 0 or pk[:, 0].min() > w or pk[:, 1].min() > h:
+                        continue
+                    fr = np.zeros((h, w), np.uint8)
+                    cv2.fillPoly(fr, [np.round(pk * 16).astype(np.int32)], 1, shift=4)
+                    if shape[0] == 'square':
+                        mk = fr > 0
+                    elif shape[0] == 'disc':
+                        yy, xx = np.ogrid[0:h, 0:w]
+                        mk = (fr > 0) & ((xx + x0 - cxo) ** 2 + (yy + y0 - cyo) ** 2 <= ro * ro)
+                    else:
+                        mk = (fr > 0) & (sample(V_o[k], x0, y0, w, h, cv2.INTER_NEAREST) > 0)
+                    if not mk.any():
+                        continue
+                    im = cv2.warpAffine(srcs[k], (T @ M[k])[:2], (w, h), flags=cv2.INTER_LANCZOS4,
+                                        borderMode=cv2.BORDER_REPLICATE).astype(np.float32)
+                    if G_o[k] is not None:
+                        im *= sample(G_o[k], x0, y0, w, h, cv2.INTER_LINEAR)
+                    mf = mk.astype(np.float32)
+                    wk = (np.maximum(sample(W_o[k], x0, y0, w, h, cv2.INTER_LINEAR), 0) + 1e-4) * mf
+                    mb = cv2.GaussianBlur(mf, (0, 0), sig)
+                    lk = cv2.GaussianBlur(im * mf[..., None], (0, 0), sig) / np.maximum(mb, 1e-6)[..., None]
+                    low += lk * wk[..., None]; acc += wk
+                    win = cv2.GaussianBlur(((bt == n) & mk).astype(np.float32), (0, 0), 2 * s)
+                    high += (im - lk) * win[..., None]
+                    anym |= mk
+                res = low / np.maximum(acc, 1e-6)[..., None] + high
+                if F_o is not None:
+                    res *= sample(F_o, x0, y0, w, h, cv2.INTER_LINEAR)[..., None]
+                blk = np.zeros((h, w, 4), np.uint8)
+                blk[..., :3] = np.clip(res + 0.5, 0, 255).astype(np.uint8); blk[..., 3] = np.where(anym, 255, 0)
+                out[ty * tile:ty * tile + h - 2 * pad, tx * tile:tx * tile + w - 2 * pad] = blk[pad:h - pad, pad:w - pad]
+                srcs.drop_pages()
+            print(f'  {int(100 * (ty + 1) / nty)}%', flush=True)
+        return out
 
 
 def repair_paper_gaps(out):
@@ -511,6 +528,10 @@ def repair_paper_gaps(out):
 
 
 def main():
+    with contextlib.ExitStack() as resources:
+        main_with_resources(resources)
+
+def main_with_resources(resources):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('uitvoer'); p.add_argument('delen', nargs='+')
     p.add_argument('--geen-kleur', action='store_true')
@@ -518,6 +539,7 @@ def main():
     p.add_argument('--klein', action='store_true', help='uitvoer op ~300 dpi (snel) in plaats van de volle scanresolutie')
     p.add_argument('--vorm', choices=['auto', 'hoes', 'plaat', 'geen'], default='auto', help='hoes = vierkant, plaat = rond, geen = alleen op kleur (standaard: zelf bepalen)')
     a = p.parse_args()
+    cv2.setNumThreads(2)
     if len(a.delen) < 2:
         sys.exit('minstens twee deelscans nodig')
 
@@ -536,6 +558,9 @@ def main():
     f = min(1.0, MAX_SIDE / longest)
     if f < 1:
         print(f'rekenen op factor {f:.3f} ({int(longest * f)} px); uitvoer op ' + ('die schaal' if a.klein else f'volle resolutie ({longest} px)'))
+    if f < 1 and not a.klein:
+        # Check scratch requirements before expensive alignment/blending can trigger swap.
+        MappedScanStore(a.delen,range(len(a.delen)),load)
     source_scales = [f*ratio for ratio in ratios]
     imgs = [load(fn,scale) for fn,scale in zip(a.delen,source_scales)]
     valid = [~background_mask(im) for im in imgs]
@@ -619,50 +644,68 @@ def main():
     #    verlopende correctie (vlak in log-ruimte: factor + lichtverloop van de
     #    scannerlamp), gemeten in de overlap met wat al samengevoegd is
     ks = list(order)
-    img = {k: warped[k].astype(np.float32) for k in ks}
-    wts = {k: feather_weight(masks[k]) for k in ks}
-    gainm = {}
+    height,width=size[1],size[0]
+    print(f'rekencanvas: {width}x{height} px; werkbuffers op tijdelijke schijfblokken',flush=True)
+    estimate=height*width*(28*len(ks)+48)
+    work=resources.enter_context(MappedArrayStore(estimate))
+    img={k:work.put(('image',k),warped[k].astype(np.float32)) for k in ks}
+    wts={k:work.put(('weight',k),feather_weight(masks[k])) for k in ks}
+    gainm={}
     if not a.geen_kleur:
-        done = [ref]; todo = [k for k in ks if k != ref]
+        done=[ref];todo=[k for k in ks if k!=ref]
         while todo:
-            acc = sum(wts[d] for d in done)
-            comp = sum(img[d] * wts[d][..., None] for d in done) / np.maximum(acc, 1e-6)[..., None]
-            cm = acc > 0
-            k = max(todo, key=lambda t: int((masks[t] & cm).sum()))
-            if (masks[k] & cm).sum() < 5000:
-                break
-            img[k], gainm[k] = gain_correct(img[k], masks[k], comp, cm)
-            done.append(k); todo.remove(k)
-
-    # 2. samenvoegen in twee lagen
-    #    - grof (kleur/licht): breed overvloeien, geen tintverschil op de naad
-    #    - fijn (tekst, barcode, randen): per plek uit één scan, de scherpste en
-    #      meest centrale; nooit twee scans gemiddeld, dus niets komt dubbel
-    def lowpass(x, m):
-        mb = cv2.GaussianBlur(m, (0, 0), DETAIL_SIGMA)
-        return cv2.GaussianBlur(x * m[..., None], (0, 0), DETAIL_SIGMA) / np.maximum(mb, 1e-6)[..., None]
-    acc = sum(wts[k] for k in ks)
-    low = np.zeros_like(img[ks[0]]); high = np.zeros_like(img[ks[0]])
-    score = {}
-    for k in ks:
-        g = cv2.cvtColor(np.clip(img[k], 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY).astype(np.float32)
-        sh = cv2.GaussianBlur(cv2.Laplacian(g, cv2.CV_32F) ** 2, (0, 0), 25)
-        score[k] = wts[k] * np.sqrt(sh + 1.0)
-    best = np.argmax(np.stack([score[k] for k in ks]), axis=0)
-    for n, k in enumerate(ks):
-        mk = masks[k].astype(np.float32)
-        lk = lowpass(img[k], mk)
-        low += lk * wts[k][..., None]
-        win = cv2.GaussianBlur(((best == n) & masks[k]).astype(np.float32), (0, 0), 2)
-        high += (img[k] - lk) * win[..., None]
-        del lk
-    res = low / np.maximum(acc, 1e-6)[..., None] + high
-    res = np.clip(res + 0.5, 0, 255).astype(np.uint8)
-    msU = [masks[k] for k in ks]
-    anymask = np.zeros(res.shape[:2], bool)
-    for m in msU: anymask |= m
-    out = np.zeros((size[1], size[0], 4), np.uint8)
-    out[:, :, :3] = res; out[:, :, 3] = np.where(anymask, 255, 0)
+            acc=sum(wts[d] for d in done);cm=acc>0;work.drop_pages()
+            comp=None
+            comp=work.empty(('composite',0),(height,width,3))
+            for y0 in range(0,height,256):
+                y1=min(height,y0+256)
+                comp[y0:y1]=sum(img[d][y0:y1]*wts[d][y0:y1,...,None] for d in done)/np.maximum(acc[y0:y1],1e-6)[...,None]
+                work.drop_pages()
+            k=max(todo,key=lambda t:int((masks[t]&cm).sum()))
+            if (masks[k]&cm).sum()<5000:break
+            corrected,gain=gain_correct(img[k],masks[k],comp,cm,allocator=lambda kind,shape:work.empty((kind,k),shape),release=work.drop_pages)
+            if corrected is not img[k]:
+                img[k]=corrected;work.discard(('image',k))
+            gainm[k]=gain;corrected=gain=None
+            done.append(k);todo.remove(k);work.drop_pages()
+        comp=acc=cm=None;work.discard(('composite',0))
+    # Same sharpness winner as argmax, computed by bands without stacking all scores.
+    best=np.zeros((height,width),np.uint8)
+    for y0 in range(0,height,256):
+        y1=min(height,y0+256);top=max(0,y0-102);bottom=min(height,y1+102)
+        value=np.full((y1-y0,width),-np.inf,np.float32);winner=np.zeros(value.shape,np.uint8)
+        for n,k in enumerate(ks):
+            g=cv2.cvtColor(np.clip(img[k][top:bottom],0,255).astype(np.uint8),cv2.COLOR_BGR2GRAY).astype(np.float32)
+            sh=cv2.GaussianBlur(cv2.Laplacian(g,cv2.CV_32F)**2,(0,0),25)
+            score=wts[k][y0:y1]*np.sqrt(sh[y0-top:y1-top]+1.0)
+            better=score>value;value[better]=score[better];winner[better]=n
+            work.drop_pages()
+        best[y0:y1]=winner
+    value=winner=g=sh=score=better=None
+    def lowpass(x,m):
+        mb=cv2.GaussianBlur(m,(0,0),DETAIL_SIGMA)
+        return cv2.GaussianBlur(x*m[...,None],(0,0),DETAIL_SIGMA)/np.maximum(mb,1e-6)[...,None]
+    low=work.empty(('low',0),(height,width,3));high=work.empty(('high',0),(height,width,3))
+    pad=int(4*DETAIL_SIGMA)+2
+    for n,k in enumerate(ks):
+        for y0 in range(0,height,256):
+            y1=min(height,y0+256);top=max(0,y0-pad);bottom=min(height,y1+pad)
+            mk=masks[k][top:bottom].astype(np.float32)
+            lk=lowpass(img[k][top:bottom],mk)[y0-top:y1-top]
+            low[y0:y1]+=lk*wts[k][y0:y1,...,None]
+            win=cv2.GaussianBlur(((best[top:bottom]==n)&masks[k][top:bottom]).astype(np.float32),(0,0),2)[y0-top:y1-top]
+            high[y0:y1]+=(img[k][y0:y1]-lk)*win[...,None]
+            work.drop_pages()
+    out=np.zeros((height,width,4),np.uint8);anymask=np.zeros((height,width),bool)
+    for y0 in range(0,height,256):
+        y1=min(height,y0+256);acc=sum(wts[k][y0:y1] for k in ks)
+        res=low[y0:y1]/np.maximum(acc,1e-6)[...,None]+high[y0:y1]
+        out[y0:y1,:,:3]=np.clip(res+.5,0,255).astype(np.uint8)
+        for k in ks:anymask[y0:y1]|=masks[k][y0:y1]
+        out[y0:y1,:,3]=np.where(anymask[y0:y1],255,0);work.drop_pages()
+    imgs=valid=feats=warped=frames=img=low=high=score=res=acc=g=sh=mk=lk=win=None
+    work.keep_only({('weight',k) for k in ks}|{('gain',k) for k in ks})
+    gc.collect()
     flat = None
     if square is not None and not a.geen_kleur:
         flat = flatten_paper(out, square[0])
@@ -681,8 +724,15 @@ def main():
     O = np.array([[1, 0, -xs.min()], [0, 1, -ys.min()], [0, 0, 1]], float) @ O
     if f < 1 and not a.klein:
         shape = ('square', None) if square is not None else (('disc', disc_c) if disc_c is not None else (None, None))
-        out = render_full(a.delen, order, H, Tsh, O, f, (out.shape[1], out.shape[0]), size,
+        out_wh=(out.shape[1],out.shape[0])
+        imgs=valid=feats=warped=frames=img=score=low=high=res=acc=msU=nz=anymask=None
+        Gx=Gy=gmean=G=cover=g=sh=mk=win=out=comp=cm=ys=xs=None
+        best=best.astype(np.uint8)
+        gc.collect()
+        out = render_full(a.delen, order, H, Tsh, O, f, out_wh, size,
                           masks, wts, gainm, best, ks, flat, shape, source_scales)
+        masks=wts=gainm=best=flat=None
+        gc.collect()
     if square is not None:
         out = repair_paper_gaps(out)
     cv2.imwrite(a.uitvoer, out, [cv2.IMWRITE_PNG_COMPRESSION, 3])

@@ -24,11 +24,11 @@ def swatch(image,reference=False):
 def recolor(src,reference,dst,strength=1.,progress=None):
  with Image.open(src) as im:raw=im.convert('RGBA')
  with Image.open(reference) as ref:target=swatch(ref,True)
- source=swatch(raw);w,h=raw.size;out=raw.copy();xs=np.arange(w,dtype=np.float32)[None,:]
+ source=swatch(raw);w,h=raw.size;out=raw;xs=np.arange(w,dtype=np.float32)[None,:]
  if progress:progress(0.,"Kleur toepassen")
- for y in range(0,h,512):
-  block=np.array(raw.crop((0,y,w,min(y+512,h))))
-  yy=np.arange(y,min(y+512,h),dtype=np.float32)[:,None]
+ for y in range(0,h,256):
+  block=np.array(raw.crop((0,y,w,min(y+256,h))))
+  yy=np.arange(y,min(y+256,h),dtype=np.float32)[:,None]
   r=np.hypot(xs-w/2,yy-h/2)/(min(w,h)/2)
   weight=np.clip((r-.34)/.018,0,1)*strength*(block[:,:,3]>0)
   lab=cv2.cvtColor(block[:,:,:3].astype(np.float32)/255,cv2.COLOR_RGB2LAB)
@@ -38,7 +38,7 @@ def recolor(src,reference,dst,strength=1.,progress=None):
   rgb=(cv2.cvtColor(lab,cv2.COLOR_LAB2RGB).clip(0,1)*255+.5).astype(np.uint8)
   rgb[weight==0]=block[:,:,:3][weight==0];block[:,:,:3]=rgb
   out.paste(Image.fromarray(block),(0,y))
-  if progress:progress(min(y+512,h)/h,"Kleur toepassen")
+  if progress:progress(min(y+256,h)/h,"Kleur toepassen")
  if progress:progress(None,"Kleurvoorstel opslaan")
  metadata={key:raw.info[key] for key in ('dpi','icc_profile') if key in raw.info}
  out.save(dst,compress_level=3,**metadata)

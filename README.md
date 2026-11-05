@@ -6,7 +6,7 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Testversie 0.4.0
+## Testversie 0.4.1
 
 Nieuw in deze ontwikkeltak: ronde uitsneden zelf bijstellen en één onderdeel
 opnieuw verwerken. De eerdere publieke download staat bij Releases; deze

@@ -62,3 +62,27 @@ voor zowel de app als de OCR-helper. Dit is gecontroleerd in de Mach-O-bestanden
 Deze uitbreiding is niet opnieuw op alle grote albumscans doorgerekend.
 De cirkel maakt ontbrekende scaninhoud niet terug; kies daarvoor een volledige
 bron. Er is nog geen algemene handmatige correctie van perspectief of hoesranden.
+
+## Geheugengebruik bij grote scans (5 november 2026)
+
+De FIRE-crash bevatte een Python-beeldwerker van ongeveer 8,75 GiB op een Mac
+met 8 GiB fysiek geheugen; WindowServer reageerde 40 seconden niet meer.
+De voorbereiding gebruikt nu tijdelijke, anonieme schijfbestanden en stroken.
+De uitvoer wordt op 8-GB-Macs in blokken van 1024 pixels opgebouwd. Bronnen,
+uitvoerresolutie en kleurprofielconversie blijven behouden. Kleurcorrecties
+vermijden een volledige extra beeldkopie. Te weinig vrije schijfruimte en een
+te grote afzonderlijke bron leveren een leesbare foutmelding op.
+
+De vier echte FIRE-frontscans (waaronder 1200-dpi-scans van 10192×14032) zijn
+op dezelfde 8-GB-Mac op volle resolutie verwerkt: uitvoer 14757×14660,
+304 seconden, exitcode 0. De met vmmap bemonsterde maximale fysieke footprint
+was circa 3,6 GiB; maximale gemeten RSS 2327 MiB. Dit is een meting van deze
+proef, geen harde bovengrens voor iedere mogelijke invoer.
+
+Kleine beeldvergelijkingen met de voorafgaande implementatie: afmetingen en
+alpha gelijk; bij 1024-pixel-uitvoerblokken maximaal één RGB-niveau verschil,
+bij de strooksgewijze voorbereiding maximaal twee niveaus (schaal 0–255).
+De afzonderlijke kleurcorrecties zijn pixelgelijk, inclusief alpha en metadata.
+Tests controleren ook opruimen van tijdelijke bestanden en de schijfruimtecontrole.
+De volledige FIRE-set met alle onderdelen is niet opnieuw als één app-opdracht
+verwerkt; de oorspronkelijke crashende frontgroep is wel volledig doorgerekend.
