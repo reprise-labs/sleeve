@@ -60,6 +60,14 @@ struct StudioView: View {
                             }.pickerStyle(.segmented).labelsHidden().frame(width:205)
                         }
                     }.padding(22)
+                    if let item=model.selected {
+                        HStack {
+                            Button("Ronde uitsnede bijstellen…"){model.openCrop(item)}
+                            if model.showResults {Button("Dit onderdeel opnieuw verwerken…"){model.openRetry(item)}}
+                            if item.previousVersion != nil {Text("Voor = vorige poging · Na = nieuwe poging").font(.caption).foregroundStyle(.secondary)}
+                            Spacer()
+                        }.padding(.horizontal,22).disabled(model.busy || model.queueRunning)
+                    }
                     preview.frame(maxWidth:.infinity,maxHeight:.infinity)
                     if !model.displayItems.isEmpty {filmstrip}
                 }.frame(minWidth:500,maxWidth:.infinity)
@@ -75,7 +83,12 @@ struct StudioView: View {
         .foregroundStyle(studioInk).tint(studioAccent)
         .onOpenURL{url in model.openProject(url)}
         .sheet(item:$model.panel){panel in
-            if panel == .queue {StudioQueueView(model:model)}else{StudioReviewView(model:model)}
+            switch panel {
+            case .queue:StudioQueueView(model:model)
+            case .review:StudioReviewView(model:model)
+            case .crop:if let item=model.cropTarget{StudioCircleView(model:model,target:item)}
+            case .retry:if let item=model.retryTarget{StudioRetryView(model:model,target:item)}
+            }
         }
         .onDrop(of:["public.file-url"],isTargeted:nil) {providers in
             guard !model.busy else{return false}

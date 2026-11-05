@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import Darwin
 import CryptoKit
 
-enum StudioPanel: String, Identifiable {case queue, review;var id:String{rawValue}}
+enum StudioPanel: String, Identifiable {case queue, review, crop, retry;var id:String{rawValue}}
 
 let studioProjectType = UTType(exportedAs:"com.repriselabs.sleeve-project",conformingTo:.package)
 let legacyStudioProjectType = UTType(importedAs:"nl.anoukmusic.scan-project",conformingTo:.package)
@@ -74,6 +74,9 @@ struct StudioRun: Codable, Identifiable {
     var label: String
     var success: Bool
     var workspace: WorkspaceSnapshot
+    var action: String? = nil
+    var scanRecipe: StudioScanRecipe? = nil
+    var processedPaths: [URL]? = nil
 }
 struct StudioProject: Codable {
     var schemaVersion = 1
@@ -185,6 +188,7 @@ extension JSONEncoder {
         persistLibrary();scheduleProjectSave()
     }
     func captureWorkspace() -> WorkspaceSnapshot {
+        if busy,let session=editingSession{return session.workspace}
         var checked=reviews
         for item in outputs {checked[item.url.path]=review(for:item)}
         return WorkspaceSnapshot(mode:mode,inputs:inputs,outputs:outputs,selectedID:selectedID,showResults:showResults,discogs:discogs,useNames:useNames,useStand:useStand,useColour:useColour,variant:variant,referenceFromDiscogs:referenceFromDiscogs,references:references,referenceURL:referenceURL,strength:strength,colourScope:colourScope,colourBatch:colourBatch,proposals:proposals,outputFolder:outputFolder,lastJobFolder:lastJobFolder,reviews:checked,warnings:warnings,logText:logText,stateText:stateText,compare:compare,demo:demo)
@@ -313,8 +317,8 @@ extension JSONEncoder {
         restoreWorkspace(run.workspace);showReview=true
     }
     func recordFinishedRun(action:String,success:Bool) {
-        guard ["scan","colour","namesApply"].contains(action) else{return}
-        mergeSavedRuns();runs.append(StudioRun(label:mode.rawValue,success:success,workspace:captureWorkspace()))
+        guard ["scan","colour","namesApply","manualCrop"].contains(action) else{return}
+        mergeSavedRuns();runs.append(StudioRun(label:action=="manualCrop" ? "Ronde uitsnede bijgesteld" : lastEditingWasRetry ? "Eén onderdeel opnieuw verwerkt" : mode.rawValue,success:success,workspace:captureWorkspace(),action:action,scanRecipe:action=="scan" ? activeScanRecipe : nil,processedPaths:activeProcessedPaths));lastEditingWasRetry=false
         saveExistingProject()
     }
     func prepareForQuit() {
