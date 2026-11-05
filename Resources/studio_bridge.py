@@ -199,21 +199,28 @@ def colour(req,rows,work):
  if not ref.is_file():raise ValueError('Kies eerst een eigen foto of een Discogs-referentiefoto.')
  strength=float(req.get('strength',1))
  if not 0<=strength<=1:raise ValueError('De kleursterkte moet tussen 0 en 100% liggen.')
- output=job_folder(req,'Kleurvoorstellen');emit('destination',path=str(output));mapping={}
  scope=req.get('scope','vinyl')
+ if scope not in ('vinyl','photo'):raise ValueError('Kies vinylplaten of een hoes.')
+ rows=[row for row in rows if not row.get('reference')]
+ if not rows:raise ValueError('Vink eerst de beelden aan die je wilt aanpassen.')
+ if scope=='photo' and len(rows)!=1:raise ValueError('Kies één hoes bij de passende referentiefoto.')
+ if scope=='vinyl':
+  from PIL import Image
+  import scan_cutout as CU
+  for row in rows:
+   part=row.get('part','unknown')
+   if part!='unknown' and not part.startswith('side'):raise ValueError('Bij vinylkleur mogen alleen vinylkanten zijn aangevinkt. Een hoes wordt niet met een plaatfoto aangepast.')
+   with Image.open(row['path']) as im:
+    if im.mode!='RGBA':raise ValueError('Gebruik hier uitgeknipte vinylplaten met transparantie. Verwerk eerst de scans.')
+    probe=im.getchannel('A');probe.thumbnail((1400,1400))
+    if CU.already_cut(probe) is None:raise ValueError('Een geselecteerd beeld is nog geen uitgeknipte plaat. Verwerk eerst de scans.')
+ output=job_folder(req,'Kleurvoorstellen');emit('destination',path=str(output));mapping={}
  for i,row in enumerate(rows):
-  if row.get('reference'):continue
-  src=Path(row['path']);stem=src.stem+'_kleur';dst=output/(stem+'.png');suffix=2
+  src=Path(row['path']);stem=re.sub(r'(?:_kleur(?:_\d+)?)+$','',src.stem)+'_kleur';dst=output/(stem+'.png');suffix=2
   while dst.exists():dst=output/(stem+'_'+str(suffix)+'.png');suffix+=1
-  emit('status',message=f'Kleurvoorstel {i+1} van {len(rows)}: {src.name}')
+  emit('status',message=f'Nieuwe kleur voor {i+1} van {len(rows)}: {src.name}')
   temporary=output/('.voorstel-'+uuid.uuid4().hex+'.png')
   if scope=='vinyl':
-   from PIL import Image
-   import scan_cutout as CU
-   with Image.open(src) as im:
-    if im.mode!='RGBA':raise ValueError('Gebruik hier een al uitgeknipte vinylplaat met transparantie. Kies voor andere afbeeldingen de passende-foto-methode.')
-    probe=im.getchannel('A');probe.thumbnail((1400,1400))
-    if CU.already_cut(probe) is None:raise ValueError('Deze afbeelding is nog geen uitgeknipte plaat. Verwerk eerst de scans.')
    with contextlib.redirect_stdout(io.StringIO()) as captured:C.recolor(str(src),str(ref),str(temporary),strength,progress=lambda fraction,phase:emit('progress',fraction=fraction,index=i+1,total=len(rows),phase=phase))
    emit('log',message=captured.getvalue())
   else:
@@ -225,7 +232,7 @@ def colour(req,rows,work):
  reference_folder=output/'Referentie';reference_folder.mkdir()
  shutil.copy2(ref,reference_folder/('Gebruikte-foto'+ref.suffix.lower()))
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'colour','source_reference':str(ref),'strength':strength,'scope':scope,'inputs':rows,'outputs':files},ensure_ascii=False,indent=2))
- emit('complete',message=f'{len(files)} nieuwe kleurvoorstellen bewaard; de originelen zijn behouden.',path=str(output))
+ emit('complete',message=f"{len(files)} nieuwe kleurkopie{'ën' if len(files)!=1 else ''} opgeslagen. Bekijk Nieuwe kleuren; de originelen blijven behouden.",path=str(output))
 
 def names_preview(req,rows):
  import scan_naam as N

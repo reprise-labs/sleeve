@@ -15,10 +15,12 @@ ln -s "$ROOT_DIR/Resources" "$CHECK_DIR/Checks.app/Contents/Resources"
 cat > "$CHECK_DIR/Checks.app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Checks</string><key>CFBundleIdentifier</key><string>com.repriselabs.sleeve.checks</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>
 PLIST
-/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Tests/ProjectQueueChecks.swift -o "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" -framework SwiftUI -framework AppKit
+/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Source/StudioColour.swift Tests/ProjectQueueChecks.swift -o "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" -framework SwiftUI -framework AppKit
 "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" "$CHECK_DIR/project-queue"
-/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Tests/EditingChecks.swift -o "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" -framework SwiftUI -framework AppKit
+/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Source/StudioColour.swift Tests/EditingChecks.swift -o "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" -framework SwiftUI -framework AppKit
 "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" "$CHECK_DIR/editing"
-/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Tests/ModelChecks.swift -o "$CHECK_DIR/ModelChecks" -framework SwiftUI -framework AppKit
+/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Source/StudioColour.swift Tests/ColourWorkflowChecks.swift -o "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" -framework SwiftUI -framework AppKit
+"$CHECK_DIR/Checks.app/Contents/MacOS/Checks" "$CHECK_DIR/colour-workflow"
+/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Source/StudioColour.swift Tests/ModelChecks.swift -o "$CHECK_DIR/ModelChecks" -framework SwiftUI -framework AppKit
 "$CHECK_DIR/ModelChecks"
 print "Controles geslaagd. Verslagen: $CHECK_DIR"

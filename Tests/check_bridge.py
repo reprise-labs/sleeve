@@ -24,3 +24,17 @@ job({'action':'namesApply','inputs':[row],'proposals':[dict(proposal,newName='..
 job({'action':'namesPreview','inputs':[row],'discogs':'https://example.com/release/1'},'url',False)
 checks={'label_and_alpha_exact':True,'colour_changes_record':True,'name_copy_independent_and_identical':True,'unsafe_name_and_url_rejected':True}
 (work/'RESULTAAT.json').write_text(json.dumps(checks,indent=2));print(checks)
+
+# Mixed cover + vinyl requests must fail before creating any colour proposals.
+cover_source=work/'cover_front.png';cover_source.write_bytes(sample.read_bytes())
+for rows in [[row,dict(row,path=str(cover_source),part='front')],[dict(row,path=str(cover_source),part='front')]]:
+ events=job({'action':'colour','inputs':rows,'reference':str(ref),'scope':'vinyl'},'wrong-target-'+str(len(rows)),False)
+ assert not any(e['event']=='outputs' for e in events)
+# Real two-side colour batch preserves label/alpha for both targets.
+second=work/'source_sideb.png';second.write_bytes(sample.read_bytes())
+events=job({'action':'colour','inputs':[row,dict(row,path=str(second),part='sideb')],'reference':str(ref),'scope':'vinyl'},'both-sides')
+files={f['path'] for e in events if e['event']=='outputs' for f in e.get('files',[])}
+assert len(files)==2
+for path in files:
+ result=np.array(Image.open(path));assert np.array_equal(a[:,:,3],result[:,:,3]) and np.array_equal(a[label],result[label])
+print('Beide vinylkanten tegelijk getest; hoes met vinylreferentie vooraf afgewezen.')
