@@ -47,6 +47,15 @@ import SwiftUI
         precondition(model.repairLegacyResultPart(legacy).part=="unknown","Oud afgebroken resultaat mag niet als voorkant terugkomen")
         let named=MediaItem(url:URL(fileURLWithPath:"/tmp/release_front.png"),part:"front",partial:true)
         precondition(model.repairLegacyResultPart(named).part=="front","Een expliciete onderdeelsnaam moet behouden blijven")
+        model.receive(BridgeEvent(event:"progress",fraction:0.5,index:2,total:6,phase:"Overgangen afwerken",scope:"component",unitsDone:4,unitsTotal:8,completedParts:1,detail:"4 deelscans"))
+        let oldDate=Date(timeIntervalSince1970:1);model.phaseStartedAt=oldDate
+        model.receive(BridgeEvent(event:"progress",fraction:0.75,index:2,total:6,phase:"Overgangen afwerken",scope:"component",unitsDone:6,unitsTotal:8))
+        precondition(model.phaseStartedAt==oldDate && model.completedParts==1 && model.progressUnitsDone==6)
+        model.receive(BridgeEvent(event:"progress",phase:"Beeld opslaan",scope:"component"))
+        precondition(model.measuredProgress==nil && model.phaseStartedAt != oldDate && model.progressUnitsDone==nil)
+        model.receive(BridgeEvent(event:"progress",total:6,phase:"Namen maken",scope:"finishing",completedParts:6))
+        precondition(model.currentPart==nil && model.completedParts==6 && model.progressDetail.isEmpty)
+        precondition(durationText(500)=="8:20" && durationText(3661)=="1:01:01")
         print("Modelcontroles geslaagd: onderdelen, bronverbinding, volgende stap, referentiekeuze.")
     }
 }

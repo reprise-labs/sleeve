@@ -15,3 +15,18 @@ worker.write_text("import sys\nprint('ValueError: Onvolledige schijf: 0.9% ontbr
 p=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,timeout=10)
 assert p.returncode!=0 and 'RuntimeError: Onvolledige schijf: 0.9%' in p.stderr
 print('De concrete onvolledigheidsmelding blijft zichtbaar in de app.')
+
+# Structured phases clear the previous percentage; counts are actual work, not ETA.
+payloads=[{'phase':'Scans vergelijken','fraction':.25,'scope':'preparation','unitsDone':2,'unitsTotal':8},
+ {'phase':'Overgangen afwerken','fraction':.5,'scope':'component','unitsDone':4,'unitsTotal':8,'completedParts':1},
+ {'phase':'Schijf opslaan','fraction':None,'scope':'component'},
+ {'phase':'Namen maken','fraction':None,'scope':'finishing','completedParts':6}]
+worker.write_text('import json\nprint("[2/6] bron.png")\n'+''.join('print('+repr('SLEEVE_PROGRESS '+json.dumps(payload))+')\n' for payload in payloads))
+p=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,timeout=10)
+assert p.returncode==0,p.stderr
+progress=[json.loads(line) for line in p.stdout.splitlines() if json.loads(line).get('event')=='progress']
+assert [event['fraction'] for event in progress]==[None,.25,.5,None,None]
+assert progress[1]['scope']=='preparation' and progress[1]['index'] is None
+assert progress[2]['unitsDone']==4 and progress[2]['completedParts']==1
+assert progress[-1]['index'] is None and progress[-1]['completedParts']==6
+print('Echte staptellingen, onbekende opslagduur en afronden worden afzonderlijk doorgegeven.')

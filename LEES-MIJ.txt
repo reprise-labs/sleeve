@@ -6,7 +6,7 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Testversie 0.4.2
+## Testversie 0.4.3
 
 Nieuw in deze testversie: Discogs-releasevoorstellen en een aparte kleurstap
 voor hoezen en platen. Ook beschikbaar: ronde uitsneden zelf bijstellen, één
@@ -164,3 +164,15 @@ Nog te bepalen. Een afgebroken naamgevingsstap maakt niet alle beelden Voorkant.
 Bekende onderdelen en hun bronbeelden worden bij elk resultaat bijgehouden.
 Voorkant en achterkant kunnen met de passende Discogs-hoesfoto en barcode
 worden voorgesteld; controleer de namen altijd in de eindcontrole.
+
+
+## Nieuw in 0.4.3: duidelijke voortgang
+
+Een groot voortgangsvak toont het huidige onderdeel, het aantal verwerkte
+onderdelen, de actuele stap, de totale tijd en de tijd van de huidige stap.
+Ook voorbereiden, scans vergelijken, belichting tussen deelscans afstemmen en
+het afwerken van overgangen geven voortgang door. Balken en percentages zijn
+gebaseerd op getelde beelden, vergelijkingen of verwerkte beeldstroken.
+Bij opslaan, tekstherkenning en Discogs vergelijken wordt geen percentage
+geraden: je ziet een activiteitbalk en de naam en duur van die stap.
+Een fasepercentage is geen percentage van de gehele opdracht of een tijdschatting.
