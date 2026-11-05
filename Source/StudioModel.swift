@@ -329,7 +329,7 @@ final class PipeReader: @unchecked Sendable {
             if action=="colour" {activeColourSourcePaths=Set(rows.map{$0.url.path});activeColourOutputPaths=[]}
             else if ["scan","namesApply","manualCrop"].contains(action) {outputs=[];showResults=false}
             let p=Process();let runtime=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Runtime/bin/python3");p.executableURL=FileManager.default.isExecutableFile(atPath:runtime.path) ? runtime : URL(fileURLWithPath:"/usr/bin/python3");p.arguments=[resources.appendingPathComponent("studio_bridge.py").path,request.path]
-            var env=ProcessInfo.processInfo.environment;env["PYTHONUNBUFFERED"]="1";env["PYTHONDONTWRITEBYTECODE"]="1";p.environment=env
+            var env=ProcessInfo.processInfo.environment;env["PYTHONUNBUFFERED"]="1";env["PYTHONDONTWRITEBYTECODE"]="1";env["OPENBLAS_NUM_THREADS"]="1";env["OMP_NUM_THREADS"]="2";env["VECLIB_MAXIMUM_THREADS"]="1";p.environment=env
             let pipe=Pipe();p.standardOutput=pipe;p.standardError=pipe;let token=UUID();currentToken=token
             let lineReader=PipeReader{[weak self] event in
                 DispatchQueue.main.async {guard let self,self.currentToken==token else{return};self.receive(event)}

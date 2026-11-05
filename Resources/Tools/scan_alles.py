@@ -44,11 +44,21 @@ def small(path, side=1400):
     return ST.load(path, f), f
 
 
-@lru_cache(maxsize=256)
-def disc_side(path):
+_disc_side_results = {}
+
+def disc_side(path, preview=None):
+    """Read a side marker; a supplied preview avoids decoding the source twice."""
+    stat=os.stat(path);key=(os.path.abspath(path),stat.st_size,stat.st_mtime_ns)
+    if key in _disc_side_results:return _disc_side_results[key]
+    if preview is None:preview,_=small(path,700)
+    result=disc_side_from_preview(path,preview)
+    if len(_disc_side_results)>=256:_disc_side_results.pop(next(iter(_disc_side_results)))
+    _disc_side_results[key]=result
+    return result
+
+def disc_side_from_preview(path, im):
     """Read an explicit side marker on the centre label, never infer from artwork."""
     import re
-    im, _ = small(path, 700)
     gray = cv2.GaussianBlur(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), (3, 3), 0)
     m = min(gray.shape)
     circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1, minDist=m*.1,
@@ -91,6 +101,11 @@ def disc_side(path):
 
 
 def groups(paths):
+    with tempfile.TemporaryFile(prefix='sleeve-group-previews-') as scratch:
+        return group_with_previews(paths,scratch)
+
+
+def group_with_previews(paths,scratch):
     """Welke scans zijn delen van hetzelfde onderdeel? Twee scans horen bij
     elkaar als ze rigide op elkaar passen ÉN het gebied waar ze overeenkomen
     ook in detail gelijk is. Dat laatste scheidt bv. kant A en B van een plaat:
@@ -98,11 +113,7 @@ def groups(paths):
     Samenvoegen per gemiddelde gelijkenis tussen groepen (geen ketens)."""
     sift = cv2.SIFT_create(4000)
     feats = []
-    sides=[]
-    progress('Etiketten en plaatkanten lezen',0,len(paths),scope='preparation')
-    for index,path in enumerate(paths):
-        sides.append(disc_side(path));progress('Etiketten en plaatkanten lezen',index+1,len(paths),scope='preparation')
-    print("labelkanten:", [(os.path.basename(p), side) for p, side in zip(paths, sides) if side], flush=True)
+    sides=[];preview_offsets=[]
     # A shorter cropped scan at the same DPI must retain the same physical scale.
     # Resizing every file to the same longest side made these scans fail rigid matching.
     headers=[]
@@ -111,10 +122,21 @@ def groups(paths):
     calibrated=all(dpi for _,dpi in headers)
     span=max((pixels/dpi if calibrated else pixels) for pixels,dpi in headers)
     target=min(1400/span,min(dpi for _,dpi in headers)) if calibrated else 1400/span
+    progress('Scans openen en plaatkanten lezen',0,len(paths),scope='preparation')
+    for index,(path,(longest,dpi)) in enumerate(zip(paths,headers)):
+        f=min(1.0,target/dpi if calibrated else target)
+        label,preview=ST.load_previews(path,[min(1.0,700/longest),f])
+        preview_offsets.append(scratch.tell())
+        np.save(scratch,preview,allow_pickle=False)
+        sides.append(disc_side(path,label))
+        progress('Scans openen en plaatkanten lezen',index+1,len(paths),scope='preparation')
+    label=preview=None
+    print("labelkanten:", [(os.path.basename(p), side) for p, side in zip(paths, sides) if side], flush=True)
     progress("Herkenningspunten zoeken",0,len(paths),scope="preparation")
     for index,(p,(_,dpi)) in enumerate(zip(paths,headers)):
         f=min(1.0,target/dpi if calibrated else target)
-        im=ST.load(p,f)
+        scratch.seek(preview_offsets[index])
+        im=np.load(scratch,allow_pickle=False)
         g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
         # deksel/glasplaat niet meetellen: stofjes daarop staan in elke scan op dezelfde plek
         valid = (~ST.background_mask(im)).astype(np.uint8) * 255

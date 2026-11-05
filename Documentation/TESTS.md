@@ -213,3 +213,51 @@ zes resultaten en eindcontrole; de gemeten totale duur was 39 minuten 50 seconde
 - Volledige regressiesuite geslaagd, inclusief projecten, wachtrij, opnieuw verwerken,
   kleurselectie A/B, naamgeving, geheugenbewaking en de nieuwe opslagtests.
   App-ondertekening en uitvoerrechten na ZIP-uitpakken gecontroleerd.
+
+
+## 0.4.6 — berekening van overgangen en scanvoorbereiding versnellen
+
+- Brede laagfrequente mengvelden gebruiken een Gauss-piramide met correctie
+  voor de filtervariantie van verkleinen en vergroten. De detailpixels komen
+  nog steeds uit de originele scans op volle resolutie. Schijfmaskers, uitsnede,
+  bronuitlijning en selectie van scherpe details zijn behouden.
+- Detailberekening wordt overgeslagen als een bron in dat hele blok geen
+  enkele detailpixel levert. De lage-frequentiebijdrage blijft behouden.
+- Etiketdetectie en groepering delen één PNG-decodering per bron. Beide previews
+  worden onafhankelijk met dezelfde LANCZOS-resize en ICC-conversie gemaakt.
+  De tussencache is één anoniem tijdelijk bestand: bij stoppen blijven deze
+  previews niet achter en er worden geen extra volledige scans in RAM gehouden.
+- Belichtingscorrectie schrijft drie kanalen per strook voordat de geheugenpagina's
+  worden vrijgegeven. Uitkomst en gainvelden zijn in een gerichte vergelijking
+  bit-identiek; 14 vrijgaveacties werden in die fixture 6.
+- Vier gerichte renderercontroles (papier, oranje, doorzichtig met een gat, zwart):
+  circa 2,3x sneller. Alpha exact gelijk, maximaal 1/255 zichtbaar RGB-verschil.
+- Afzonderlijke echte FIRE-hoes met de nieuwe mengmethode: 203 tegenover 272
+  seconden. Resolutie 14757 × 14660 exact gelijk; alpha exact gelijk.
+  0,029% van de zichtbare kleurkanalen verschilt 1/255; de overige zijn gelijk.
+  Gemeten peak physical footprint circa 4,1 GiB; de geheugengrens bleef actief.
+- Twee previews uit één echte FIRE-bron: 6,17 naar 3,47 seconden, alle pixels
+  exact gelijk. Tests dekken RGB, RGBA, grijs, ICC en cacheverversing bij gewijzigde bron.
+- Volledige regressiesuite geslaagd, inclusief projecten, wachtrij, kleurworkflow,
+  stoppen, geheugen, naamgeving en de nieuwe preview- en mengveldcontroles.
+- Een eerste volledige-setmeting werd bij het openen van de laatste plaatkant
+  door de testbewaking gestopt (peak physical footprint circa 5 GiB). Vijf
+  tussentijdse resultaten bleven behouden; dit geldt niet als een voltooide benchmark.
+- Daarom zijn overbodige volledige RGB-kopieën bij openen verwijderd en gebeurt
+  de RGB-profielconversie in hetzelfde beeldbuffer. Een volledige echte bron
+  van 10192 × 14032 pixels geeft vóór en na exact dezelfde BGR-SHA256.
+  De definitieve hele-setmeting is daarna apart met deze geheugenfix uitgevoerd.
+- De herhaalde volledige FIRE-setmeting met de geheugenfix is succesvol: alle
+  28 scans → zes resultaten, Discogs-namen en stand, zonder kleurcorrectie.
+  Backend 1715 seconden plus 7,88 seconden dezelfde bestandscontrole: totaal
+  afgerond 28 minuten 43 seconden. De eerdere praktijkrun was circa 40 minuten;
+  dit is geen verse volledige A/B-meting tegen 0.4.5.
+- Alle zes bestanden leesbaar. Kant A 13924 × 13924 en kant B 13764 × 13764,
+  beide rond gemeten en 0,0% ontbrekend beeld in de gecontroleerde binnenring.
+  Gemeten RSS-piek procesgroep circa 2822 MiB; peak physical footprint circa
+  4,6 GiB. De testbewaking hoefde niet in te grijpen in deze complete run.
+- De app gebruikt voor haar beeldwerk dezelfde threadbudgetten als de meting
+  (OpenCV 2, OpenBLAS/Accelerate 1) om overmatige parallelle werkbuffers te beperken.
+- Na de laatste geheugenfix en gelijke threadinstellingen is de volledige
+  regressiesuite opnieuw geslaagd. De definitieve app is opnieuw gebouwd en
+  de ondertekening is gecontroleerd.
