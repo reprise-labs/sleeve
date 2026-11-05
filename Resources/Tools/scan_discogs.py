@@ -106,6 +106,7 @@ def main():
     p.add_argument('--uit'); p.add_argument('--alleen-stand', action='store_true'); p.add_argument('--alleen-kleur', action='store_true')
     a = p.parse_args()
     with Image.open(a.scan) as original:
+        source_mode=original.mode
         metadata = {key:original.info[key] for key in ('dpi','icc_profile') if key in original.info}
     raw = cv2.imread(a.scan, cv2.IMREAD_UNCHANGED)
     if raw is None:
@@ -139,6 +140,7 @@ def main():
 
     out = raw
     del raw
+    changed=False
     # kleur: vergelijk alleen gekleurde delen van de scan met dezelfde plek op Discogs
     if not a.alleen_stand:
         best = None                                           # foto met het meeste gekleurde vlak
@@ -154,6 +156,7 @@ def main():
                 best = (mm.sum(), nn, mm, h1, s1, v1, h2, s2, v2)
         _, nc, m, h1, s1, v1, h2, s2, v2 = best
         if m.sum() > 0.02 * m.size:
+            changed=True
             # hoofdkleur van de scan (cirkelgemiddelde van de tint)
             hc = np.degrees(np.arctan2(np.sin(np.radians(h1[m])).mean(), np.cos(np.radians(h1[m])).mean())) % 360
             near = m & (np.abs(((h1 - hc + 180) % 360) - 180) < 25)
@@ -175,6 +178,7 @@ def main():
     if not a.alleen_kleur:
         rot = ang if round_ else 90 * round(ang / 90)
         if abs(rot) >= 0.2:
+            changed=True
             if not round_:
                 # Exact quarter turns need no interpolation, padding or lost edge pixels.
                 out = np.ascontiguousarray(np.rot90(out, -int(round(rot / 90))))
@@ -183,6 +187,14 @@ def main():
                 R = cv2.getRotationMatrix2D((w / 2, h / 2), -rot, 1.0)
                 out = cv2.warpAffine(out, R, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
             print(f'stand: {rot:+.1f} graden gedraaid ({"plaat, exact" if round_ else "hoes, per 90"})')
+    destination=a.uit or a.scan
+    if not changed and source_mode=='RGBA' and os.path.splitext(destination)[1].lower()==os.path.splitext(a.scan)[1].lower():
+        if os.path.abspath(destination)!=os.path.abspath(a.scan):
+            import shutil
+            shutil.copy2(a.scan,destination)
+        print('beeld ongewijzigd; opnieuw opslaan overgeslagen')
+        print('klaar:',destination)
+        return
     if metadata:
         Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGRA2RGBA)).save(a.uit or a.scan, compress_level=3, **metadata)
     else:
