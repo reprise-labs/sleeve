@@ -6,7 +6,7 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Proefversie 0.3.1
+## Proefversie 0.3.2
 
 Apple Silicon, macOS 14 of nieuwer. De app is lokaal ondertekend en nog niet
 bij Apple genotariseerd. Deze proefversie heeft een eenmalige installatie van
@@ -91,3 +91,11 @@ synthetische checks bewijzen niet dat elke mogelijke scan correct wordt verwerkt
 
 Sleeve is een apart project naast [Reprise](https://github.com/reprise-labs/reprise).
 De twee apps hebben eigen versies en downloads. Deze repository wijzigt Reprise niet.
+
+## Downloadpakket maken
+
+Na het bouwen: `zsh scripts/package.sh`.
+Dit zet de uitvoerrechten van de installer expliciet goed en controleert ze
+in de ZIP én na uitpakken met macOS. Download voor installatie het bestand
+`Sleeve-0.3.2-macOS-arm64.zip` bij Releases; de automatisch aangeboden
+Source code-archieven zijn bedoeld voor ontwikkelaars.
