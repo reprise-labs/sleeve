@@ -6,9 +6,11 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Testversie 0.4.5
+## Testversie 0.4.6
 
-Nieuw in deze testversie: minder onnodig opnieuw opslaan bij het verwerken.
+Nieuw in deze testversie: snellere berekening van zachte overgangen, gedeelde
+voorbeelden voor scanherkenning en minder schijfschrijfacties bij belichtingscorrectie.
+De uitvoer blijft op volledige scanresolutie.
 Verder beschikbaar: Discogs-releasevoorstellen en een aparte kleurstap
 voor hoezen en platen. Ook beschikbaar: ronde uitsneden zelf bijstellen, één
 onderdeel opnieuw verwerken en de geheugenfix voor grote FIRE-scans.

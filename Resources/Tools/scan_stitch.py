@@ -25,6 +25,7 @@ scan_cutout.py (cover/vinyl) en de watermerkstap.
 """
 import argparse, os, sys, gc, contextlib
 from scan_progress import progress
+from scan_blend import detail_blur
 from scan_memory import MappedScanStore,MappedArrayStore,render_tile_size,drop_array_pages
 import numpy as np
 import cv2
@@ -52,14 +53,36 @@ def load(path, f=1.0):
             im = im.convert('RGB')
         if f != 1:
             im = im.resize((max(1, round(im.width * f)), max(1, round(im.height * f))), Image.LANCZOS)
-        im = im.convert('RGB')
+        if im.mode != 'RGB':im = im.convert('RGB')
         if icc:
             src = ImageCms.ImageCmsProfile(io.BytesIO(icc))
             if 'srgb' not in ImageCms.getProfileDescription(src).lower():
-                im = ImageCms.profileToProfile(im, src, ImageCms.createProfile('sRGB'), outputMode='RGB')
+                ImageCms.profileToProfile(im, src, ImageCms.createProfile('sRGB'), outputMode='RGB', inPlace=True)
         return cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2BGR)
     except Exception as e:
         sys.exit(f'kan {path} niet lezen: {e}')
+
+
+def load_previews(path, factors):
+    """Decode once, then create independent previews with the existing pixel path."""
+    import io
+    from PIL import Image, ImageCms
+    Image.MAX_IMAGE_PIXELS = None
+    outputs=[]
+    with Image.open(path) as original:
+        icc=original.info.get('icc_profile')
+        image=original if original.mode in ('RGB','RGBA','L') else original.convert('RGB')
+        profile=ImageCms.ImageCmsProfile(io.BytesIO(icc)) if icc else None
+        convert=profile is not None and 'srgb' not in ImageCms.getProfileDescription(profile).lower()
+        for factor in factors:
+            preview=image
+            if factor != 1:
+                preview=image.resize((max(1,round(image.width*factor)),max(1,round(image.height*factor))),Image.LANCZOS)
+            preview=preview.convert('RGB')
+            if convert:
+                preview=ImageCms.profileToProfile(preview,profile,ImageCms.createProfile('sRGB'),outputMode='RGB')
+            outputs.append(cv2.cvtColor(np.asarray(preview),cv2.COLOR_RGB2BGR))
+    return outputs
 
 
 def lid_colour(edge):
@@ -245,6 +268,7 @@ def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None):
     fx=np.arange(w,dtype=np.float32)[None,:]
     out=allocator("corrected",im.shape) if allocator else np.empty_like(im)
     gm=allocator("gain",im.shape) if allocator else np.empty_like(im)
+    coefficients=[]
     for c in range(3):
         r = np.log(B[ok, c] / A[ok, c])
         sel = np.ones(len(r), bool)
@@ -252,12 +276,16 @@ def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None):
             coef, *_ = np.linalg.lstsq(X[sel], r[sel], rcond=None)
             res = r - X @ coef
             sel = np.abs(res) < max(2.5 * np.std(res[sel]), 0.01)
-        for y0 in range(0,h,256):
-            y1=min(h,y0+256);fy=np.arange(y0,y1,dtype=np.float32)[:,None]
+        coefficients.append(coef)
+    # Write all three channels before flushing this band, instead of rereading
+    # and flushing the same mapped pages once per channel. Arithmetic is unchanged.
+    for y0 in range(0,h,256):
+        y1=min(h,y0+256);fy=np.arange(y0,y1,dtype=np.float32)[:,None]
+        for c,coef in enumerate(coefficients):
             gmap=np.exp(coef[0]+coef[1]*fx/w+coef[2]*fy/h)
             gm[y0:y1,:,c]=np.clip(gmap,0.85,1.15)
             out[y0:y1,:,c]=im[y0:y1,:,c]*gm[y0:y1,:,c]
-            if release:release()
+        if release:release()
     return out, gm
 
 
@@ -457,11 +485,13 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
                         im *= sample(G_o[k], x0, y0, w, h, cv2.INTER_LINEAR)
                     mf = mk.astype(np.float32)
                     wk = (np.maximum(sample(W_o[k], x0, y0, w, h, cv2.INTER_LINEAR), 0) + 1e-4) * mf
-                    mb = cv2.GaussianBlur(mf, (0, 0), sig)
-                    lk = cv2.GaussianBlur(im * mf[..., None], (0, 0), sig) / np.maximum(mb, 1e-6)[..., None]
+                    mb = detail_blur(mf, sig)
+                    lk = detail_blur(im * mf[..., None], sig) / np.maximum(mb, 1e-6)[..., None]
                     low += lk * wk[..., None]; acc += wk
-                    win = cv2.GaussianBlur(((bt == n) & mk).astype(np.float32), (0, 0), 2 * s)
-                    high += (im - lk) * win[..., None]
+                    winner = (bt == n) & mk
+                    if winner.any():
+                        win = cv2.GaussianBlur(winner.astype(np.float32), (0, 0), 2 * s)
+                        high += (im - lk) * win[..., None]
                     anym |= mk
                 res = low / np.maximum(acc, 1e-6)[..., None] + high
                 if F_o is not None:
