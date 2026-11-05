@@ -1,4 +1,4 @@
-# Controle van Sleeve 0.3.0 — 5 november 2026
+# Controle van Sleeve 0.3.1 — 5 november 2026
 
 De onderstaande controles zijn daadwerkelijk uitgevoerd op de ontwikkel-Mac
 (Apple Silicon). De aparte installatie is getest met Python 3.11, NumPy 2.0.2,
@@ -36,3 +36,6 @@ Visuele volledigheid, passende referentiefoto, gewenste kleur en bestandsnamen
 blijven handmatige beoordelingen. De app is een proefversie, niet genotariseerd.
 
 Voer scripts/check.sh uit om de zelfstandige controles opnieuw te doen.
+
+Bij de finale distributiecontrole is het bouwdoel gecorrigeerd naar macOS 14.0
+voor zowel de app als de OCR-helper. Dit is gecontroleerd in de Mach-O-bestanden.
