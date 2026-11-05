@@ -190,3 +190,26 @@ zes resultaten en eindcontrole; de gemeten totale duur was 39 minuten 50 seconde
   pixeltests controleren behoud van etiketten, alpha en originele bestanden.
 - Dit bepaalt de kleur op basis van de gekozen foto; een referentiefoto is geen
   gekalibreerde meting van de fysieke plaat. De gebruiker beoordeelt het resultaat.
+
+
+## 0.4.5 — minder dubbel reken- en opslagwerk
+
+- Een samengevoegde hoes wordt binnen de eigen tijdelijke werkmap verplaatst,
+  in plaats van dezelfde pixels nog eens als PNG te decoderen en te comprimeren.
+- Een RGBA-beeld waarvan de Discogs-stand en kleur ongewijzigd blijven, hoeft
+  niet opnieuw te worden gecomprimeerd. Pixels, alpha en bronmetadata blijven behouden.
+  Echte kleurcorrecties en rotaties gebruiken de bestaande verwerking.
+- Detailkeuze gebruikt stroken van 768 in plaats van 256 regels, met exact
+  dezelfde convolutionele rand van 102 regels. De uitvoerresolutie blijft gelijk.
+- Echte FIRE-fronttest, vier bronbeelden op volle resolutie: 299 naar 272 seconden
+  in één vergelijking. Uitvoer 14757 × 14660 pixels; RGB en alpha exact gelijk.
+  Gemeten piek physical footprint in beide tests circa 3,6 GiB.
+- Apart gemeten op dezelfde grote hoes: overbodig PNG-opslaan kostte 18,2 seconden;
+  verplaatsen minder dan 0,001 seconde. Een onveranderde Discogs-standstap ging
+  van 29,3 naar 6,1 seconden. Referentiematching was voor deze gerichte meting
+  vastgezet op identiteit; dit is geen meting van netwerk- of zoekwerk.
+- De volledige zesdelige FIRE-run is niet opnieuw getimed. De bovenstaande
+  meetwaarden zijn geen voorspelling van de totale verwerkingstijd.
+- Volledige regressiesuite geslaagd, inclusief projecten, wachtrij, opnieuw verwerken,
+  kleurselectie A/B, naamgeving, geheugenbewaking en de nieuwe opslagtests.
+  App-ondertekening en uitvoerrechten na ZIP-uitpakken gecontroleerd.

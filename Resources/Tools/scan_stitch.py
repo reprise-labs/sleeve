@@ -682,8 +682,9 @@ def main_with_resources(resources):
     # Same sharpness winner as argmax, computed by bands without stacking all scores.
     progress('Details tussen deelscans vergelijken',0,height)
     best=np.zeros((height,width),np.uint8)
-    for y0 in range(0,height,256):
-        y1=min(height,y0+256);top=max(0,y0-102);bottom=min(height,y1+102)
+    # Keep the same 102-row convolution halo; wider bands avoid recomputing it.
+    for y0 in range(0,height,768):
+        y1=min(height,y0+768);top=max(0,y0-102);bottom=min(height,y1+102)
         value=np.full((y1-y0,width),-np.inf,np.float32);winner=np.zeros(value.shape,np.uint8)
         for n,k in enumerate(ks):
             g=cv2.cvtColor(np.clip(img[k][top:bottom],0,255).astype(np.uint8),cv2.COLOR_BGR2GRAY).astype(np.float32)

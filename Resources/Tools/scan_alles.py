@@ -254,6 +254,11 @@ def text_amount(path):
                for w in _re.findall(r"[A-Za-z]{3,}", ln.split('\t', 2)[-1]) if w.lower() in W)
 
 
+def save_merged_cover(source,destination):
+    """The stitch worker already finalized these pixels; both paths are in its private temp folder."""
+    os.replace(source,destination)
+
+
 def upright_cover(path):
     """Hoes in hele kwartslagen rechtop zetten op de leesrichting van de tekst."""
     with Image.open(path) as im:
@@ -436,8 +441,7 @@ return text returned of r''')
         elif len(g) > 1:
             # samengevoegde hoes is al recht en precies bijgesneden: niet nog eens snijden
             progress('Samengevoegde hoes opslaan')
-            with Image.open(src) as im:
-                im.save(dst, compress_level=3)
+            save_merged_cover(src,dst)
             progress('Leesrichting van de hoes controleren')
             if upright_cover(dst) is None:
                 twijfel.add(dst)
