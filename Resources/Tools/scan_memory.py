@@ -20,8 +20,8 @@ class MappedScanStore:
     TemporaryFile is unlinked on POSIX, so a killed worker cannot leave large raw
     scratch files behind. No source is modified and no resolution is reduced.
     """
-    def __init__(self,paths,keys,loader,output_bytes=0,scratch=None):
-        self.paths=paths;self.keys=list(keys);self.loader=loader
+    def __init__(self,paths,keys,loader,output_bytes=0,scratch=None,on_loaded=None):
+        self.paths=paths;self.keys=list(keys);self.loader=loader;self.on_loaded=on_loaded
         self.arrays={};self.maps=[];self.scratch=scratch or tempfile.gettempdir()
         total=0;maximum=0
         for k in self.keys:
@@ -55,6 +55,7 @@ class MappedScanStore:
                     self.arrays[k].setflags(write=False)
                     self.drop_pages()
                 gc.collect()
+                if self.on_loaded:self.on_loaded(len(self.arrays),len(self.keys))
             return self
         except BaseException:
             self.close();raise

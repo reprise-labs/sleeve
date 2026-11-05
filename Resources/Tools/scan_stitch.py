@@ -24,6 +24,7 @@ Uitvoer: png met transparantie waar geen scan was. Daarna eventueel
 scan_cutout.py (cover/vinyl) en de watermerkstap.
 """
 import argparse, os, sys, gc, contextlib
+from scan_progress import progress
 from scan_memory import MappedScanStore,MappedArrayStore,render_tile_size,drop_array_pages
 import numpy as np
 import cv2
@@ -405,7 +406,8 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
     gc.collect()
     B_o = to_out(best.astype(np.uint8), cv2.INTER_NEAREST)
     F_o = to_out(flat.astype(np.float32), cv2.INTER_LINEAR) if flat is not None else None
-    with MappedScanStore(paths,ks,load,output_bytes=Wf*Hf*4) as srcs:
+    progress('Originele scans openen',0,len(ks))
+    with MappedScanStore(paths,ks,load,output_bytes=Wf*Hf*4,on_loaded=lambda current,total:progress('Originele scans openen',current,total)) as srcs:
         M, polys = {}, {}
         for k in ks:
             hk, wk = srcs[k].shape[:2]
@@ -420,6 +422,7 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
         sig = DETAIL_SIGMA * s; pad = int(3 * sig) + 8
         tile=render_tile_size()
         print(f'geheugenbegrensd: bronbeelden via tijdelijke schijfblokken, uitvoerblokken {tile} px',flush=True)
+        progress('Beeld opbouwen',0,1)
         out = np.zeros((Hf, Wf, 4), np.uint8)
         def sample(m, x0, y0, w, h, interp):               # kleine kaart -> blok op volle schaal
             A = np.array([[f, 0, (x0 + 0.5) * f - 0.5], [0, f, (y0 + 0.5) * f - 0.5]])
@@ -562,7 +565,10 @@ def main_with_resources(resources):
         # Check scratch requirements before expensive alignment/blending can trigger swap.
         MappedScanStore(a.delen,range(len(a.delen)),load)
     source_scales = [f*ratio for ratio in ratios]
-    imgs = [load(fn,scale) for fn,scale in zip(a.delen,source_scales)]
+    imgs=[];progress('Deelscans openen',0,len(a.delen))
+    for index,(fn,scale) in enumerate(zip(a.delen,source_scales)):
+        imgs.append(load(fn,scale));progress('Deelscans openen',index+1,len(a.delen))
+    progress('Randen en achtergrond herkennen')
     valid = [~background_mask(im) for im in imgs]
     # kenmerken alleen op de hoes; maar is bijna alles als 'deksel' gezien (witte/crème
     # hoes op een wit deksel), zoek dan op de hele scan, anders mist hij de tekst
@@ -572,6 +578,7 @@ def main_with_resources(resources):
         m = np.ones(im.shape[:2], bool); m[:6] = m[-6:] = False; m[:, :6] = m[:, -6:] = False
         return m
     feats = [features(im, fmask(im, v)) for im, v in zip(imgs, valid)]
+    progress('Deelscans precies uitlijnen')
     H, ref, W, missing = place(len(imgs), feats)
     if missing:
         unresolved = []
@@ -647,10 +654,12 @@ def main_with_resources(resources):
     height,width=size[1],size[0]
     print(f'rekencanvas: {width}x{height} px; werkbuffers op tijdelijke schijfblokken',flush=True)
     estimate=height*width*(28*len(ks)+48)
+    progress('Werkbestanden voor samenvoegen voorbereiden')
     work=resources.enter_context(MappedArrayStore(estimate))
     img={k:work.put(('image',k),warped[k].astype(np.float32)) for k in ks}
     wts={k:work.put(('weight',k),feather_weight(masks[k])) for k in ks}
     gainm={}
+    progress('Belichting tussen deelscans afstemmen',0,len(ks))
     if not a.geen_kleur:
         done=[ref];todo=[k for k in ks if k!=ref]
         while todo:
@@ -668,8 +677,10 @@ def main_with_resources(resources):
                 img[k]=corrected;work.discard(('image',k))
             gainm[k]=gain;corrected=gain=None
             done.append(k);todo.remove(k);work.drop_pages()
+            progress('Belichting tussen deelscans afstemmen',len(done),len(ks))
         comp=acc=cm=None;work.discard(('composite',0))
     # Same sharpness winner as argmax, computed by bands without stacking all scores.
+    progress('Details tussen deelscans vergelijken',0,height)
     best=np.zeros((height,width),np.uint8)
     for y0 in range(0,height,256):
         y1=min(height,y0+256);top=max(0,y0-102);bottom=min(height,y1+102)
@@ -681,12 +692,14 @@ def main_with_resources(resources):
             better=score>value;value[better]=score[better];winner[better]=n
             work.drop_pages()
         best[y0:y1]=winner
+        progress('Details tussen deelscans vergelijken',y1,height)
     value=winner=g=sh=score=better=None
     def lowpass(x,m):
         mb=cv2.GaussianBlur(m,(0,0),DETAIL_SIGMA)
         return cv2.GaussianBlur(x*m[...,None],(0,0),DETAIL_SIGMA)/np.maximum(mb,1e-6)[...,None]
     low=work.empty(('low',0),(height,width,3));high=work.empty(('high',0),(height,width,3))
     pad=int(4*DETAIL_SIGMA)+2
+    progress('Overgangen tussen deelscans afwerken',0,len(ks)*height)
     for n,k in enumerate(ks):
         for y0 in range(0,height,256):
             y1=min(height,y0+256);top=max(0,y0-pad);bottom=min(height,y1+pad)
@@ -696,6 +709,8 @@ def main_with_resources(resources):
             win=cv2.GaussianBlur(((best[top:bottom]==n)&masks[k][top:bottom]).astype(np.float32),(0,0),2)[y0-top:y1-top]
             high[y0:y1]+=(img[k][y0:y1]-lk)*win[...,None]
             work.drop_pages()
+            progress('Overgangen tussen deelscans afwerken',n*height+y1,len(ks)*height)
+    progress('Voorbeeld van samenvoeging opbouwen',0,height)
     out=np.zeros((height,width,4),np.uint8);anymask=np.zeros((height,width),bool)
     for y0 in range(0,height,256):
         y1=min(height,y0+256);acc=sum(wts[k][y0:y1] for k in ks)
@@ -703,12 +718,15 @@ def main_with_resources(resources):
         out[y0:y1,:,:3]=np.clip(res+.5,0,255).astype(np.uint8)
         for k in ks:anymask[y0:y1]|=masks[k][y0:y1]
         out[y0:y1,:,3]=np.where(anymask[y0:y1],255,0);work.drop_pages()
+        progress('Voorbeeld van samenvoeging opbouwen',y1,height)
     imgs=valid=feats=warped=frames=img=low=high=score=res=acc=g=sh=mk=lk=win=None
     work.keep_only({('weight',k) for k in ks}|{('gain',k) for k in ks})
     gc.collect()
     flat = None
     if square is not None and not a.geen_kleur:
+        progress('Verlichting van de hoes gelijkmaken')
         flat = flatten_paper(out, square[0])
+    progress('Vorm rechtzetten en randen controleren')
     O = np.eye(3)                                         # canvas -> uitvoer (kleine schaal)
     if square is not None:
         # recht op de hoesranden en precies op het vierkant bijsnijden
@@ -734,7 +752,9 @@ def main_with_resources(resources):
         masks=wts=gainm=best=flat=None
         gc.collect()
     if square is not None:
+        progress('Kleine open randen controleren')
         out = repair_paper_gaps(out)
+    progress('Samengesteld beeld opslaan')
     cv2.imwrite(a.uitvoer, out, [cv2.IMWRITE_PNG_COMPRESSION, 3])
     print(f'klaar: {a.uitvoer}  ({out.shape[1]}x{out.shape[0]}, {len(order)} delen, referentie: {a.delen[ref]})')
 

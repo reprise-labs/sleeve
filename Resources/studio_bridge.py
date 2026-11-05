@@ -75,6 +75,15 @@ def run(args):
  child=subprocess.Popen([sys.executable,*map(str,args)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=True)
  for line in child.stdout:
   text=line.rstrip()
+  if text.startswith('SLEEVE_PROGRESS '):
+   try:payload=json.loads(text[len('SLEEVE_PROGRESS '):])
+   except ValueError:continue
+   phase=payload.get('phase','Verwerking');scope=payload.get('scope','component');fraction=payload.get('fraction')
+   if not isinstance(fraction,(float,int)) or not 0<=fraction<=1:fraction=None
+   emit('progress',fraction=fraction,index=index if scope=='component' else None,total=total,phase=phase,scope=scope,unitsDone=payload.get('unitsDone'),unitsTotal=payload.get('unitsTotal'),completedParts=payload.get('completedParts'),detail=payload.get('detail',''))
+   emit('status',message=(stage+' · ' if scope=='component' else '')+phase)
+   emit('log',message=phase+(f" · {payload['unitsDone']} / {payload['unitsTotal']}" if payload.get('unitsTotal') else ''))
+   continue
   if text.startswith(('ValueError: Te weinig vrije schijfruimte','ValueError: Een afzonderlijke scan','ValueError: Onvolledige schijf','ValueError: De schijf valt buiten')):resource_error=text.split(': ',1)[1]
   if text:
    emit('log',message=text)

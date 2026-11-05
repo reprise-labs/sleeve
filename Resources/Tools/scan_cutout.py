@@ -417,7 +417,10 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     import cv2
     with Image.open(src) as original:
         current_cut = original.info.get('sleeve_disc_cut',original.info.get('anouk_disc_cut')) in ('2','3')
+    from scan_progress import progress
+    progress('Schijf op volle resolutie openen')
     im, alpha = load_rgb(src)
+    progress('Buitenrand en middelpunt bepalen')
     if allow_incomplete and alpha is None: alpha = Image.new("L",im.size,255)
     # zoeken op een werkkopie (snel, weinig geheugen), knippen uit het origineel
     k = min(1.0, 4000 / max(im.size))
@@ -451,6 +454,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     if size != n:
         sq = sq.resize((size, size), Image.LANCZOS)
     if auto:
+        progress('Tekst op het etiket recht draaien')
         small = sq.resize((1200, 1200), Image.LANCZOS) if size > 1200 else sq
         ta = disc_text_angle(small, vinyl) or 0.0
         if vinyl:                                        # alleen het label lezen, groot genoeg
@@ -473,6 +477,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     cv2.circle(m, (c16, c16), int(size / 2 * 16) - 8, 255, -1, cv2.LINE_AA, shift=4)
     cv2.circle(m, (c16, c16), int(size * hole / 2 * 16), 0, -1, cv2.LINE_AA, shift=4)
     if alpha is not None:
+        progress('Uitsnede op ontbrekende delen controleren')
         al = alpha.crop(box)
         if size != n:
             al = al.resize((size, size), Image.LANCZOS)
@@ -494,6 +499,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     # Clear hidden pixels in place; avoid another full RGBA copy on 8 GB Macs.
     transparent = Image.fromarray(m).point([255]+[0]*255)
     out.paste((0,0,0,0),(0,0,size,size),transparent)
+    progress('Uitgesneden schijf opslaan')
     out.save(dst, compress_level=3, pnginfo=metadata)
     print(f'uitgeknipt: {size}x{size} px')
 

@@ -272,20 +272,36 @@ struct StudioView: View {
     }
     var footer: some View {
         VStack(alignment:.leading,spacing:8) {
-            if model.busy,let progress=model.measuredProgress {
-                HStack {
-                    Text(model.progressPhase).font(.system(size:11,weight:.medium))
-                    Spacer()
-                    Text("\(Int((progress*100).rounded()))% van deze stap").font(.system(size:11)).monospacedDigit()
+            if model.busy {
+                TimelineView(.periodic(from:.now,by:1)) {context in
+                    VStack(alignment:.leading,spacing:7) {
+                        HStack {
+                            if let index=model.currentPart,let total=model.totalParts {Text(model.progressPhase=="Eindcontrole" ? "Bestand \(index) van \(total) controleren" : "Onderdeel \(index) van \(total)").fontWeight(.semibold)}
+                            else {Text(model.completedParts>0 ? "Verwerking afronden" : "Verwerking voorbereiden").fontWeight(.semibold)}
+                            if model.mode == .scans,let total=model.totalParts {Text("· \(model.completedParts) van \(total) onderdelen verwerkt").foregroundStyle(.secondary)}
+                            Spacer()
+                            if let start=model.startedAt {Text("Totale tijd "+durationText(context.date.timeIntervalSince(start))).monospacedDigit()}
+                        }.font(.system(size:12))
+                        HStack {
+                            Text(model.progressPhase.isEmpty ? "Voorbereiden" : model.progressPhase)
+                            Spacer()
+                            if let start=model.phaseStartedAt {Text("Deze stap "+durationText(context.date.timeIntervalSince(start))).monospacedDigit().foregroundStyle(.secondary)}
+                        }.font(.system(size:12))
+                        if let progress=model.measuredProgress {
+                            ProgressView(value:progress,total:1).progressViewStyle(.linear).tint(studioAccent).scaleEffect(x:1,y:2).frame(height:10).accessibilityLabel("Gemeten voortgang van de huidige stap")
+                            HStack {Text("\(Int((progress*100).rounded()))% van deze stap");if let done=model.progressUnitsDone,let total=model.progressUnitsTotal {Text("· \(done) / \(total)")}}.font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        } else {
+                            ProgressView().progressViewStyle(.linear).tint(studioAccent).scaleEffect(x:1,y:2).frame(height:10).accessibilityLabel("Stap bezig, percentage onbekend")
+                            Text("Bezig · voor deze stap is geen betrouwbaar percentage beschikbaar.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if !model.progressDetail.isEmpty {Text(model.progressDetail).font(.caption).foregroundStyle(.secondary)}
+                        if let last=model.lastProgressAt,context.date.timeIntervalSince(last)>20 {Text("Laatste voortgangsmelding "+durationText(context.date.timeIntervalSince(last))+" geleden. Resterende tijd is nog niet betrouwbaar te bepalen.").font(.caption).foregroundStyle(.secondary)}
+                    }
                 }
-                ProgressView(value:progress,total:1).progressViewStyle(.linear).accessibilityLabel("Voortgang van het opbouwen van dit beeld")
-            } else if model.busy && !model.progressPhase.isEmpty {
-                Text(model.progressPhase).font(.system(size:11,weight:.medium)).foregroundStyle(.secondary)
             }
         HStack(spacing:12) {
             if model.busy {ProgressView().controlSize(.small)} else {Image(systemName:model.cancelled ? "stop.circle" : "circle.fill").font(.system(size:9)).foregroundStyle(model.errorMessage != nil ? .orange : studioAccent)}
             Text(model.stateText).font(.system(size:12)).lineLimit(2)
-            if model.busy,let date=model.startedAt {TimelineView(.periodic(from:.now,by:1)){context in Text("\(Int(context.date.timeIntervalSince(date))) s").font(.caption).monospacedDigit().foregroundStyle(.secondary)}}
             Spacer()
             if model.busy {Button("Stop verwerking",role:.destructive){model.cancel()}}
             if model.lastJobFolder != nil {Button("Toon resultaten"){model.revealOutput()}}

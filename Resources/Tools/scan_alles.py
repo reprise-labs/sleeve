@@ -24,6 +24,7 @@ Image.MAX_IMAGE_PIXELS = None
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 sys.path.insert(0, HERE)
+from scan_progress import progress
 import scan_stitch as ST          # noqa: E402
 import scan_cutout as CU          # noqa: E402
 
@@ -97,7 +98,10 @@ def groups(paths):
     Samenvoegen per gemiddelde gelijkenis tussen groepen (geen ketens)."""
     sift = cv2.SIFT_create(4000)
     feats = []
-    sides = [disc_side(p) for p in paths]
+    sides=[]
+    progress('Etiketten en plaatkanten lezen',0,len(paths),scope='preparation')
+    for index,path in enumerate(paths):
+        sides.append(disc_side(path));progress('Etiketten en plaatkanten lezen',index+1,len(paths),scope='preparation')
     print("labelkanten:", [(os.path.basename(p), side) for p, side in zip(paths, sides) if side], flush=True)
     # A shorter cropped scan at the same DPI must retain the same physical scale.
     # Resizing every file to the same longest side made these scans fail rigid matching.
@@ -107,7 +111,8 @@ def groups(paths):
     calibrated=all(dpi for _,dpi in headers)
     span=max((pixels/dpi if calibrated else pixels) for pixels,dpi in headers)
     target=min(1400/span,min(dpi for _,dpi in headers)) if calibrated else 1400/span
-    for p,(_,dpi) in zip(paths,headers):
+    progress("Herkenningspunten zoeken",0,len(paths),scope="preparation")
+    for index,(p,(_,dpi)) in enumerate(zip(paths,headers)):
         f=min(1.0,target/dpi if calibrated else target)
         im=ST.load(p,f)
         g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
@@ -119,9 +124,12 @@ def groups(paths):
         kp, des = sift.detectAndCompute(g, valid)
         gf = g.astype(np.float32)
         feats.append((np.float32([k.pt for k in kp]), des, gf - cv2.GaussianBlur(gf, (0, 0), 3), valid > 0))
+        progress("Herkenningspunten zoeken",index+1,len(paths),scope="preparation")
     n = len(paths); S = np.full((n, n), np.nan)
+    comparisons=0;comparison_total=n*(n-1)//2
     for i in range(n):
         for j in range(i + 1, n):
+            progress("Scans met elkaar vergelijken",comparisons,comparison_total,scope="preparation");comparisons+=1
             if sides[i] and sides[j] and sides[i] != sides[j]:
                 S[i,j] = S[j,i] = -1.0
                 continue
@@ -158,6 +166,7 @@ def groups(paths):
                             patches.append(np.corrcoef(hi[sl][v],hj[sl][v])[0,1])
                 conflict = len(patches) >= 5 and (np.asarray(patches)<.10).mean() > .20
                 S[i, j] = S[j, i] = -1.0 if conflict else np.corrcoef(hi[mh], hj[mh])[0, 1]
+    progress("Scans met elkaar vergelijken",comparisons,comparison_total,scope="preparation")
     cl = [[i] for i in range(n)]
     while True:
         best = None
@@ -353,6 +362,7 @@ return k as text''')
 return text returned of r''')
     references = [];primary_positions=set()
     if url and (a.discogs_stand or a.discogs_kleur):
+        progress("Discogs-referentiefoto’s ophalen",scope="preparation")
         try:
             import scan_discogs
             _, imgs, roles = scan_discogs.release_images(url, with_metadata=True)
@@ -394,6 +404,7 @@ return text returned of r''')
                 log('Overgeslagen: vrijwel lege scan zonder betrouwbare overlap: '+os.path.basename(g[0]))
                 continue
         print(f'[{n}/{len(gs)}] ' + ', '.join(os.path.basename(x) for x in g), flush=True)
+        progress('Deelscans voorbereiden',detail=f'{len(g)} deelscans voor dit onderdeel',completed=len(results))
         src = g[0];matched_primary=False
         dst = os.path.join(tmp, f'deel{n}.png')
         if len(g) > 1:
@@ -420,15 +431,19 @@ return text returned of r''')
             elif fixed.startswith('cd'):soort='cd'
             elif fixed:soort='hoes'
         if soort in ('cd', 'vinyl'):
+            progress('Plaat of cd uitsnijden en recht draaien')
             subprocess.run([PY, os.path.join(HERE, 'scan_cutout.py'), soort, src, dst, '--auto'], check=True)
         elif len(g) > 1:
             # samengevoegde hoes is al recht en precies bijgesneden: niet nog eens snijden
+            progress('Samengevoegde hoes opslaan')
             with Image.open(src) as im:
                 im.save(dst, compress_level=3)
+            progress('Leesrichting van de hoes controleren')
             if upright_cover(dst) is None:
                 twijfel.add(dst)
         else:
             subprocess.run([PY, os.path.join(HERE, 'scan_cutout.py'), 'cover', src, dst], check=True)
+            progress('Leesrichting van de hoes controleren')
             if upright_cover(dst) is None:
                 twijfel.add(dst)                       # leesrichting onbekend: straks vragen
         if references and (soort == 'hoes' or (soort == 'vinyl' and a.discogs_stand)):
@@ -438,6 +453,7 @@ return text returned of r''')
             else:
                 if not a.discogs_kleur: cmd.append('--alleen-stand')
                 if not a.discogs_stand: cmd.append('--alleen-kleur')
+            progress('Draairichting vergelijken met Discogs')
             r = subprocess.run(cmd, capture_output=True,text=True)
             log(r.stdout.strip() if r.returncode == 0 else 'Discogs-referentie past niet betrouwbaar; scan behouden.')
             import re
@@ -454,7 +470,9 @@ return text returned of r''')
         if matched_primary:detected_cover_parts[veilig]='front'
         component_records.append({'name':os.path.basename(veilig),'part':confirmed_parts.get(os.path.abspath(g[0]),detected_cover_parts.get(veilig,'unknown')),'type':soort,'source':os.path.realpath(g[0]),'scans':[os.path.realpath(p) for p in g]})
         save_components()
+        progress('Onderdeel verwerkt',completed=len(results))
 
+    progress('Onderdelen herkennen voor de bestandsnamen',scope='finishing',completed=len(results))
     # namen
     import scan_naam
     # hoezen: minste tekst eerst (= voorkant), dan de rest
@@ -476,7 +494,8 @@ return text returned of r''')
     used_cover_parts=set(detected_cover_parts.values())|{part for part in confirmed_parts.values() if part in ('front','back','inside','insert','inlay','sticker')}
     teller = {'hoes': 0, 'vinyl': 0, 'cd': 0}
     gebruikt = set()
-    for dst, soort, bron in results:
+    for result_index,(dst, soort, bron) in enumerate(results):
+        progress('Definitieve bestandsnamen maken',result_index,len(results),scope='finishing',completed=len(results))
         i = teller[soort]; teller[soort] += 1
         fixed_part = confirmed_parts.get(os.path.abspath(bron),detected_cover_parts.get(dst,''))
         if fixed_part:
@@ -530,6 +549,7 @@ return item 1 of d''')
         save_components()
         cover_reps = [(final if path == dst else path,k) for path,k in cover_reps]
         print(f'  -> {os.path.basename(final)}')
+        progress('Definitieve bestandsnamen maken',result_index+1,len(results),scope='finishing',completed=len(results))
     __import__('shutil').rmtree(tmp, ignore_errors=True)
     print(f'klaar: {len(results)} bestanden in {out}')
 

@@ -4,6 +4,10 @@ import UniformTypeIdentifiers
 import ImageIO
 import Combine
 
+func durationText(_ interval:TimeInterval)->String {
+    let seconds=max(0,Int(interval));let hours=seconds/3600
+    return hours>0 ? String(format:"%d:%02d:%02d",hours,(seconds/60)%60,seconds%60) : String(format:"%d:%02d",seconds/60,seconds%60)
+}
 let supportedExtensions: Set<String> = ["png","jpg","jpeg","tif","tiff","bmp","webp"]
 let partChoices = ["unknown","front","back","inside","insert","inlay","sidea","sideb","sidec","sided","cd","cd1","cd2","sticker"]
 func partLabel(_ value: String) -> String {
@@ -44,6 +48,11 @@ struct BridgeEvent: Decodable {
     var index: Int?
     var total: Int?
     var phase: String?
+    var scope:String?
+    var unitsDone:Int?
+    var unitsTotal:Int?
+    var completedParts:Int?
+    var detail:String?
     var advice: ReleaseAdvice?
     var audits: [ImageAudit]?
 }
@@ -101,6 +110,12 @@ final class PipeReader: @unchecked Sendable {
     @Published var currentPart: Int?
     @Published var totalParts: Int?
     @Published var progressPhase = ""
+    @Published var phaseStartedAt:Date?
+    @Published var lastProgressAt:Date?
+    @Published var progressUnitsDone:Int?
+    @Published var progressUnitsTotal:Int?
+    @Published var completedParts=0
+    @Published var progressDetail=""
     @Published var busy = false
     @Published var cancelled = false
     @Published var stateText = "Klaar om te beginnen"
@@ -305,7 +320,7 @@ final class PipeReader: @unchecked Sendable {
             if action=="scan" {req["useColour"]=false}
             activeScanRecipe=action=="scan" ? StudioScanRecipe(inputs:rows,discogs:req["discogs"] as? String ?? "",variant:req["variant"] as? String ?? "",useNames:req["useNames"] as? Bool ?? true,useStand:req["useStand"] as? Bool ?? true,useColour:req["useColour"] as? Bool ?? false) : nil
             let request=cache.appendingPathComponent("request.json");try JSONSerialization.data(withJSONObject:req,options:.prettyPrinted).write(to:request)
-            busy=true;measuredProgress=nil;currentPart=nil;totalParts=nil;progressPhase="";cancelled=false;reportedError=false;receivedComplete=false;activeAction=action;activeLogFolder=cache;startedAt=Date();logText="";warnings=[];errorMessage=nil;stateText=action=="references" ? "Discogs-foto’s ophalen…" : "Voorbereiden…"
+            busy=true;measuredProgress=nil;currentPart=nil;totalParts=nil;progressPhase="Voorbereiden";phaseStartedAt=Date();lastProgressAt=Date();progressUnitsDone=nil;progressUnitsTotal=nil;completedParts=0;progressDetail="";cancelled=false;reportedError=false;receivedComplete=false;activeAction=action;activeLogFolder=cache;startedAt=Date();logText="";warnings=[];errorMessage=nil;stateText=action=="references" ? "Discogs-foto’s ophalen…" : "Voorbereiden…"
             if ["scan","colour","namesApply","manualCrop"].contains(action) {outputs=[];showResults=false}
             let p=Process();let runtime=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Runtime/bin/python3");p.executableURL=FileManager.default.isExecutableFile(atPath:runtime.path) ? runtime : URL(fileURLWithPath:"/usr/bin/python3");p.arguments=[resources.appendingPathComponent("studio_bridge.py").path,request.path]
             var env=ProcessInfo.processInfo.environment;env["PYTHONUNBUFFERED"]="1";env["PYTHONDONTWRITEBYTECODE"]="1";p.environment=env
@@ -345,7 +360,13 @@ final class PipeReader: @unchecked Sendable {
                 } else {reviews[audit.path]=ReviewRecord(signature:audit.signature,audit:audit)}
             }
         case "progress":
-            measuredProgress=event.fraction;currentPart=event.index ?? currentPart;totalParts=event.total ?? totalParts;progressPhase=event.phase ?? ""
+            let nextIndex=event.scope=="preparation" || event.scope=="finishing" ? nil : (event.index ?? currentPart)
+            if event.phase != progressPhase || nextIndex != currentPart {phaseStartedAt=Date()}
+            lastProgressAt=Date();measuredProgress=event.fraction;currentPart=nextIndex;totalParts=event.total ?? totalParts;progressPhase=event.phase ?? ""
+            progressUnitsDone=event.unitsDone;progressUnitsTotal=event.unitsTotal
+            if let count=event.completedParts {completedParts=count}
+            if let detail=event.detail,!detail.isEmpty {progressDetail=detail}
+            if event.scope=="preparation" || event.scope=="finishing" {progressDetail=""}
         case "status":stateText=event.message ?? "Bezig…"
         case "warning":warnings.append(event.message ?? "Controleer het logboek")
         case "log":

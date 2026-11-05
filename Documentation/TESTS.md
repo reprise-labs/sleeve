@@ -145,3 +145,22 @@ Bij uitsnijden worden overtollige kopieën en kanalen vermeden en ongebruikte
 bronbuffers eerder vrijgegeven. RGB/RGBA-inlezen en de volledige uitsnede zijn
 met de oude implementatie pixel voor pixel vergeleken: identiek.
 Alle regressies, inclusief oude projecten, annulering en onderdeellabels, slagen.
+
+
+## 0.4.3 — gemeten voortgang en zichtbare stappen
+
+Nieuwe staptellingen voor etiketten, herkenningspunten, scanvergelijkingen,
+openen van bronnen, belichting, details en overgangen. Opslaan, uitsnijden,
+leesrichting en Discogs krijgen expliciete fasen; onbekende duur krijgt geen
+verzonnen percentage. Afronden wist de actieve onderdeelindex. Een bijgewerkte
+fase houdt zijn begintijd; een nieuwe fase begint een nieuwe timer.
+
+Nieuwe protocol- en modeltests controleren percentages, tellers, stoppen,
+timers, ontbrekende percentages en de overgang naar afronden. Alle regressies
+slagen. Een vergelijking met 0.4.2 op dezelfde samengestelde testbeelden geeft
+identieke pixels en alpha (maximaal verschil 0).
+De grote balk, werkstap, beide timers en de onderdeelstand zijn in een aparte
+native testapp met eigen gegevens visueel gecontroleerd. De lopende app is niet
+vervangen. De nieuwe versie is niet opnieuw met de hele FIRE-set doorgerekend.
+De volledige 28-scans-praktijkrun van 0.4.2 is intussen succesvol afgerond met
+zes resultaten en eindcontrole; de gemeten totale duur was 39 minuten 50 seconden.
