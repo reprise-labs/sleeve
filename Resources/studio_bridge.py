@@ -113,11 +113,11 @@ def profile_for(rows):
   if names:profile['scan_groups'].append({'part':group['part'],'files':names})
  return profile
 
-def report_outputs(folder,mapping=None,partial=False):
+def report_outputs(folder,mapping=None,partial=False,part=None):
  files=[]
  for p in sorted(folder.glob('*')):
   if p.is_file() and not p.name.startswith('.') and p.suffix.lower() in EXTS:
-   files.append({'path':str(p),'source':(mapping or {}).get(str(p),''),'partial':partial})
+   files.append({'path':str(p),'source':(mapping or {}).get(str(p),''),'partial':partial,**({'part':part} if part else {})})
  emit('outputs',files=files)
  return files
 
@@ -145,7 +145,13 @@ def scan(req,rows,work):
   if match[1]=='master':metadata=N.get('https://api.discogs.com/releases/'+str(metadata['main_release']))
   if (req.get('useStand') or req.get('useColour')) and not metadata.get('images'):
    raise ValueError('Deze uitgave heeft geen referentiefoto’s. Zet stand en hoeskleur uit of kies een andere uitgave.')
- profile=profile_for(rows);staging=work/'scans';staging.mkdir()
+ profile=profile_for(rows)
+ if req.get('rerunPart'):
+  part=req['rerunPart']
+  if part not in PARTS:raise ValueError('Kies een geldig onderdeel.')
+  if any(row.get('reference') for row in rows):raise ValueError('Kies alleen de bronbeelden voor dit onderdeel.')
+  profile={'reference_files':[],'scan_groups':[{'part':part,'files':[Path(row['path']).name for row in rows]}]}
+ staging=work/'scans';staging.mkdir()
  for row in rows:
   p=Path(row['path']);os.symlink(p,staging/p.name)
  profile['reference_files']=[Path(row['path']).name for row in rows if row.get('reference')]
@@ -158,12 +164,17 @@ def scan(req,rows,work):
   if req.get('useColour'):cmd+=['--discogs-kleur']
   if not req.get('useNames',True):cmd+=['--geen-discogs-namen']
  if req.get('variant'):cmd+=['--variant',req['variant']]
+ if req.get('rerunPart'):cmd+=['--een-onderdeel']
  try:
   run(cmd)
  except BaseException:
   report_outputs(output,partial=True)
   raise
- files=report_outputs(output)
+ files=report_outputs(output,part=req.get('rerunPart'))
+ if req.get('rerunPart'):
+  if len(files)!=1:raise ValueError('De gekozen scans leveren niet precies één onderdeel op. Controleer de selectie; het vorige resultaat blijft behouden.')
+  for file in files:file['part']=req['rerunPart'];JOB_OUTPUTS[file['path']]=file
+  emit('outputs',files=files)
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','inputs':rows,'outputs':files,'discogs':req.get('discogs',''),'one_release_per_batch':True},ensure_ascii=False,indent=2))
  if not files:raise ValueError('Er zijn geen verwerkte afbeeldingen gemaakt. Bekijk het logboek.')
  has_vinyl=any(re.search(r'_side[abcd](?:_\d+)?$',Path(file['path']).stem) for file in files)
@@ -195,7 +206,7 @@ def colour(req,rows,work):
   else:
    run([TOOLS/'scan_discogs.py',src,ref,'--alleen-kleur','--uit',temporary])
   os.replace(temporary,dst)
-  mapping[str(dst)]=str(src);emit('outputs',files=[{'path':str(dst),'source':str(src),'partial':False}])
+  mapping[str(dst)]=str(src);emit('outputs',files=[{'path':str(dst),'source':str(src),'part':row.get('part','front'),'partial':False}])
  files=report_outputs(output,mapping)
  if not files:raise ValueError('Er zijn geen kleurvoorstellen gemaakt. Kies ook een bronbeeld.')
  reference_folder=output/'Referentie';reference_folder.mkdir()
@@ -251,7 +262,7 @@ def audit_files(req,files,action):
  for i,file in enumerate(files):
   p=Path(file['path']);row=rows.get(file.get('source',''),rows.get(str(p),{}))
   match=re.search(r'_(side[abcd]|cd\d*|front|back|inside|insert|inlay|sticker)(?:_kleur)?(?:_\d+)?$',p.stem)
-  part=match[1] if match else row.get('part','front')
+  part=file.get('part') or (match[1] if match else row.get('part','front'))
   emit('progress',fraction=None,index=i+1,total=len(files),phase='Eindcontrole')
   emit('status',message=f'Bestandscontrole {i+1} van {len(files)}: {p.name}')
   result={'path':str(p),'readable':False,'part':part,'round':None,'missingInteriorPercent':None,
@@ -288,6 +299,48 @@ def audit_files(req,files,action):
  if any(not row['readable'] for row in audits):raise ValueError('Een resultaat kon niet volledig worden gelezen. De wachtrij is gepauzeerd; bekijk de eindcontrole.')
  return audits
 
+def fingerprint(path):
+ st=Path(path).stat()
+ return f'{st.st_size}:{st.st_mtime_ns//10**9}:{st.st_mtime_ns%10**9}'
+
+def manual_crop(req,rows,work):
+ import math,numpy as np
+ from PIL import Image,ImageOps,PngImagePlugin
+ if len(rows)!=1:raise ValueError('Kies precies één bronbeeld voor de ronde uitsnede.')
+ row=rows[0];src=Path(row['path']);expected=req.get('sourceSignature')
+ if not expected or fingerprint(src)!=expected:raise ValueError('Het bronbeeld is gewijzigd. Open de uitsnede opnieuw.')
+ cx,cy,diameter=[float(req[key]) for key in ('cropX','cropY','cropDiameter')]
+ if not all(math.isfinite(v) for v in (cx,cy,diameter)) or not(0<=cx<=1 and 0<=cy<=1 and 0<diameter<=1):raise ValueError('De cirkelinstellingen zijn niet geldig.')
+ part=req.get('cropPart','')
+ if part not in PARTS or not(part.startswith('side') or part.startswith('cd')):raise ValueError('Deze correctie is bedoeld voor ronde cd- en vinylbeelden.')
+ output=job_folder(req,'Uitsnede');emit('destination',path=str(output))
+ with Image.open(src) as raw:
+  raw.load();icc=raw.info.get('icc_profile');dpi=raw.info.get('dpi');image=ImageOps.exif_transpose(raw).convert('RGBA')
+  width,height=image.size;size=int(round(diameter*min(width,height)))
+  if size<16:raise ValueError('De cirkel is te klein. Kies een grotere diameter.')
+  left=int(round(cx*width-size/2));top=int(round(cy*height-size/2))
+  if left<0 or top<0 or left+size>width or top+size>height:raise ValueError('De cirkel valt buiten het bronbeeld. Verklein of verplaats hem.')
+  cropped=image.crop((left,top,left+size,top+size));alpha=np.array(cropped.getchannel('A'));centre=(size-1)/2;radius=(size-1)/2
+  xx=np.arange(size,dtype=np.float64)[None,:]-centre
+  for start in range(0,size,256):
+   end=min(size,start+256);yy=np.arange(start,end,dtype=np.float64)[:,None]-centre
+   edge=np.clip(radius+.5-np.hypot(xx,yy),0,1)
+   alpha[start:end]=np.rint(alpha[start:end]*edge).astype(np.uint8)
+   emit('progress',fraction=end/size if end<size else None,phase='Ronde uitsnede opbouwen' if end<size else 'Beeld opslaan')
+  cropped.putalpha(Image.fromarray(alpha));metadata=PngImagePlugin.PngInfo();metadata.add_text('sleeve_disc_cut','3')
+  destination=output/(src.stem+'_uitsnede.png');temporary=output/'.uitsnede.png'
+  options={'pnginfo':metadata}
+  if icc:options['icc_profile']=icc
+  if dpi:options['dpi']=dpi
+  cropped.save(temporary,**options)
+  if fingerprint(src)!=expected:temporary.unlink();raise ValueError('Het bronbeeld is tijdens het verwerken gewijzigd; de vorige versie blijft behouden.')
+  os.replace(temporary,destination)
+ files=[{'path':str(destination),'source':str(src),'part':part,'partial':False}]
+ emit('outputs',files=files)
+ (output/'Studio-verwerking.json').write_text(json.dumps({'action':'manualCrop','inputs':rows,'outputs':files,'circle':{'x':cx,'y':cy,'diameter':diameter},'pixel_box':[left,top,size,size]},indent=2))
+ emit('complete',message='Nieuwe ronde uitsnede bewaard. Vergelijk de vorige en nieuwe versie; controleer ook de tekst langs de rand.')
+
+
 def main():
  global CHECKING_AFTER_PROCESS
  req=json.loads(Path(sys.argv[1]).read_text());work=Path(sys.argv[1]).parent
@@ -295,9 +348,10 @@ def main():
  action=req.get('action')
  if action=='references':reference_photos(req,work);emit('complete',message='Referentiefoto’s geladen. Kies de juiste foto.');return
  rows=inputs(req)
- CHECKING_AFTER_PROCESS=action in ('scan','colour','namesApply')
+ CHECKING_AFTER_PROCESS=action in ('scan','colour','namesApply','manualCrop')
  if action=='scan':scan(req,rows,work)
  elif action=='colour':colour(req,rows,work)
+ elif action=='manualCrop':manual_crop(req,rows,work)
  elif action=='namesPreview':names_preview(req,rows)
  elif action=='namesApply':names_apply(req,rows)
  elif action=='audit':
