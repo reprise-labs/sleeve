@@ -60,6 +60,14 @@ import SwiftUI
         precondition(model.colourScope=="vinyl","Begin zonder beelden standaard bij vinyl")
         model.referenceURL=URL(fileURLWithPath:"/tmp/plate-reference.png");model.chooseColourKind("photo")
         precondition(model.referenceURL==nil,"Een plaatreferentie mag niet vanzelf op een hoes worden gebruikt")
+        model.receive(BridgeEvent(event:"progress",index:1,total:6,phase:"Scans openen",scope:"component",activeParts:3,detail:"4 deelscans"))
+        let firstStart=Date(timeIntervalSince1970:100);model.phaseStartedAt=firstStart
+        model.receive(BridgeEvent(event:"progress",index:2,total:6,phase:"Scans openen",scope:"component",activeParts:3,detail:"8 deelscans"))
+        model.receive(BridgeEvent(event:"progress",fraction:0.5,index:1,total:6,phase:"Scans openen",scope:"component",activeParts:3))
+        precondition(model.activePartCount==3 && model.currentPart==1 && model.phaseStartedAt==firstStart,"Parallelle staptijd moet per onderdeel blijven kloppen")
+        precondition(model.progressDetail=="4 deelscans","Details moeten bij het huidige onderdeel horen")
+        model.receive(BridgeEvent(event:"progress",phase:"Afronden",scope:"finishing",activeParts:1))
+        precondition(model.activePartCount==1 && model.currentPart==nil)
         print("Modelcontroles geslaagd: onderdelen, bronverbinding, volgende stap, referentiekeuze.")
     }
 }

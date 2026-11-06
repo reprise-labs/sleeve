@@ -261,3 +261,49 @@ zes resultaten en eindcontrole; de gemeten totale duur was 39 minuten 50 seconde
 - Na de laatste geheugenfix en gelijke threadinstellingen is de volledige
   regressiesuite opnieuw geslaagd. De definitieve app is opnieuw gebouwd en
   de ondertekening is gecontroleerd.
+
+
+## Volledige-resolutietest 0.4.7 — 6 november 2026
+
+- Definitieve gebouwde appbestanden: dezelfde Python-bronnen en OCR-helper als
+  de bevroren meetkopie. Volledige controlesuite geslaagd, inclusief native
+  project-, wachtrij-, bewerkings-, kleurworkflow- en modelcontroles.
+- Echte FIRE-set: 28 oorspronkelijke scans naar zes PNG-bestanden, met
+  Discogs-namen en stand, zonder de afzonderlijke kleurcorrectiestap.
+- Verwerking: 664 seconden (11 minuten 4 seconden).
+  Eindcontrole: 18.60 seconden. Totaal: afgerond 11 minuten
+  23 seconden. De eerdere gebruikersmeting van circa 40 minuten is geen
+  nieuwe gecontroleerde A/B-tijdmeting. Het eerdere doel van 5–10 minuten is
+  niet bereikt; de gebruiker heeft de behaalde circa 11 minuten geaccepteerd.
+- Alle zes nieuwste PNG-bestanden zijn byte voor byte gelijk aan de eerder
+  gecontroleerde 11-minutenreeks (SHA256 van ieder volledig bestand gelijk).
+  De laatste wijziging in geheugenplanning verandert dus geen beeldpixels.
+- Volle afmetingen behouden: front 14757×14660, back 14718×14582,
+  inside 14445×14172, insert 14428×14158, side A 13924×13924,
+  side B 13764×13764. Alle bestanden leesbaar; beide platen rond gemeten,
+  0,0% ontbrekend beeld in de gecontroleerde binnenring.
+- Vergelijking van alle zes bestanden met de complete oude 0.4.2-reeks van
+  dezelfde 28 bronnen: afmetingen exact gelijk; vier hoezen hebben identieke
+  alfa en maximaal 1/255 RGB-verschil. Vinyl: maximaal 3/255 in volledig
+  ondoorzichtige pixels en 8/255 bij zachte randen; respectievelijk 606 en
+  1929 alfapixels verschillen (0,00031% en 0,00102% van het beeld). Dat is
+  vrijwel hetzelfde beeldresultaat, maar geen volledige pixelidentiteit met
+  de oude beeldberekening. De verdwenen bestanden van de specifieke
+  oorspronkelijke 40-minutenrun zijn niet rechtstreeks vergeleken.
+- Hoogst gemeten RSS voor de procesboom: 3313.3 MiB. Hoogste
+  gemonsterde peak physical footprint per proces: 3686.4 MiB.
+  Geen ingreep van de testbewaking in deze volledige run.
+- Native bron- en uitvoerreserveringen delen een schijfruimtebudget. Geschreven
+  bytes worden niet dubbel gereserveerd; actieve renderers kunnen ruimte
+  vrijgeven voor wachtende onderdelen. Echte tekorten blijven een foutmelding.
+  Twee eerdere proefruns zijn veilig gestopt wegens ruimtegebrek en tellen
+  niet als geslaagde benchmarks. Verbruikte werkpreviews worden verwijderd.
+- Gerichte controles dekken het terugkrijgen van decodeergeheugen, prioriteit
+  bij starten, stoppen van workers en kleinkindprocessen, wachten op tijdelijke
+  schijfruimte, opruimen van dode reserveringen, stoppen tijdens previewdecodering,
+  exacte schalen en bronwijzigingen in de cache, en losse bekende hoezen.
+
+Dit is één dataset op één Apple M1 met 8 GB RAM. Geen algemene tijdgarantie
+voor andere scanformaten of aantallen. Gemengde cd/vinyl-invoer en de eerder
+uitgestelde interfacewijzigingen zijn hiermee niet toegevoegd of getest.
+Visuele goedkeuring van kleur, volledigheid en juiste uitgave blijft handmatig.

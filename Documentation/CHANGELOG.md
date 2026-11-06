@@ -1,0 +1,21 @@
+# Changelog
+
+## 0.4.7 — local test build, 6 November 2026
+
+- Process separate components concurrently with a shared memory budget; start the largest group first and preserve original grouping, source identities and final roles.
+- Reuse work previews only at the exact requested scale, with the same colour conversion and an unchanged source fingerprint. Remove consumed temporary previews.
+- Store light-correction planes compactly and composite in bands. Stream full-resolution sources and use mapped output buffers.
+- Turn covers before the first PNG save. Transfer merged discs to the cutting stage through lossless, uncompressed TIFF files.
+- Coordinate native scratch reservations across workers; wait for live renderers to release space, while still rejecting genuinely insufficient space.
+- Report component-specific progress, elapsed time and the number of active components. Cancellation stops isolated workers and their descendants.
+- Honour an explicitly selected single-image role before attempting automatic disc detection.
+
+Measured FIRE run: 28 scans to six full-resolution images in 11 minutes 23 seconds including file checks, without the separate colour pass. All six files exactly match the verified faster control run.
+
+Output resolution is retained. Timing, pixel comparisons and test limitations are documented in TESTS.md. This build is prepared locally; it has not been published to GitHub.
+
+## 0.4.6 — local test build
+
+- Accelerate broad transition filtering, share preview decoding and reduce redundant writes during light correction.
+- Remove full-size RGB copies during source decoding and cap image-worker thread counts.
+- Complete FIRE measurement: 28 scans to six full-resolution images in 28 minutes 43 seconds, including file checks, without the separate colour-correction step.

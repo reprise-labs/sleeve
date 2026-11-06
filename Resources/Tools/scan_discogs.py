@@ -100,6 +100,10 @@ def hsv_f(bgr):
 
 
 def main():
+    return main_with_memory()
+
+
+def main_with_memory():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('scan'); p.add_argument('discogs', help='Discogs-link of een eigen referentiefoto')
     p.add_argument('extra', nargs='*', help='meer eigen referentiefoto\'s')
@@ -108,6 +112,12 @@ def main():
     with Image.open(a.scan) as original:
         source_mode=original.mode
         metadata = {key:original.info[key] for key in ('dpi','icc_profile') if key in original.info}
+    from scan_memory import MemoryLease
+    with MemoryLease(39 if metadata else 27,phase='Draairichting vergelijken met Discogs'):
+        return apply_reference(a,source_mode,metadata)
+
+
+def apply_reference(a,source_mode,metadata):
     raw = cv2.imread(a.scan, cv2.IMREAD_UNCHANGED)
     if raw is None:
         sys.exit(f'kan {a.scan} niet lezen')
@@ -196,9 +206,9 @@ def main():
         print('klaar:',destination)
         return
     if metadata:
-        Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGRA2RGBA)).save(a.uit or a.scan, compress_level=3, **metadata)
+        Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGRA2RGBA)).save(a.uit or a.scan, compress_level=1, **metadata)
     else:
-        cv2.imwrite(a.uit or a.scan, out, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+        cv2.imwrite(a.uit or a.scan, out, [cv2.IMWRITE_PNG_COMPRESSION, 1])
     print('klaar:', a.uit or a.scan)
 
 

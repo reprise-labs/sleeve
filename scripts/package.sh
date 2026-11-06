@@ -9,11 +9,12 @@ mkdir -p "$DESTINATION"
 STAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sleeve-package.XXXXXX")"
 trap 'rm -rf "$STAGE_ROOT"' EXIT
 PACKAGE="$STAGE_ROOT/Sleeve-$VERSION"
-mkdir -p "$PACKAGE/scripts"
+mkdir -p "$PACKAGE/scripts" "$PACKAGE/Documentation"
 /usr/bin/ditto "$APP" "$PACKAGE/Sleeve.app"
 /bin/cp 'Installeer beeldonderdelen.command' requirements.txt README.md "$PACKAGE/"
 /bin/cp scripts/setup-runtime.sh "$PACKAGE/scripts/"
-if [[ -f Documentation/TESTS.md ]]; then /bin/cp Documentation/TESTS.md "$PACKAGE/TESTS.md"; fi
+if [[ -f Documentation/TESTS.md ]]; then /bin/cp Documentation/TESTS.md "$PACKAGE/TESTS.md"; /bin/cp Documentation/TESTS.md "$PACKAGE/Documentation/TESTS.md"; fi
+if [[ -f Documentation/CHANGELOG.md ]]; then /bin/cp Documentation/CHANGELOG.md "$PACKAGE/CHANGELOG.md"; /bin/cp Documentation/CHANGELOG.md "$PACKAGE/Documentation/CHANGELOG.md"; fi
 # GitHub browser uploads and source ZIPs can lose execute bits. Always set them here.
 /bin/chmod 755 "$PACKAGE/Installeer beeldonderdelen.command" "$PACKAGE/scripts/setup-runtime.sh"
 /usr/bin/codesign --verify --deep --strict "$PACKAGE/Sleeve.app"

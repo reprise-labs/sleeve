@@ -30,3 +30,13 @@ assert progress[1]['scope']=='preparation' and progress[1]['index'] is None
 assert progress[2]['unitsDone']==4 and progress[2]['completedParts']==1
 assert progress[-1]['index'] is None and progress[-1]['completedParts']==6
 print('Echte staptellingen, onbekende opslagduur en afronden worden afzonderlijk doorgegeven.')
+
+# Interleaved workers carry their own index, rather than a shared legacy prefix.
+payloads=[{'phase':'Beeld opbouwen','fraction':.25,'componentIndex':1,'componentTotal':6,'activeParts':3,'completedParts':0},
+ {'phase':'Scans openen','fraction':.5,'componentIndex':3,'componentTotal':6,'activeParts':3,'completedParts':1}]
+worker.write_text('import json\n'+''.join('print('+repr('SLEEVE_PROGRESS '+json.dumps(payload))+')\n' for payload in payloads))
+p=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,timeout=10);assert p.returncode==0,p.stderr
+progress=[json.loads(line) for line in p.stdout.splitlines() if json.loads(line).get('event')=='progress']
+assert [row['index'] for row in progress]==[1,3] and all(row['total']==6 and row['activeParts']==3 for row in progress)
+assert progress[-1]['completedParts']==1
+print('Parallelle indexen en echte aantallen blijven aan het juiste onderdeel gekoppeld.')
