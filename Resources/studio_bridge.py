@@ -197,6 +197,21 @@ def scan(req,rows,work):
  has_vinyl=any(re.search(r'_side[abcd](?:_\d+)?$',Path(file['path']).stem) for file in files)
  emit('complete',message=f'{len(files)} afbeeldingen verwerkt.'+(' Vinylkleur is nog niet aangepast.' if has_vinyl else ''),path=str(output))
 
+def colour_destination(source):
+ # Follow only explicit legacy colour provenance, never a raw scan source.
+ current=Path(source);seen=set()
+ for _ in range(16):
+  if str(current) in seen:break
+  seen.add(str(current))
+  try:
+   data=json.loads((current.parent/'Studio-verwerking.json').read_text())
+   if data.get('action')!='colour':break
+   previous=next((item.get('source') for item in data.get('outputs',[]) if Path(item.get('path',''))==current),None)
+   if not previous or not Path(previous).is_file():break
+   current=Path(previous)
+  except (OSError,ValueError,TypeError):break
+ return current.parent
+
 def colour(req,rows,work):
  import scan_colour as C
  ref=Path(req.get('reference','')).expanduser()
@@ -218,9 +233,9 @@ def colour(req,rows,work):
     if im.mode!='RGBA':raise ValueError('Gebruik hier uitgeknipte vinylplaten met transparantie. Verwerk eerst de scans.')
     probe=im.getchannel('A');probe.thumbnail((1400,1400))
     if CU.already_cut(probe) is None:raise ValueError('Een geselecteerd beeld is nog geen uitgeknipte plaat. Verwerk eerst de scans.')
- output=job_folder(req,'Kleurvoorstellen');emit('destination',path=str(output));mapping={}
+ output=colour_destination(rows[0]['path']);emit('destination',path=str(output));files=[]
  for i,row in enumerate(rows):
-  src=Path(row['path']);stem=re.sub(r'(?:_kleur(?:_\d+)?)+$','',src.stem)+'_kleur';dst=output/(stem+'.png');suffix=2
+  src=Path(row['path']);output=colour_destination(src);stem=re.sub(r'(?:_kleur(?:_\d+)?)+$','',src.stem)+'_kleur';dst=output/(stem+'.png');suffix=2
   while dst.exists():dst=output/(stem+'_'+str(suffix)+'.png');suffix+=1
   emit('status',message=f'Nieuwe kleur voor {i+1} van {len(rows)}: {src.name}')
   temporary=output/('.voorstel-'+uuid.uuid4().hex+'.png')
@@ -230,12 +245,14 @@ def colour(req,rows,work):
   else:
    run([TOOLS/'scan_discogs.py',src,ref,'--alleen-kleur','--uit',temporary])
   os.replace(temporary,dst)
-  mapping[str(dst)]=str(src);emit('outputs',files=[{'path':str(dst),'source':str(src),'part':row.get('part','unknown'),'partial':False}])
- files=report_outputs(output,mapping)
+  file={'path':str(dst),'source':str(src),'part':row.get('part','unknown'),'partial':False}
+  files.append(file);emit('outputs',files=[file])
  if not files:raise ValueError('Er zijn geen kleurvoorstellen gemaakt. Kies ook een bronbeeld.')
- reference_folder=output/'Referentie';reference_folder.mkdir()
+ output=colour_destination(rows[0]['path'])
+ metadata_folder=output/'.sleeve'/'colour'/uuid.uuid4().hex
+ reference_folder=metadata_folder/'Referentie';reference_folder.mkdir(parents=True)
  shutil.copy2(ref,reference_folder/('Gebruikte-foto'+ref.suffix.lower()))
- (output/'Studio-verwerking.json').write_text(json.dumps({'action':'colour','source_reference':str(ref),'strength':strength,'scope':scope,'inputs':rows,'outputs':files},ensure_ascii=False,indent=2))
+ (metadata_folder/'Studio-verwerking.json').write_text(json.dumps({'action':'colour','source_reference':str(ref),'strength':strength,'scope':scope,'inputs':rows,'outputs':files},ensure_ascii=False,indent=2))
  emit('complete',message=f"{len(files)} nieuwe kleurkopie{'ën' if len(files)!=1 else ''} opgeslagen. Bekijk Nieuwe kleuren; de originelen blijven behouden.",path=str(output))
 
 def names_preview(req,rows):

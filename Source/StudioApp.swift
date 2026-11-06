@@ -236,8 +236,12 @@ struct StudioView: View {
     var saveControls: some View {
         VStack(alignment:.leading,spacing:12) {
             sectionTitle("↗",model.mode == .colour ? "Nieuwe kleur bewaren" : "Bewaren")
+            if model.mode == .colour {
+                Label("Naast de bronbeelden",systemImage:"folder")
+            } else {
             Button {model.chooseOutput()} label:{HStack{Image(systemName:"folder");Text(model.outputFolder?.lastPathComponent ?? "Kies een resultatenmap…").lineLimit(1);Spacer();Image(systemName:"chevron.down").font(.caption2)}}.disabled(model.busy)
-            Text(model.mode == .colour ? "Je krijgt nieuwe kleurkopieën in een aparte map. De originele beelden blijven behouden." : "Een nieuwe submap per verwerking. Originelen blijven behouden.").font(.caption).foregroundStyle(.secondary)
+            }
+            Text(model.mode == .colour ? "Nieuwe kleurkopieën komen in dezelfde map als de gekozen beelden, met _kleur in de bestandsnaam. Originelen blijven behouden." : "Een nieuwe submap per verwerking. Originelen blijven behouden.").font(.caption).foregroundStyle(.secondary)
             Button {model.start()} label:{Text(model.mode == .scans ? "Verwerk scans" : model.mode == .colour ? model.colourActionTitle : "Bewaar met nieuwe namen").frame(maxWidth:.infinity).padding(.vertical,5)}.buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canStart)
             Button("Zet deze taak in de wachtrij"){model.enqueueCurrent()}.disabled(!model.canStart)
             if model.projectURL==nil {Button("Bewaar als project…"){model.saveProjectAs()}.font(.caption)}

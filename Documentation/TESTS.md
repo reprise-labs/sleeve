@@ -1,3 +1,11 @@
+## 0.4.9 — kleurkopieën in dezelfde map
+
+Regressiecontrole: beide vinylkanten krijgen uitsluitend nieuwe `_kleur`-bestanden naast hun bronbeelden. Bij herhaling blijft de eerdere kopie bestaan en volgt `_kleur_2`. Etiket en transparantie blijven exact behouden; oorspronkelijke scans en hun Studio-verwerking.json blijven identiek. Geen volledige FIRE-scan opnieuw uitgevoerd voor deze wijziging.
+
+FBOW-praktijkcontrole: alle 17 bronnen groeperen correct als voorzijde (4), achterzijde (5), plaat A (4) en plaat B (4). De acht vinylscans zijn opnieuw verwerkt op volledige resolutie: kant A 13725 × 13725 en kant B 13721 × 13721 pixels. Beide bestanden zijn leesbaar, rond gemeten en hebben 0% ontbrekend oppervlak in de gemeten binnenring. De verkleinde uitvoer is visueel gecontroleerd op volledige schijven en de juiste A/B-etiketten. Geen aparte kleurcorrectie toegepast.
+
+Volledige regressieset en native project-, bewerkings-, kleurworkflow- en modelcontroles geslaagd. De kleurworkflowtest vergelijkt nu genormaliseerde paden; dat verhielp de testcrash.
+
 # Controle van Sleeve 0.3.1 — 5 november 2026
 
 De onderstaande controles zijn daadwerkelijk uitgevoerd op de ontwikkel-Mac

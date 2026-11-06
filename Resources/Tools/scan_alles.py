@@ -70,7 +70,10 @@ def disc_side_from_preview(path, im, original=None):
     if not exe:
         return None
     x, y, r = circles[0][0]
-    edge = cv2.dilate(cv2.Canny(gray,30,90),np.ones((5,5),np.uint8))
+    # Red vinyl and a dark label can have the same luminance. Keep chromatic
+    # boundaries when checking that the candidate is a real circular label.
+    channel_edges=[cv2.Canny(cv2.GaussianBlur(channel,(3,3),0),30,90) for channel in cv2.split(im)]
+    edge = cv2.dilate(np.maximum.reduce(channel_edges+[cv2.Canny(gray,30,90)]),np.ones((5,5),np.uint8))
     angles = np.linspace(0,2*np.pi,360,endpoint=False)
     xx = np.round(x+r*np.cos(angles)).astype(int); yy = np.round(y+r*np.sin(angles)).astype(int)
     valid = (xx>=0)&(yy>=0)&(xx<gray.shape[1])&(yy<gray.shape[0])
@@ -82,12 +85,26 @@ def disc_side_from_preview(path, im, original=None):
         label = original.convert('RGB').crop(tuple(int(v*ratio) for v in (x-r*1.03,y-r*1.03,x+r*1.03,y+r*1.03))).resize((1200,1200))
     angle = CU.disc_text_angle(label) or 0
     label = label.rotate(angle, resample=Image.BICUBIC, fillcolor='white')
-    with tempfile.NamedTemporaryFile(suffix='.png') as f:
-        label.save(f.name)
-        try:
-            text = subprocess.run([exe, f.name], capture_output=True, text=True, timeout=25).stdout
-        except subprocess.TimeoutExpired:
-            return None
+    def recognize(candidate):
+        with tempfile.NamedTemporaryFile(suffix='.png') as f:
+            candidate.save(f.name)
+            try:
+                text = subprocess.run([exe, f.name], capture_output=True, text=True, timeout=25).stdout
+            except subprocess.TimeoutExpired:
+                return set()
+        return side_markers(text)
+    found=recognize(label)
+    if not found:
+        # A high-contrast retry helps white side letters on dark, low-contrast
+        # labels. Keep fast OCR and require the same explicit side syntax.
+        from PIL import ImageOps
+        contrast=ImageOps.autocontrast(label.convert('L'),cutoff=2)
+        found=recognize(contrast.point(lambda value:255 if value>140 else 0))
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def side_markers(text):
+    import re
     markers = {'ONE':'A', 'TWO':'B', 'THREE':'C', 'FOUR':'D', '1':'A', '2':'B', '3':'C', '4':'D'}
     found = set()
     for line in text.splitlines():
@@ -98,7 +115,7 @@ def disc_side_from_preview(path, im, original=None):
         if dash_mark: found.add(dash_mark.group(1))
         for mark in re.findall(r'\b(?:SIDE|KANT)\s*[:.-]?\s*(ONE|TWO|THREE|FOUR|[ABCD1234])\b', parts[2].upper()):
             found.add(markers.get(mark, mark))
-    return next(iter(found)) if len(found) == 1 else None
+    return found
 
 
 def groups(paths):
