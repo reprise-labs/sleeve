@@ -388,6 +388,36 @@ def find_square(Gx, Gy, size, sc=0.2):
                 best = (sc_, ang, ax[j], ay[S], j, S)
     if best is None:
         return None
+    # A closed outer rectangle is stronger evidence than unrelated profile
+    # peaks (scanner lid on one side, printed artwork on another).
+    closed=[]
+    gradient=np.hypot(Gx,Gy)
+    for threshold in (8,12,20,30):
+        edges=cv2.morphologyEx((gradient>threshold).astype(np.uint8),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
+        contours,_=cv2.findContours(edges,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            area=cv2.contourArea(contour)
+            if area<.60*w*h:continue
+            polygon=cv2.approxPolyDP(contour,.015*cv2.arcLength(contour,True),True)
+            if len(polygon)!=4 or not cv2.isContourConvex(polygon):continue
+            rect=cv2.minAreaRect(contour);rw,rh=rect[1]
+            if min(rw,rh)<=0 or max(rw,rh)/min(rw,rh)>1.03 or area/(rw*rh)<.96:continue
+            angle=rect[2]
+            if angle>45:angle-=90
+            if abs(angle)>4:continue
+            corners=cv2.boxPoints(rect)
+            if np.any(corners[:,0]<3) or np.any(corners[:,0]>w-4) or np.any(corners[:,1]<3) or np.any(corners[:,1]>h-4):continue
+            rotation=cv2.getRotationMatrix2D(c,angle,1)
+            aligned=corners@rotation[:,:2].T+rotation[:,2]
+            left,top=aligned.min(axis=0);right,bottom=aligned.max(axis=0)
+            closed.append((area,angle,int(round(left)),int(round(top)),int(round(right-left)),int(round(bottom-top))))
+    closed_choice=False
+    if closed:
+        candidate=max(closed,key=lambda item:item[0])
+        # Preserve established good crops: replace the profile result only when
+        # the closed boundary disagrees materially in position or dimensions.
+        discrepancy=max(abs(candidate[i]-best[i]) for i in range(2,6))/max(candidate[4:6])
+        if discrepancy>.025:best=candidate;closed_choice=True
     _, ang, x0, y0, Sx, Sy = best
     # vierkant terug naar het canvas (volle resolutie)
     R = cv2.getRotationMatrix2D(c, ang, 1.0); Ri = cv2.invertAffineTransform(R)
@@ -396,12 +426,12 @@ def find_square(Gx, Gy, size, sc=0.2):
     m = np.zeros((size[1], size[0]), np.uint8)
     cv2.fillPoly(m, [np.round(cor).astype(np.int32)], 1)
     m = cv2.erode(m, np.ones((9, 9), np.uint8))           # schaduwrandje van de hoes eraf
-    inset = max(5, int(.006 * max(Sx,Sy) / sc))
+    inset = max(5, int((.010 if closed_choice else .006) * max(Sx,Sy) / sc))
     box = (int(x0 / sc) + inset, int(y0 / sc) + inset, int(Sx / sc) - 2*inset, int(Sy / sc) - 2*inset)
     G = np.hypot(Gx, Gy); per = []
     for (xa, ya), (xb, yb) in zip(cor * sc, np.roll(cor * sc, -1, axis=0)):
         t = np.linspace(0, 1, 200)[:, None]; per.append(np.hstack([xa + t * (xb - xa), ya + t * (yb - ya)]))
-    return m > 0, float(ang), box, ring_support(G, np.vstack(per))
+    return m > 0, float(ang), box, ring_support(G, np.vstack(per)), closed_choice
 
 
 def flatten_paper(out, inside, sc=0.125):
@@ -728,7 +758,7 @@ def main_with_resources(resources,lease=None):
         sq = find_square(Gx, Gy, size) if a.vorm in ('auto', 'hoes') else None
         ci = find_circle(gmean, cover, G) if a.vorm in ('auto', 'plaat') else None
         if os.environ.get('STITCH_DEBUG'): print('DEBUG steun vierkant', None if sq is None else round(sq[3], 1), 'cirkel', None if ci is None else round(ci[0], 1))
-        is_disc = ci is not None and (sq is None or a.vorm == 'plaat' or ci[0] > 1.15 * sq[3])
+        is_disc = ci is not None and (sq is None or a.vorm == 'plaat' or (not sq[4] and ci[0] > 1.15 * sq[3]))
         if is_disc:
             cx, cy, r = (v / 0.2 for v in ci[1])
             disc = np.zeros((size[1], size[0]), np.uint8)

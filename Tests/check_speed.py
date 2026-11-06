@@ -16,14 +16,14 @@ A.save_merged_cover(source,destination)
 assert not source.exists() and destination.read_bytes()==original
 source.write_bytes(original)
 for output in [source,work/'separate.png']:
- with patch.object(sys,'argv',['scan_discogs.py',str(source),str(destination),'--alleen-stand','--uit',str(output)]),patch.object(D,'matches',return_value=[(200,0,np.array([[1.,0.,0.],[0.,1.,0.]]))]):D.main()
+ with patch.object(sys,'argv',['scan_discogs.py',str(source),str(destination),'--alleen-stand','--uit',str(output)]),patch.object(D,'matches',return_value=[(200,0,np.array([[1.,0.,0.],[0.,1.,0.]]),.8)]):D.main()
  assert output.read_bytes()==original
  with Image.open(output) as image:
   assert np.array_equal(np.array(image),pixels) and image.info['icc_profile']==icc
 # Real rotation remains lossless and must not take the unchanged-file path.
 rotated=work/'rotated.png';rotation_source=work/'opaque.png'
 opaque=pixels.copy();opaque[:,:,3]=255;Image.fromarray(opaque).save(rotation_source)
-with patch.object(sys,'argv',['scan_discogs.py',str(rotation_source),str(destination),'--alleen-stand','--uit',str(rotated)]),patch.object(D,'matches',return_value=[(200,0,np.array([[0.,-1.,300.],[1.,0.,0.]]))]):D.main()
+with patch.object(sys,'argv',['scan_discogs.py',str(rotation_source),str(destination),'--alleen-stand','--uit',str(rotated)]),patch.object(D,'matches',return_value=[(200,0,np.array([[0.,-1.,300.],[1.,0.,0.]]),.8)]):D.main()
 with Image.open(rotated) as image:
  assert np.array_equal(np.array(image),np.rot90(opaque,-1))
 report={'merged_cover_bytes_preserved':True,'unchanged_orientation_skips_encoding':True,'source_alpha_icc_dpi_preserved':True,'real_quarter_turn_pixels_exact':True}

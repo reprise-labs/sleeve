@@ -1,3 +1,11 @@
+## 0.4.10 — witte hoesranden, gedeelde logo’s en losse hoekscans
+
+- WEN: acht oorspronkelijke hoesdeelscans opnieuw op volledige resolutie verwerkt tot front (14671 × 14749) en back (14671 × 14769), met de juiste namen. Beide bestanden leesbaar; verkleinde resultaten visueel gecontroleerd op de hoesranden en behoud van tekst/witte rand.
+- GF: alle 17 bronnen opnieuw automatisch gegroepeerd als front (4), back (5), sidea (4) en sideb (4). De voorkant apart opnieuw opgebouwd uit alle vier de bekende voorkantscans via de functie voor één onderdeel: 14506 × 14652, leesbaar en visueel gecontroleerd. De hele GF-uitgave is niet opnieuw gerenderd.
+- WEN-vinyl: de oorspronkelijke B-scans zijn 5096 × 7016, tegenover 10192 × 14032 voor A. De bestaande vinylresultaten zijn niet vergroot of opnieuw gemaakt.
+- Nieuwe regressies: gesloten hoesrand versus scanner-/illustratielijnen, behoud van een bestaande goede uitsnede, ronde objecten, gelokaliseerd gedeeld logo, unieke losse hoek, dubbelzinnige hoek en conflictveto.
+- Volledige regressieset en native project-, bewerkings-, kleurworkflow- en modelcontroles geslaagd. Geen volledige FIRE- of FBOW-render opnieuw uitgevoerd voor deze versie.
+
 ## 0.4.9 — kleurkopieën in dezelfde map
 
 Regressiecontrole: beide vinylkanten krijgen uitsluitend nieuwe `_kleur`-bestanden naast hun bronbeelden. Bij herhaling blijft de eerdere kopie bestaan en volgt `_kleur_2`. Etiket en transparantie blijven exact behouden; oorspronkelijke scans en hun Studio-verwerking.json blijven identiek. Geen volledige FIRE-scan opnieuw uitgevoerd voor deze wijziging.
