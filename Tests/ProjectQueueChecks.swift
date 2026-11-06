@@ -13,7 +13,8 @@ import CryptoKit
     @MainActor static func main() async throws {
         let root=URL(fileURLWithPath:CommandLine.arguments[1]);try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         let library=root.appendingPathComponent("Library");let out=root.appendingPathComponent("Resultaten");try FileManager.default.createDirectory(at:out,withIntermediateDirectories:true)
-        let sample=Bundle.main.resourceURL!.appendingPathComponent("Samples/Voorbeeld_sidea.png")
+        let sample=root.appendingPathComponent("source_sidea.png")
+        try FileManager.default.copyItem(at:Bundle.main.resourceURL!.appendingPathComponent("Samples/Voorbeeld_sidea.png"),to:sample)
         let originalRef=root.appendingPathComponent("Tijdelijke-referentie.png")
         try FileManager.default.copyItem(at:Bundle.main.resourceURL!.appendingPathComponent("Samples/Oranje-referentie.png"),to:originalRef)
         let sourceHash=SHA256.hash(data:try Data(contentsOf:sample))

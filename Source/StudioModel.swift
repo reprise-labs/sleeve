@@ -180,7 +180,7 @@ final class PipeReader: @unchecked Sendable {
     var beforeURL: URL? { showResults ? (selected?.previousVersion ?? selected?.source) : nil }
     var inputCount: Int { inputs.filter{!$0.reference}.count }
     var canStart: Bool {
-        guard !busy, inputCount > 0, outputFolder != nil else { return false }
+        guard !busy, inputCount > 0, (mode == .colour || outputFolder != nil) else { return false }
         switch mode {
         case .scans:return true
         case .colour:return referenceURL != nil && !colourTargets.isEmpty
@@ -311,7 +311,7 @@ final class PipeReader: @unchecked Sendable {
         cancelReleaseAdvice()
         guard let resources=Bundle.main.resourceURL else{errorMessage="De onderdelen van de app zijn niet beschikbaar.";return}
         if action != "references" && action != "audit" && (rowsOverride ?? inputs).isEmpty {errorMessage="Voeg eerst afbeeldingen toe.";return}
-        if ["scan","colour","namesApply","manualCrop"].contains(action) && outputFolder==nil {chooseOutput();guard outputFolder != nil else{return}}
+        if ["scan","namesApply","manualCrop"].contains(action) && outputFolder==nil {chooseOutput();guard outputFolder != nil else{return}}
         if action=="references" || action=="namesPreview",discogs.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {errorMessage="Vul eerst de Discogs-link van de juiste uitgave in.";return}
         let rows: [MediaItem]
         if let supplied=rowsOverride {rows=supplied}

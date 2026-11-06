@@ -4,7 +4,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 root=Path(__file__).resolve().parents[1];work=Path(sys.argv[1]).resolve();work.mkdir(exist_ok=True,parents=True)
-sample=root/'Resources/Samples/Voorbeeld_sidea.png';ref=root/'Resources/Samples/Oranje-referentie.png'
+sample=work/'record_sidea.png';sample.write_bytes((root/'Resources/Samples/Voorbeeld_sidea.png').read_bytes());ref=root/'Resources/Samples/Oranje-referentie.png'
+metadata=work/'Studio-verwerking.json';metadata.write_text('original scan metadata')
 row={'path':str(sample),'part':'sidea','reference':False}
 def job(req,name,ok=True):
  out=work/name;out.mkdir();req['output']=str(out);f=out/'request.json';f.write_text(json.dumps(req))
@@ -35,6 +36,20 @@ second=work/'source_sideb.png';second.write_bytes(sample.read_bytes())
 events=job({'action':'colour','inputs':[row,dict(row,path=str(second),part='sideb')],'reference':str(ref),'scope':'vinyl'},'both-sides')
 files={f['path'] for e in events if e['event']=='outputs' for f in e.get('files',[])}
 assert len(files)==2
+assert all(Path(path).parent==work for path in files)
+assert metadata.read_text()=='original scan metadata'
+assert sample.read_bytes()==(root/'Resources/Samples/Voorbeeld_sidea.png').read_bytes()
+assert any(Path(path).name=='record_sidea_kleur_2.png' for path in files)
 for path in files:
  result=np.array(Image.open(path));assert np.array_equal(a[:,:,3],result[:,:,3]) and np.array_equal(a[label],result[label])
 print('Beide vinylkanten tegelijk getest; hoes met vinylreferentie vooraf afgewezen.')
+
+# Existing projects may point at an old Kleurvoorstellen output.
+legacy=work/'Kleurvoorstellen legacy';legacy.mkdir()
+old=legacy/'record_sidea_kleur.png';old.write_bytes(sample.read_bytes())
+(legacy/'Studio-verwerking.json').write_text(json.dumps({'action':'colour','outputs':[{'path':str(old),'source':str(sample)}]}))
+events=job({'action':'colour','inputs':[dict(row,path=str(old))],'reference':str(ref),'scope':'vinyl'},'legacy')
+new=[f for e in events if e['event']=='outputs' for f in e.get('files',[])]
+assert len(new)==1 and Path(new[0]['path']).parent==work
+assert old.exists() and metadata.read_text()=='original scan metadata'
+print('Legacy kleurproject slaat nieuwe kopie naast de oorspronkelijke scans op.')

@@ -37,3 +37,14 @@ with patch.object(D,'get',side_effect=fetch):
  assert len(D.release_images('https://www.discogs.com/release/1'))==2
 report={'primary_image_identity_survives_failed_download':True,'different_crop_same_dpi_grouped' :True,'unrelated_image_kept_apart':True,'partial_unnamed_output_not_front':True,'known_output_identity_retained':True,'unknown_names_require_choice':True}
 (work/'RESULTAAT.json').write_text(json.dumps(report,indent=2));print(report)
+# A red record and dark label can share their grayscale brightness.
+from PIL import ImageDraw
+from types import SimpleNamespace
+label_source=work/'red-label.png';label=Image.new('RGB',(700,700),(255,0,0));ImageDraw.Draw(label).ellipse((250,250,450,450),fill=(76,76,76));label.save(label_source)
+preview=cv2.cvtColor(np.array(label),cv2.COLOR_RGB2BGR)
+with patch.object(cv2,'HoughCircles',return_value=np.array([[[350.,350.,100.]]],dtype=np.float32)),patch.object(A.CU,'ocr_tool',return_value='mock-ocr'),patch.object(A.CU,'disc_text_angle',return_value=0),patch.object(A.subprocess,'run',side_effect=[SimpleNamespace(stdout='0\t0.5\tUnreadable'),SimpleNamespace(stdout='180\t0.5\tSIDE A')]) as reader:
+ assert A.disc_side_from_preview(str(label_source),preview)=='A'
+ assert reader.call_count==2
+assert A.side_markers('0\t0.5\tSIDE A\n180\t0.5\tSIDE B')=={'A','B'}
+assert not A.side_markers('0\t0.5\tALBUM A')
+print('Chromatic circular label boundary and high-contrast explicit side retry verified.')

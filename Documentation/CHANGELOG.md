@@ -1,3 +1,11 @@
+# 0.4.9 — Kleurkopieën naast de scans en rode vinylkanten
+
+- Kleurkopieën worden in de map van de gekozen beelden opgeslagen met `_kleur.png`; bestaande bestanden blijven behouden en krijgen bij herhaling een volgnummer.
+- Geen aparte Kleurvoorstellen-map of mapkeuze voor kleurcorrectie meer.
+- Alleen de nieuw gemaakte kopieën worden als kleurresultaat gecontroleerd. Scanmetadata blijft behouden; kleurgeschiedenis staat in een verborgen `.sleeve`-submap.
+- Rode vinylplaten: etiketranden worden ook op kleurverschil herkend. Een contrastrijke tweede tekstlezing voorkomt dat bijna identieke A/B-labels in één groep belanden.
+- De kleurworkflowtest vergelijkt genormaliseerde paden en rapporteert fouten zonder een crashmelding. Testbeelden worden naar een eigen testmap gekopieerd.
+
 # Changelog
 
 ## 0.4.8 — prerelease, 6 November 2026
