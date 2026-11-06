@@ -48,3 +48,24 @@ with patch.object(cv2,'HoughCircles',return_value=np.array([[[350.,350.,100.]]],
 assert A.side_markers('0\t0.5\tSIDE A\n180\t0.5\tSIDE B')=={'A','B'}
 assert not A.side_markers('0\t0.5\tALBUM A')
 print('Chromatic circular label boundary and high-contrast explicit side retry verified.')
+# A cropped fourth corner can have one strong overlap with an existing group.
+scores=np.full((7,7),np.nan)
+for group in ([0,1,2],[3,4,5]):
+ for i in group:
+  for j in group:
+   if i!=j:scores[i,j]=.92
+scores[6,2]=scores[2,6]=.85
+paths=[str(i) for i in range(7)]
+assert any(set(g)=={'0','1','2','6'} for g in A.cluster_paths(paths,scores))
+scores[6,5]=scores[5,6]=.86
+assert any(g==['6'] for g in A.cluster_paths(paths,scores)), 'Ambiguous corner must remain separate'
+scores[6,5]=scores[5,6]=np.nan;scores[6,0]=scores[0,6]=-1
+assert any(g==['6'] for g in A.cluster_paths(paths,scores)), 'Explicit conflict must veto attachment'
+# A repeated logo cannot identify an entire cover as the front.
+first=rng.integers(0,256,(700,700,3),dtype=np.uint8);second=rng.integers(0,256,(700,700,3),dtype=np.uint8)
+first=cv2.GaussianBlur(first,(0,0),1);second=cv2.GaussianBlur(second,(0,0),1)
+second[20:160,30:660]=first[20:160,30:660]
+localized=D.matches(first,[second],with_coverage=True);whole=D.matches(first,[first],with_coverage=True)
+assert localized and localized[0][3]<.20 and whole and whole[0][3]>.60
+assert len(D.matches(first,[first])[0])==3
+print('Unique cropped corner joins its cover; ambiguous/conflicting corners stay separate; shared logo is not a front identity.')

@@ -68,7 +68,7 @@ def on_white(rgba):
     return (bgr * a + 255 * (1 - a)).astype(np.uint8)
 
 
-def matches(ours, imgs):
+def matches(ours, imgs, with_coverage=False):
     """Alle Discogs-foto's die passen: [(overeenkomsten, index, transformatie ons -> discogs)], beste eerst."""
     sift = cv2.SIFT_create(4000)
     g = cv2.cvtColor(ours, cv2.COLOR_BGR2GRAY)
@@ -90,7 +90,9 @@ def matches(ours, imgs):
             continue
         k = int(inl.sum())
         if k >= 20:
-            found.append((k, n, M))
+            selected=inl.ravel()>0
+            coverage=min(cv2.contourArea(cv2.convexHull(points[selected]))/(image.shape[0]*image.shape[1]) for points,image in [(src,ours),(dst,im)])
+            found.append((k,n,M,coverage) if with_coverage else (k,n,M))
     return sorted(found, key=lambda x: -x[0])
 
 
@@ -140,13 +142,15 @@ def apply_reference(a,source_mode,metadata):
     s = 1000 / max(raw.shape[:2])
     small = cv2.resize(raw, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     ours = on_white(small)
-    found = matches(ours, imgs)
+    detailed = matches(ours, imgs,with_coverage=True)
+    found=[item[:3] for item in detailed]
     if not found:
         sys.exit(f'geen Discogs-foto gevonden die bij de scan past ({title})')
     k, n, M = found[0]
     ang = float(np.degrees(np.arctan2(M[1, 0], M[0, 0])))     # hoek ons -> discogs (beeldcoördinaten)
     round_ = small[..., 3].mean() / 255 < 0.9                 # transparante hoeken = plaat
     print(f'Discogs: {title} — foto {n + 1} past best ({k} overeenkomsten)')
+    if detailed[0][3]>=.20:print(f'SLEEVE_REFERENCE_IDENTITY {n+1}')
 
     out = raw
     del raw

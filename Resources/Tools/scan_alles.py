@@ -241,6 +241,11 @@ def group_with_previews(paths,scratch):
                 conflict = len(patches) >= 5 and (np.asarray(patches)<.10).mean() > .20
                 S[i, j] = S[j, i] = -1.0 if conflict else np.corrcoef(hi[mh], hj[mh])[0, 1]
     progress("Scans met elkaar vergelijken",comparisons,comparison_total,scope="preparation")
+    return cluster_paths(paths,S)
+
+
+def cluster_paths(paths,S):
+    n=len(paths)
     cl = [[i] for i in range(n)]
     while True:
         best = None
@@ -256,6 +261,17 @@ def group_with_previews(paths,scratch):
             break
         _, x, y = best
         cl[x] += cl[y]; del cl[y]
+    # A cropped corner can overlap just one member of a large, already
+    # verified group. Attach only an unambiguous strong match, preserving every
+    # explicit conflict veto and never linking two multi-scan groups.
+    for singleton in [group for group in cl if len(group)==1]:
+        i=singleton[0];candidates=[]
+        for target in cl:
+            if target is singleton or len(target)<2:continue
+            values=[S[i,j] for j in target if np.isfinite(S[i,j])]
+            if values and min(values)>=.65 and max(values)>=.80:candidates.append(target)
+        if len(candidates)==1:
+            candidates[0].append(i);cl.remove(singleton)
     return [[paths[i] for i in sorted(c)] for c in sorted(cl, key=min)]
 
 
@@ -613,7 +629,7 @@ return text returned of r''')
             r = subprocess.run(cmd, capture_output=True,text=True)
             log(r.stdout.strip() if r.returncode == 0 else 'Discogs-referentie past niet betrouwbaar; scan behouden.')
             import re
-            match=re.search(r'foto (\d+) past best',r.stdout) if r.returncode==0 else None
+            match=re.search(r'SLEEVE_REFERENCE_IDENTITY (\d+)',r.stdout) if r.returncode==0 else None
             matched_primary=soort=='hoes' and match is not None and int(match[1]) in primary_positions
         # meteen veiligstellen in 'verwerkt' (voorlopige naam); hernoemen gebeurt straks
         veilig = os.path.join(out, f'{os.path.splitext(os.path.basename(g[0]))[0]}_{soort}.png'); m = 2
@@ -662,6 +678,7 @@ return text returned of r''')
         fixed_part = confirmed_parts.get(os.path.abspath(bron),detected_cover_parts.get(dst,''))
         if fixed_part:
             kant = fixed_part
+            if soort=='hoes':cover_reps.append((dst,kant))
         elif soort == 'hoes':
             duplicate = next((k for path,k in cover_reps if same_cover(path,dst)),None)
             if duplicate:

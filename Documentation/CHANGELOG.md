@@ -1,3 +1,10 @@
+# 0.4.10 — Hoezen met witte randen en losse hoekscans
+
+- Hoesranden: een grote gesloten rechthoek kan een aantoonbaar afwijkende combinatie van scanner- en afbeeldingslijnen vervangen. Eerdere overeenkomende uitsneden blijven behouden.
+- Een gedeeld logo identificeert niet langer de volledige hoes als voorkant: de Discogs-overeenkomst moet voldoende beeldoppervlak bestrijken.
+- Een losse hoekscan mag bij één bestaande groep aansluiten als de overlap sterk en eenduidig is; conflicten en twijfel blijven uitgesloten.
+- Een herkende voorkant blijft beschikbaar bij het herkennen van herhaalde hoesbeelden.
+
 # 0.4.9 — Kleurkopieën naast de scans en rode vinylkanten
 
 - Kleurkopieën worden in de map van de gekozen beelden opgeslagen met `_kleur.png`; bestaande bestanden blijven behouden en krijgen bij herhaling een volgnummer.
