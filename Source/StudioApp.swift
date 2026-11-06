@@ -253,13 +253,15 @@ struct StudioView: View {
                 TimelineView(.periodic(from:.now,by:1)) {context in
                     VStack(alignment:.leading,spacing:7) {
                         HStack {
-                            if let index=model.currentPart,let total=model.totalParts {Text(model.progressPhase=="Eindcontrole" ? "Bestand \(index) van \(total) controleren" : "Onderdeel \(index) van \(total)").fontWeight(.semibold)}
+                            if model.activePartCount>1 {Text("\(model.activePartCount) onderdelen in verwerking").fontWeight(.semibold)}
+                            else if let index=model.currentPart,let total=model.totalParts {Text(model.progressPhase=="Eindcontrole" ? "Bestand \(index) van \(total) controleren" : "Onderdeel \(index) van \(total)").fontWeight(.semibold)}
                             else {Text(model.completedParts>0 ? "Verwerking afronden" : "Verwerking voorbereiden").fontWeight(.semibold)}
                             if model.mode == .scans,let total=model.totalParts {Text("· \(model.completedParts) van \(total) onderdelen verwerkt").foregroundStyle(.secondary)}
                             Spacer()
                             if let start=model.startedAt {Text("Totale tijd "+durationText(context.date.timeIntervalSince(start))).monospacedDigit()}
                         }.font(.system(size:12))
                         HStack {
+                            if model.activePartCount>1,let index=model.currentPart {Text("Onderdeel \(index) ·").foregroundStyle(.secondary)}
                             Text(model.progressPhase.isEmpty ? "Voorbereiden" : model.progressPhase)
                             Spacer()
                             if let start=model.phaseStartedAt {Text("Deze stap "+durationText(context.date.timeIntervalSince(start))).monospacedDigit().foregroundStyle(.secondary)}

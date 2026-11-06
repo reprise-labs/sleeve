@@ -26,7 +26,8 @@ scan_cutout.py (cover/vinyl) en de watermerkstap.
 import argparse, os, sys, gc, contextlib
 from scan_progress import progress
 from scan_blend import detail_blur
-from scan_memory import MappedScanStore,MappedArrayStore,render_tile_size,drop_array_pages
+from scan_fields import GainPlane, CorrectedImage
+from scan_memory import MappedScanStore,MappedArrayStore,render_tile_size,drop_array_pages,flush_array_rows,MemoryLease
 import numpy as np
 import cv2
 
@@ -39,31 +40,48 @@ FEATHER = 700          # px: zo ver van de scanrand weegt een pixel pas volledig
 EDGE = 150             # px van de rand die niet meetelt bij het kleurmeten
 
 
-def load(path, f=1.0):
-    """Inlezen als BGR in sRGB, eventueel verkleind met factor f.
-    Scans hebben vaak een eigen kleurprofiel (bv. 'Generic RGB'): dat wordt
-    omgezet, anders worden kleuren verkeerd (oranje wordt rood)."""
+def open_srgb(path, factor=1.0):
+    """Open with the established resize/profile path, avoiding RGB copies."""
     import io
-    from PIL import Image, ImageCms
-    Image.MAX_IMAGE_PIXELS = None
+    from PIL import Image,ImageCms
+    Image.MAX_IMAGE_PIXELS=None
+    image=Image.open(path)
+    profile=image.info.get('icc_profile')
+    if image.mode not in ('RGB','RGBA','L'):image=image.convert('RGB')
+    if factor != 1:
+        image=image.resize((max(1,round(image.width*factor)),max(1,round(image.height*factor))),Image.LANCZOS)
+    if image.mode != 'RGB':image=image.convert('RGB')
+    if profile:
+        source=ImageCms.ImageCmsProfile(io.BytesIO(profile))
+        if 'srgb' not in ImageCms.getProfileDescription(source).lower():
+            ImageCms.profileToProfile(image,source,ImageCms.createProfile('sRGB'),outputMode='RGB',inPlace=True)
+    return image
+
+
+def load_into(path,target):
+    """Decode/profile once; copy RGB to mapped BGR in bounded row bands."""
+    with open_srgb(path) as image:
+        if target.shape != (image.height,image.width,3):raise ValueError('Decoder target dimensions changed')
+        for start in range(0,image.height,256):
+            stop=min(image.height,start+256)
+            with image.crop((0,start,image.width,stop)) as band:
+                target[start:stop]=cv2.cvtColor(np.asarray(band),cv2.COLOR_RGB2BGR)
+            flush_array_rows(target,start,stop)
+
+
+def load(path,f=1.0,consume_cache=False):
+    """Read BGR in sRGB, optionally resized; no source file is modified."""
     try:
-        im = Image.open(path)
-        icc = im.info.get('icc_profile')
-        if im.mode not in ('RGB', 'RGBA', 'L'):
-            im = im.convert('RGB')
-        if f != 1:
-            im = im.resize((max(1, round(im.width * f)), max(1, round(im.height * f))), Image.LANCZOS)
-        if im.mode != 'RGB':im = im.convert('RGB')
-        if icc:
-            src = ImageCms.ImageCmsProfile(io.BytesIO(icc))
-            if 'srgb' not in ImageCms.getProfileDescription(src).lower():
-                ImageCms.profileToProfile(im, src, ImageCms.createProfile('sRGB'), outputMode='RGB', inPlace=True)
-        return cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2BGR)
-    except Exception as e:
-        sys.exit(f'kan {path} niet lezen: {e}')
+        from scan_previews import get
+        cached=get(path,f,consume=consume_cache)
+        if cached is not None:return cached
+        with open_srgb(path,f) as image:
+            return cv2.cvtColor(np.asarray(image),cv2.COLOR_RGB2BGR)
+    except Exception as error:
+        sys.exit(f'kan {path} niet lezen: {error}')
 
 
-def load_previews(path, factors):
+def load_previews(path, factors, inspector=None):
     """Decode once, then create independent previews with the existing pixel path."""
     import io
     from PIL import Image, ImageCms
@@ -82,6 +100,7 @@ def load_previews(path, factors):
             if convert:
                 preview=ImageCms.profileToProfile(preview,profile,ImageCms.createProfile('sRGB'),outputMode='RGB')
             outputs.append(cv2.cvtColor(np.asarray(preview),cv2.COLOR_RGB2BGR))
+        if inspector is not None:return outputs,inspector(outputs,original)
     return outputs
 
 
@@ -240,7 +259,7 @@ def feather_weight(mask):
     return (np.minimum(d, FEATHER) / FEATHER) ** 2 + (mask * 1e-4)
 
 
-def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None):
+def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None, fit_only=False):
     """Pas im aan zodat het in de overlap gelijk is aan comp.
 
     Per kanaal een vlak a + b*x + c*y in log(comp/im), robuust geschat op
@@ -251,7 +270,11 @@ def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None):
     sm = lambda x: cv2.resize(x, (w // step, h // step), interpolation=cv2.INTER_AREA)
     ov = ((mask & cmask) & (cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5) > EDGE)
           & (cv2.distanceTransform(cmask.astype(np.uint8), cv2.DIST_L2, 5) > EDGE)).astype(np.uint8)
-    A = sm(cv2.GaussianBlur(im, (0, 0), 3))
+    if im.dtype == np.uint8:
+        kernel=cv2.getGaussianKernel(25,3,cv2.CV_32F)
+        A=sm(cv2.sepFilter2D(im,cv2.CV_32F,kernel,kernel))
+    else:
+        A = sm(cv2.GaussianBlur(im, (0, 0), 3))
     if release:release()
     B = sm(cv2.GaussianBlur(comp, (0, 0), 3))
     if release:release()
@@ -262,12 +285,10 @@ def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None):
     if ok.sum() > 200:
         ok &= grad < np.percentile(grad[ok], 60)       # alleen egale stukken (geen naadfouten)
     if ok.sum() < 100:
-        return im, None
+        return None if fit_only else (im, None)
     yy, xx = np.nonzero(ok)
     X = np.stack([np.ones_like(xx), xx / (w / step), yy / (h / step)], 1).astype(np.float64)
     fx=np.arange(w,dtype=np.float32)[None,:]
-    out=allocator("corrected",im.shape) if allocator else np.empty_like(im)
-    gm=allocator("gain",im.shape) if allocator else np.empty_like(im)
     coefficients=[]
     for c in range(3):
         r = np.log(B[ok, c] / A[ok, c])
@@ -277,6 +298,9 @@ def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None):
             res = r - X @ coef
             sel = np.abs(res) < max(2.5 * np.std(res[sel]), 0.01)
         coefficients.append(coef)
+    if fit_only:return GainPlane(coefficients,(h,w))
+    out=allocator("corrected",im.shape) if allocator else np.empty_like(im)
+    gm=allocator("gain",im.shape) if allocator else np.empty_like(im)
     # Write all three channels before flushing this band, instead of rereading
     # and flushing the same mapped pages once per channel. Arithmetic is unchanged.
     for y0 in range(0,h,256):
@@ -409,7 +433,7 @@ def flatten_paper(out, inside, sc=0.125):
     return g
 
 
-def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, wts, gainm, best, ks, flat, shape, source_scales=None):
+def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, wts, gainm, best, ks, flat, shape, source_scales=None, release_work=None, sources_ready=None, output_allocator=None,before_sources=None):
     """Het resultaat opnieuw opbouwen op volle scanresolutie, in blokken.
     Alles wat berekend is (uitlijning, kleurcorrectie, gewichten, welke scan
     per plek de details levert, vorm) komt van de kleine schaal; de pixels
@@ -429,13 +453,16 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
     G_o = {}
     for k in ks:
         gain=gainm.pop(k,None)
-        G_o[k]=to_out(gain,cv2.INTER_LINEAR) if gain is not None else None
+        G_o[k]=gain if isinstance(gain,GainPlane) else to_out(gain,cv2.INTER_LINEAR) if gain is not None else None
     gain=None
     gc.collect()
     B_o = to_out(best.astype(np.uint8), cv2.INTER_NEAREST)
     F_o = to_out(flat.astype(np.float32), cv2.INTER_LINEAR) if flat is not None else None
+    if release_work is not None:release_work()
+    gc.collect()
     progress('Originele scans openen',0,len(ks))
-    with MappedScanStore(paths,ks,load,output_bytes=Wf*Hf*4,on_loaded=lambda current,total:progress('Originele scans openen',current,total)) as srcs:
+    with MappedScanStore(paths,ks,load,decode_into=load_into,on_reserved=before_sources,output_bytes=Wf*Hf*4,on_loaded=lambda current,total:progress('Originele scans openen',current,total)) as srcs:
+        if sources_ready is not None:sources_ready()
         M, polys = {}, {}
         for k in ks:
             hk, wk = srcs[k].shape[:2]
@@ -447,11 +474,12 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
         if shape[0] == 'disc':
             cx, cy, r = shape[1]
             cxo, cyo = (O @ [cx, cy, 1])[:2] * s; ro = r * s
+        inverse_O=np.linalg.inv(O)
         sig = DETAIL_SIGMA * s; pad = int(3 * sig) + 8
         tile=render_tile_size()
         print(f'geheugenbegrensd: bronbeelden via tijdelijke schijfblokken, uitvoerblokken {tile} px',flush=True)
         progress('Beeld opbouwen',0,1)
-        out = np.zeros((Hf, Wf, 4), np.uint8)
+        out = output_allocator((Hf,Wf,4)) if output_allocator is not None else np.zeros((Hf,Wf,4),np.uint8)
         def sample(m, x0, y0, w, h, interp):               # kleine kaart -> blok op volle schaal
             A = np.array([[f, 0, (x0 + 0.5) * f - 0.5], [0, f, (y0 + 0.5) * f - 0.5]])
             return cv2.warpAffine(m, A, (w, h), flags=interp | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REPLICATE)
@@ -482,7 +510,7 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
                     im = cv2.warpAffine(srcs[k], (T @ M[k])[:2], (w, h), flags=cv2.INTER_LANCZOS4,
                                         borderMode=cv2.BORDER_REPLICATE).astype(np.float32)
                     if G_o[k] is not None:
-                        im *= sample(G_o[k], x0, y0, w, h, cv2.INTER_LINEAR)
+                        im *= G_o[k].output_block(inverse_O,f,x0,y0,w,h,out_small_wh) if isinstance(G_o[k],GainPlane) else sample(G_o[k], x0, y0, w, h, cv2.INTER_LINEAR)
                     mf = mk.astype(np.float32)
                     wk = (np.maximum(sample(W_o[k], x0, y0, w, h, cv2.INTER_LINEAR), 0) + 1e-4) * mf
                     mb = detail_blur(mf, sig)
@@ -500,11 +528,13 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
                 blk[..., :3] = np.clip(res + 0.5, 0, 255).astype(np.uint8); blk[..., 3] = np.where(anym, 255, 0)
                 out[ty * tile:ty * tile + h - 2 * pad, tx * tile:tx * tile + w - 2 * pad] = blk[pad:h - pad, pad:w - pad]
                 srcs.drop_pages()
+            flush_array_rows(out,ty*tile,min(Hf,(ty+1)*tile))
+            srcs.space.committed((min(Hf,(ty+1)*tile)-ty*tile)*Wf*4)
             print(f'  {int(100 * (ty + 1) / nty)}%', flush=True)
         return out
 
 
-def repair_paper_gaps(out):
+def repair_paper_gaps(out,before_fill=None):
     """Continue local paper tones into small blank gaps; never fill with one global colour.
     Large gaps and gaps beside artwork stay transparent and are reported."""
     h,w = out.shape[:2]
@@ -527,6 +557,7 @@ def repair_paper_gaps(out):
         if stats[k,cv2.CC_STAT_AREA] < .08*hole.size and plain:
             accepted[m > 0] = 1
     if accepted.any():
+        if before_fill is not None:before_fill()
         # Exclude the shadow and interpolation fringe at the edges of missing paper.
         accepted = cv2.dilate(accepted,np.ones((31,31),np.uint8))
         # Harmonic interpolation continues the surrounding tones smoothly.
@@ -560,14 +591,43 @@ def repair_paper_gaps(out):
     return out
 
 
+def upright_preview(out):
+    """Same RGB thumbnail as re-opening a PNG; share full-size bytes instead."""
+    from PIL import Image
+    h,w=out.shape[:2]
+    # RGBX prevents alpha premultiplication, matching the established RGB conversion.
+    image=Image.frombuffer('RGBX',(w,h),np.ascontiguousarray(out),'raw','RGBX',0,1)
+    image.thumbnail((1600,1600))
+    bgr=np.asarray(image.convert('RGB'))
+    return Image.fromarray(bgr[:,:,::-1].copy())
+
+
+def upright_output(out,work):
+    import scan_cutout as CU
+    progress('Leesrichting van de hoes controleren')
+    q=CU.reading_quadrant(upright_preview(out))
+    print('leesrichting: '+('onbekend' if q is None else str(q)),flush=True)
+    if not q:return out
+    view=np.rot90(out,-int(q//90))
+    rotated=work.empty(('upright-output',0),view.shape,np.uint8)
+    for y0 in range(0,view.shape[0],256):
+        y1=min(view.shape[0],y0+256)
+        rotated[y0:y1]=view[y0:y1]
+        flush_array_rows(rotated,y0,y1)
+        drop_array_pages(out)
+    return rotated
+
+
 def main():
     with contextlib.ExitStack() as resources:
         main_with_resources(resources)
 
-def main_with_resources(resources):
+def main_with_resources(resources,lease=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('uitvoer'); p.add_argument('delen', nargs='+')
     p.add_argument('--geen-kleur', action='store_true')
+    p.add_argument('--rechtop',action='store_true',help=argparse.SUPPRESS)
+    p.add_argument('--snelle-tussenbestanden',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--referentie', type=int)
     p.add_argument('--klein', action='store_true', help='uitvoer op ~300 dpi (snel) in plaats van de volle scanresolutie')
     p.add_argument('--vorm', choices=['auto', 'hoes', 'plaat', 'geen'], default='auto', help='hoes = vierkant, plaat = rond, geen = alleen op kleur (standaard: zelf bepalen)')
@@ -581,6 +641,11 @@ def main_with_resources(resources):
     from PIL import Image as _I
     _I.MAX_IMAGE_PIXELS = None
     metadata = [_I.open(path) for path in a.delen]
+    max_source_pixels=max(im.width*im.height for im in metadata)
+    # Reserve the larger of preparation and full-source decoding before allocating.
+    # Admission only shrinks later, so concurrent workers cannot deadlock upgrading.
+    reserve=max(29+max(0,len(a.delen)-4)*3, int(np.ceil((max_source_pixels*8+512*1024**2)/(64*1024**2))))
+    lease=resources.enter_context(MemoryLease(min(70,reserve),phase='Deelscans openen'))
     dpis = [float(im.info.get('dpi',(0,0))[0]) for im in metadata]
     ref_dpi = max(dpis) if all(50<d<5000 for d in dpis) else None
     ratios = [ref_dpi/d for d in dpis] if ref_dpi else [1.]*len(dpis)
@@ -597,7 +662,7 @@ def main_with_resources(resources):
     source_scales = [f*ratio for ratio in ratios]
     imgs=[];progress('Deelscans openen',0,len(a.delen))
     for index,(fn,scale) in enumerate(zip(a.delen,source_scales)):
-        imgs.append(load(fn,scale));progress('Deelscans openen',index+1,len(a.delen))
+        imgs.append(load(fn,scale,consume_cache=True));progress('Deelscans openen',index+1,len(a.delen))
     progress('Randen en achtergrond herkennen')
     valid = [~background_mask(im) for im in imgs]
     # kenmerken alleen op de hoes; maar is bijna alles als 'deksel' gezien (witte/crème
@@ -649,6 +714,8 @@ def main_with_resources(resources):
         fr = np.zeros(imgs[k].shape[:2], np.uint8); fr[6:-6, 6:-6] = 1
         frames[k] = cv2.warpAffine(fr, M, size, flags=cv2.INTER_NEAREST) > 0
 
+    imgs=valid=feats=None
+    gc.collect()
     # 0. hoes of plaat? Een plaat (rond) gaat prima op kleur: het deksel eromheen
     #    wordt weggesneden. Een hoes is altijd vierkant: zoek het vierkant op de
     #    hoesranden; alles erbuiten is deksel, alles erbinnen hoes, welke kleur
@@ -677,16 +744,18 @@ def main_with_resources(resources):
                 masks[k] = frames[k] & sq_mask
             print(f'hoes: vierkant gevonden ({sq_box[2]}x{sq_box[3]} px), scheefstand {sq_angle:+.2f} graden')
 
+    Gx=Gy=gmean=G=cover=frames=None
+    gc.collect()
     # 1. kleur/licht gelijktrekken: elk deel krijgt per kanaal een zacht
     #    verlopende correctie (vlak in log-ruimte: factor + lichtverloop van de
     #    scannerlamp), gemeten in de overlap met wat al samengevoegd is
     ks = list(order)
     height,width=size[1],size[0]
     print(f'rekencanvas: {width}x{height} px; werkbuffers op tijdelijke schijfblokken',flush=True)
-    estimate=height*width*(28*len(ks)+48)
+    estimate=height*width*(4*len(ks)+32)
     progress('Werkbestanden voor samenvoegen voorbereiden')
     work=resources.enter_context(MappedArrayStore(estimate))
-    img={k:work.put(('image',k),warped[k].astype(np.float32)) for k in ks}
+    img={k:CorrectedImage(warped[k]) for k in ks}
     wts={k:work.put(('weight',k),feather_weight(masks[k])) for k in ks}
     gainm={}
     progress('Belichting tussen deelscans afstemmen',0,len(ks))
@@ -702,10 +771,9 @@ def main_with_resources(resources):
                 work.drop_pages()
             k=max(todo,key=lambda t:int((masks[t]&cm).sum()))
             if (masks[k]&cm).sum()<5000:break
-            corrected,gain=gain_correct(img[k],masks[k],comp,cm,allocator=lambda kind,shape:work.empty((kind,k),shape),release=work.drop_pages)
-            if corrected is not img[k]:
-                img[k]=corrected;work.discard(('image',k))
-            gainm[k]=gain;corrected=gain=None
+            gain=gain_correct(img[k].raw,masks[k],comp,cm,release=work.drop_pages,fit_only=True)
+            img[k].gain=gain
+            gainm[k]=gain;gain=None
             done.append(k);todo.remove(k);work.drop_pages()
             progress('Belichting tussen deelscans afstemmen',len(done),len(ks))
         comp=acc=cm=None;work.discard(('composite',0))
@@ -728,28 +796,28 @@ def main_with_resources(resources):
     def lowpass(x,m):
         mb=cv2.GaussianBlur(m,(0,0),DETAIL_SIGMA)
         return cv2.GaussianBlur(x*m[...,None],(0,0),DETAIL_SIGMA)/np.maximum(mb,1e-6)[...,None]
-    low=work.empty(('low',0),(height,width,3));high=work.empty(('high',0),(height,width,3))
+    # Accumulate one band across all sources, then write the byte output directly.
+    # Per-pixel source order and float32 arithmetic match the mapped-buffer path.
     pad=int(4*DETAIL_SIGMA)+2
+    out=np.zeros((height,width,4),np.uint8);anymask=np.zeros((height,width),bool)
     progress('Overgangen tussen deelscans afwerken',0,len(ks)*height)
-    for n,k in enumerate(ks):
-        for y0 in range(0,height,256):
-            y1=min(height,y0+256);top=max(0,y0-pad);bottom=min(height,y1+pad)
+    for y0 in range(0,height,256):
+        y1=min(height,y0+256);top=max(0,y0-pad);bottom=min(height,y1+pad)
+        low=np.zeros((y1-y0,width,3),np.float32);high=np.zeros_like(low)
+        for n,k in enumerate(ks):
             mk=masks[k][top:bottom].astype(np.float32)
             lk=lowpass(img[k][top:bottom],mk)[y0-top:y1-top]
-            low[y0:y1]+=lk*wts[k][y0:y1,...,None]
+            low+=lk*wts[k][y0:y1,...,None]
             win=cv2.GaussianBlur(((best[top:bottom]==n)&masks[k][top:bottom]).astype(np.float32),(0,0),2)[y0-top:y1-top]
-            high[y0:y1]+=(img[k][y0:y1]-lk)*win[...,None]
+            high+=(img[k][y0:y1]-lk)*win[...,None]
             work.drop_pages()
-            progress('Overgangen tussen deelscans afwerken',n*height+y1,len(ks)*height)
-    progress('Voorbeeld van samenvoeging opbouwen',0,height)
-    out=np.zeros((height,width,4),np.uint8);anymask=np.zeros((height,width),bool)
-    for y0 in range(0,height,256):
-        y1=min(height,y0+256);acc=sum(wts[k][y0:y1] for k in ks)
-        res=low[y0:y1]/np.maximum(acc,1e-6)[...,None]+high[y0:y1]
+        acc=sum(wts[k][y0:y1] for k in ks)
+        res=low/np.maximum(acc,1e-6)[...,None]+high
         out[y0:y1,:,:3]=np.clip(res+.5,0,255).astype(np.uint8)
         for k in ks:anymask[y0:y1]|=masks[k][y0:y1]
-        out[y0:y1,:,3]=np.where(anymask[y0:y1],255,0);work.drop_pages()
-        progress('Voorbeeld van samenvoeging opbouwen',y1,height)
+        out[y0:y1,:,3]=np.where(anymask[y0:y1],255,0)
+        work.drop_pages()
+        progress('Overgangen tussen deelscans afwerken',len(ks)*y1,len(ks)*height)
     imgs=valid=feats=warped=frames=img=low=high=score=res=acc=g=sh=mk=lk=win=None
     work.keep_only({('weight',k) for k in ks}|{('gain',k) for k in ks})
     gc.collect()
@@ -778,15 +846,56 @@ def main_with_resources(resources):
         Gx=Gy=gmean=G=cover=g=sh=mk=win=out=comp=cm=ys=xs=None
         best=best.astype(np.uint8)
         gc.collect()
+        field_bytes=out_wh[0]*out_wh[1]*(5*len(ks)+1+(4 if flat is not None else 0))
+        field_units=max(1,int(np.ceil((field_bytes+192*1024**2)/(64*1024**2))))
+        decoder_units=max(field_units,int(np.ceil((max_source_pixels*8+field_bytes+192*1024**2)/(64*1024**2))))
+        if lease is not None and decoder_units>lease.weight:
+            # Reject a group whose decoder would exceed its admitted maximum;
+            # never wait for an upgrade beyond the preparation reservation.
+            raise ValueError('Dit onderdeel vraagt meer werkgeheugen dan vooraf beschikbaar was. Verwerk minder delen tegelijk.')
+        def release_preparation():
+            work.keep_only(set())
+            if lease is not None:lease.resize(field_units)
         out = render_full(a.delen, order, H, Tsh, O, f, out_wh, size,
-                          masks, wts, gainm, best, ks, flat, shape, source_scales)
+                          masks, wts, gainm, best, ks, flat, shape, source_scales, release_work=release_preparation,sources_ready=lambda:lease.resize(min(lease.weight,12+max(0,len(ks)-4))) if lease is not None else None,output_allocator=lambda shape:work.empty(('full-output',0),shape,np.uint8),before_sources=lambda:lease.grow(decoder_units,phase='Originele scans openen') if lease is not None else None)
         masks=wts=gainm=best=flat=None
         gc.collect()
+    # Full source maps and tile buffers have gone. Flushed output bytes can wait
+    # on disk while the independent save/repair stage acquires its own budget.
+    drop_array_pages(out)
+    gc.collect()
+    encode_units=min(70,4+int(np.ceil(out.nbytes/(64*1024**2))))
+    if lease is not None:lease.release()
+    final_lease=resources.enter_context(MemoryLease(encode_units,phase='Samengesteld beeld opslaan'))
+    repair_expanded=False
+    def before_paper_fill():
+        nonlocal final_lease,repair_expanded
+        # Most covers need only the small inspection. Reserve the expensive
+        # full-size local fill only when the inspected image actually needs it.
+        drop_array_pages(out)
+        gc.collect()
+        final_lease.release()
+        final_lease=resources.enter_context(MemoryLease(48,phase='Kleine open randen aanvullen'))
+        repair_expanded=True
     if square is not None:
         progress('Kleine open randen controleren')
-        out = repair_paper_gaps(out)
+        out=repair_paper_gaps(out,before_fill=before_paper_fill)
+        drop_array_pages(out)
+        if repair_expanded:
+            gc.collect()
+            final_lease.release()
+            final_lease=resources.enter_context(MemoryLease(encode_units,phase='Samengesteld beeld opslaan'))
+    if a.rechtop and square is not None:
+        out=upright_output(out,work)
     progress('Samengesteld beeld opslaan')
-    cv2.imwrite(a.uitvoer, out, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+    if a.snelle_tussenbestanden and disc_c is not None:
+        import json
+        a.uitvoer += '.tif'
+        if not cv2.imwrite(a.uitvoer,out,[cv2.IMWRITE_TIFF_COMPRESSION,1]):
+            raise OSError('Could not write lossless intermediate')
+        print('SLEEVE_INTERMEDIATE '+json.dumps({'path':a.uitvoer}),flush=True)
+    elif not cv2.imwrite(a.uitvoer, out, [cv2.IMWRITE_PNG_COMPRESSION, 1]):
+        raise OSError('Could not save merged image')
     print(f'klaar: {a.uitvoer}  ({out.shape[1]}x{out.shape[0]}, {len(order)} delen, referentie: {a.delen[ref]})')
 
 

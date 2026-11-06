@@ -53,6 +53,7 @@ struct BridgeEvent: Decodable {
     var unitsDone:Int?
     var unitsTotal:Int?
     var completedParts:Int?
+    var activeParts:Int?
     var detail:String?
     var advice: ReleaseAdvice?
     var audits: [ImageAudit]?
@@ -118,6 +119,9 @@ final class PipeReader: @unchecked Sendable {
     @Published var lastProgressAt:Date?
     @Published var progressUnitsDone:Int?
     @Published var progressUnitsTotal:Int?
+    @Published var activePartCount=1
+    var componentPhaseClocks:[Int:(phase:String,date:Date)]=[:]
+    var componentDetails:[Int:String]=[:]
     @Published var completedParts=0
     @Published var progressDetail=""
     @Published var busy = false
@@ -325,6 +329,7 @@ final class PipeReader: @unchecked Sendable {
             if action=="scan" {req["useColour"]=false}
             activeScanRecipe=action=="scan" ? StudioScanRecipe(inputs:rows,discogs:req["discogs"] as? String ?? "",variant:req["variant"] as? String ?? "",useNames:req["useNames"] as? Bool ?? true,useStand:req["useStand"] as? Bool ?? true,useColour:req["useColour"] as? Bool ?? false) : nil
             let request=cache.appendingPathComponent("request.json");try JSONSerialization.data(withJSONObject:req,options:.prettyPrinted).write(to:request)
+            componentPhaseClocks=[:];componentDetails=[:];activePartCount=1
             busy=true;measuredProgress=nil;currentPart=nil;totalParts=nil;progressPhase="Voorbereiden";phaseStartedAt=Date();lastProgressAt=Date();progressUnitsDone=nil;progressUnitsTotal=nil;completedParts=0;progressDetail="";cancelled=false;reportedError=false;receivedComplete=false;activeAction=action;activeLogFolder=cache;startedAt=Date();logText="";warnings=[];errorMessage=nil;stateText=action=="references" ? "Discogs-foto’s ophalen…" : "Voorbereiden…"
             if action=="colour" {activeColourSourcePaths=Set(rows.map{$0.url.path});activeColourOutputPaths=[]}
             else if ["scan","namesApply","manualCrop"].contains(action) {outputs=[];showResults=false}
@@ -367,11 +372,17 @@ final class PipeReader: @unchecked Sendable {
             }
         case "progress":
             let nextIndex=event.scope=="preparation" || event.scope=="finishing" ? nil : (event.index ?? currentPart)
-            if event.phase != progressPhase || nextIndex != currentPart {phaseStartedAt=Date()}
+            if let oldIndex=currentPart,let start=phaseStartedAt {componentPhaseClocks[oldIndex]=(progressPhase,start)}
+            if event.phase != progressPhase || nextIndex != currentPart {
+                if let index=nextIndex,let clock=componentPhaseClocks[index],clock.phase==event.phase {phaseStartedAt=clock.date}
+                else {phaseStartedAt=Date()}
+            }
+            if nextIndex != currentPart {progressDetail=nextIndex.flatMap{componentDetails[$0]} ?? ""}
+            activePartCount=max(0,event.activeParts ?? 1)
             lastProgressAt=Date();measuredProgress=event.fraction;currentPart=nextIndex;totalParts=event.total ?? totalParts;progressPhase=event.phase ?? ""
             progressUnitsDone=event.unitsDone;progressUnitsTotal=event.unitsTotal
             if let count=event.completedParts {completedParts=count}
-            if let detail=event.detail,!detail.isEmpty {progressDetail=detail}
+            if let detail=event.detail,!detail.isEmpty {progressDetail=detail;if let index=nextIndex {componentDetails[index]=detail}}
             if event.scope=="preparation" || event.scope=="finishing" {progressDetail=""}
         case "status":stateText=event.message ?? "Bezig…"
         case "warning":warnings.append(event.message ?? "Controleer het logboek")
@@ -399,7 +410,7 @@ final class PipeReader: @unchecked Sendable {
         }
     }
     func didFinish(_ status:Int32) {
-        busy=false;process=nil;readPipe=nil;reader=nil
+        busy=false;activePartCount=1;process=nil;readPipe=nil;reader=nil
         if let folder=activeLogFolder{try? logText.write(to:folder.appendingPathComponent("app-logboek.txt"),atomically:true,encoding:.utf8)}
         if cancelled {stateText="Gestopt door jou"}
         else if status != 0 || !receivedComplete {

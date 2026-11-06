@@ -500,7 +500,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     transparent = Image.fromarray(m).point([255]+[0]*255)
     out.paste((0,0,0,0),(0,0,size,size),transparent)
     progress('Uitgesneden schijf opslaan')
-    out.save(dst, compress_level=3, pnginfo=metadata)
+    out.save(dst, compress_level=1, pnginfo=metadata)
     print(f'uitgeknipt: {size}x{size} px')
 
 
@@ -855,6 +855,11 @@ def crop_cover(src, dst, straighten=True, extra=0.0):
 
 
 def main():
+    from scan_memory import MemoryLease
+    with MemoryLease(48,phase='Beeld uitsnijden'):return main_with_memory()
+
+
+def main_with_memory():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('modus', choices=['cd', 'vinyl', 'cover', 'map'])
     p.add_argument('invoer'); p.add_argument('uitvoer')

@@ -7,6 +7,8 @@ from PIL import Image
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'Resources/Tools'))
 import scan_stitch as S
 from scan_blend import detail_blur
+from scan_fields import GainPlane
+from scan_memory import MappedArrayStore
 cv2.setNumThreads(2)
 root=Path(sys.argv[1]).resolve();root.mkdir(parents=True,exist_ok=True)
 rng=np.random.default_rng(17);reports=[]
@@ -32,12 +34,19 @@ for kind in ['paper','orange','clear','black']:
  best=np.where(x[::4,::4]<700,0,1).astype(np.uint8)
  H={0:np.eye(3),1:np.array([[1.,0,50],[0,1,0],[0,0,1]])}
  shape=('none',None) if kind=='clear' else ('disc',(175,150,140)) if kind in ('orange','black') else ('square',None)
+ plane=GainPlane([[.01,.04,-.02],[0,-.03,.05],[.02,.02,-.04]],(300,350))
  outputs=[];times=[]
  for optimized in [False,True]:
   fn=detail_blur if optimized else lambda a,s:cv2.GaussianBlur(a,(0,0),s)
+  gains={1:plane if optimized else plane.rows(0,300)}
   start=time.monotonic()
-  with patch.object(S,'detail_blur',fn),contextlib.redirect_stdout(io.StringIO()):
-   out=S.render_full(paths,[0,1],H,np.eye(3),np.eye(3),.25,(350,300),None,{k:v.copy() for k,v in masks.items()},{k:v.copy() for k,v in weights.items()},{},best,[0,1],None,shape)
+  with contextlib.ExitStack() as stack,patch.object(S,'detail_blur',fn),contextlib.redirect_stdout(io.StringIO()):
+   store=stack.enter_context(MappedArrayStore(1400*1200*4,scratch=root)) if optimized else None
+   allocator=(lambda shape:store.empty('output',shape,np.uint8)) if store else None
+   source_admission=[]
+   out=S.render_full(paths,[0,1],H,np.eye(3),np.eye(3),.25,(350,300),None,{k:v.copy() for k,v in masks.items()},{k:v.copy() for k,v in weights.items()},gains,best,[0,1],None,shape,output_allocator=allocator,before_sources=lambda:source_admission.append(True))
+   assert source_admission==[True]
+   out=out.copy()
   outputs.append(out);times.append(time.monotonic()-start)
  a,b=outputs
  if kind=='clear':assert np.count_nonzero(a[500:580,620:660,3])==0,'The fixture must actually contain a transparent hole'

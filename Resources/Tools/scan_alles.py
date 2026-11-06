@@ -14,7 +14,7 @@
    Zonder link: <eerste scan>_<kant>.
 Uitvoer in de map 'verwerkt' naast de scans.
 """
-import argparse, os, subprocess, sys, tempfile
+import argparse, os, subprocess, sys, tempfile, contextlib
 from functools import lru_cache
 import numpy as np
 import cv2
@@ -27,6 +27,7 @@ sys.path.insert(0, HERE)
 from scan_progress import progress
 import scan_stitch as ST          # noqa: E402
 import scan_cutout as CU          # noqa: E402
+from scan_memory import MemoryLease,physical_memory,GiB
 
 KANTEN = ['front', 'back', 'inside', 'insert', 'inlay', 'sidea', 'sideb', 'sidec', 'sided', 'cd', 'cd1', 'cd2', 'sticker']
 LAST = os.path.expanduser('~/.sleeve_laatste_discogs')
@@ -46,17 +47,17 @@ def small(path, side=1400):
 
 _disc_side_results = {}
 
-def disc_side(path, preview=None):
+def disc_side(path, preview=None, original=None):
     """Read a side marker; a supplied preview avoids decoding the source twice."""
     stat=os.stat(path);key=(os.path.abspath(path),stat.st_size,stat.st_mtime_ns)
     if key in _disc_side_results:return _disc_side_results[key]
     if preview is None:preview,_=small(path,700)
-    result=disc_side_from_preview(path,preview)
+    result=disc_side_from_preview(path,preview,original)
     if len(_disc_side_results)>=256:_disc_side_results.pop(next(iter(_disc_side_results)))
     _disc_side_results[key]=result
     return result
 
-def disc_side_from_preview(path, im):
+def disc_side_from_preview(path, im, original=None):
     """Read an explicit side marker on the centre label, never infer from artwork."""
     import re
     gray = cv2.GaussianBlur(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), (3, 3), 0)
@@ -75,7 +76,7 @@ def disc_side_from_preview(path, im):
     valid = (xx>=0)&(yy>=0)&(xx<gray.shape[1])&(yy<gray.shape[0])
     if valid.mean()<.9 or (edge[yy[valid],xx[valid]]>0).mean()<.65:
         return None
-    with Image.open(path) as original:
+    with (Image.open(path) if original is None else contextlib.nullcontext(original)) as original:
         original.thumbnail((2800,2800))
         ratio = original.width / im.shape[1]
         label = original.convert('RGB').crop(tuple(int(v*ratio) for v in (x-r*1.03,y-r*1.03,x+r*1.03,y+r*1.03))).resize((1200,1200))
@@ -116,20 +117,54 @@ def group_with_previews(paths,scratch):
     sides=[];preview_offsets=[]
     # A shorter cropped scan at the same DPI must retain the same physical scale.
     # Resizing every file to the same longest side made these scans fail rigid matching.
-    headers=[]
+    headers=[];decode_sizes=[]
     for path in paths:
-        with Image.open(path) as image:headers.append((max(image.size),dpi_of(path)))
+        with Image.open(path) as image:
+            headers.append((max(image.size),dpi_of(path)))
+            decode_sizes.append(image.width*image.height*9)
+
     calibrated=all(dpi for _,dpi in headers)
     span=max((pixels/dpi if calibrated else pixels) for pixels,dpi in headers)
     target=min(1400/span,min(dpi for _,dpi in headers)) if calibrated else 1400/span
     progress('Scans openen en plaatkanten lezen',0,len(paths),scope='preparation')
-    for index,(path,(longest,dpi)) in enumerate(zip(paths,headers)):
+    cache_dpi=max(dpi for _,dpi in headers) if calibrated else None
+    cache_f=min(1.0,ST.MAX_SIDE/(span*cache_dpi if calibrated else span))
+    import threading
+    stopped=threading.Event();preview_write_lock=threading.Lock()
+    def inspect_source(item):
+        if stopped.is_set():return None,None
+        path,(longest,dpi)=item
         f=min(1.0,target/dpi if calibrated else target)
-        label,preview=ST.load_previews(path,[min(1.0,700/longest),f])
-        preview_offsets.append(scratch.tell())
-        np.save(scratch,preview,allow_pickle=False)
-        sides.append(disc_side(path,label))
-        progress('Scans openen en plaatkanten lezen',index+1,len(paths),scope='preparation')
+        scale=cache_f*(cache_dpi/dpi) if calibrated else cache_f
+        factors=[min(1.0,700/longest),f]
+        if os.environ.get('SLEEVE_WORK_PREVIEWS'):factors.append(scale)
+        previews,side=ST.load_previews(path,factors,inspector=lambda images,original:disc_side(path,images[0],original))
+        if len(previews)>2:
+            from scan_previews import put
+            with preview_write_lock:
+                if stopped.is_set():return None,None
+                put(path,scale,previews[2])
+        return previews[1],side
+    # At most two source decoders, bounded using source dimensions rather than
+    # file sizes. Preserve input order and do all scratch-file writes in one thread.
+    workers=2 if physical_memory()>=8*GiB and sum(sorted(decode_sizes,reverse=True)[:2])+.5*GiB<4*GiB else 1
+    workers=min(workers,max(1,int(os.environ.get('SLEEVE_PREVIEW_WORKERS','2'))))
+    from concurrent.futures import ThreadPoolExecutor
+    if workers>1:CU.ocr_tool()  # Compile once before any inspector thread can need it.
+    executor=ThreadPoolExecutor(max_workers=workers)
+    try:
+        for index,(preview,side) in enumerate(executor.map(inspect_source,zip(paths,headers))):
+            preview_offsets.append(scratch.tell())
+            np.save(scratch,preview,allow_pickle=False)
+            sides.append(side)
+            progress('Scans openen en plaatkanten lezen',index+1,len(paths),scope='preparation')
+    except BaseException:
+        # Cancel queued decoders immediately. In-flight decoders may finish, but
+        # cannot recreate a cache directory after the job's ExitStack removes it.
+        with preview_write_lock:stopped.set()
+        executor.shutdown(wait=False,cancel_futures=True)
+        raise
+    else:executor.shutdown(wait=True)
     label=preview=None
     print("labelkanten:", [(os.path.basename(p), side) for p, side in zip(paths, sides) if side], flush=True)
     progress("Herkenningspunten zoeken",0,len(paths),scope="preparation")
@@ -282,6 +317,10 @@ def save_merged_cover(source,destination):
 
 
 def upright_cover(path):
+    with MemoryLease(26,phase='Leesrichting van de hoes controleren'):return upright_cover_with_memory(path)
+
+
+def upright_cover_with_memory(path):
     """Hoes in hele kwartslagen rechtop zetten op de leesrichting van de tekst."""
     with Image.open(path) as im:
         t = im.convert('RGB'); t.thumbnail((1600, 1600)); t = t.copy()
@@ -290,7 +329,7 @@ def upright_cover(path):
         with Image.open(path) as im:
             im.load()
             op = {90: Image.ROTATE_270, 180: Image.ROTATE_180, 270: Image.ROTATE_90}[q]   # q = stand waarin hij leest -> terugdraaien
-            im.transpose(op).save(path, compress_level=3)
+            im.transpose(op).save(path, compress_level=1)
         print(f'  hoes rechtop: {q} graden')
     return q
 
@@ -318,13 +357,31 @@ def run_stitch_live(cmd):
 
 
 def main():
+    import signal
+    previous={sig:signal.getsignal(sig) for sig in (signal.SIGTERM,signal.SIGINT)}
+    def stop(signum,frame):raise SystemExit(128+signum)
+    try:
+        for sig in previous:signal.signal(sig,stop)
+        with contextlib.ExitStack() as resources:return main_with_resources(resources)
+    finally:
+        for sig,handler in previous.items():signal.signal(sig,handler)
+
+
+def main_with_resources(resources):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--geen-discogs-namen',action='store_true')
     p.add_argument('--een-onderdeel', action='store_true', help='alle geselecteerde scans zijn delen van één kant')
     p.add_argument('--discogs-stand', action='store_true')
     p.add_argument('--discogs-kleur', action='store_true')
     p.add_argument('scans', nargs='+'); p.add_argument('--uit'); p.add_argument('--geen-vragen', action='store_true'); p.add_argument('--discogs', default=''); p.add_argument('--variant', default='')
+    p.add_argument('--workers',type=int,choices=[1,2,3],default=3,help=argparse.SUPPRESS)
+    p.add_argument('--component-worker',help=argparse.SUPPRESS)
     a = p.parse_args()
+    worker_context=None
+    if a.component_worker:
+        import json
+        if not a.geen_vragen or not a.een_onderdeel:raise ValueError('Invalid component worker request')
+        worker_context=json.load(open(a.component_worker))
     scans = sorted([s for s in a.scans if os.path.isfile(s)], key=lambda s: [int(t) if t.isdigit() else t.lower()
                    for t in __import__('re').split(r'(\d+)', os.path.basename(s))])
     reference_names = {}
@@ -353,7 +410,11 @@ def main():
     os.makedirs(out, exist_ok=True)
     global LOGFILE
     LOGFILE = os.path.join(out, 'logboek.txt')
-    tmp = tempfile.mkdtemp(prefix='sleeve_alles_')
+    tmp=resources.enter_context(tempfile.TemporaryDirectory(prefix='sleeve_alles_',dir=os.path.dirname(a.component_worker) if a.component_worker else None))
+    if worker_context is None:
+        import shutil
+        if shutil.disk_usage(tmp).free>3*GiB:
+            os.environ['SLEEVE_WORK_PREVIEWS']=os.path.join(tmp,'work-previews')
     import time; start = time.time()
 
     import scan_naam as scan_naam_mod
@@ -388,7 +449,9 @@ return k as text''')
         variant = osa(f'''set r to display dialog "Variant (optioneel)" & return & return & "Alleen nodig als er meer uitgaven zijn die anders dezelfde naam krijgen, bv. twee promo's van dezelfde single: remixes, radio, v2 …" & return & return & "{'Let op: deze naam bestaat al in de map verwerkt.' if bestaat else 'Leeg laten = geen variant.'}" default answer "{voorstel}" buttons {{"OK"}} default button "OK" with title "Sleeve · Scans verwerken"
 return text returned of r''')
     references = [];primary_positions=set()
-    if url and (a.discogs_stand or a.discogs_kleur):
+    if worker_context is not None:
+        references=worker_context['references'];primary_positions=set(worker_context['primary_positions'])
+    elif url and (a.discogs_stand or a.discogs_kleur):
         progress("Discogs-referentiefoto’s ophalen",scope="preparation")
         try:
             import scan_discogs
@@ -420,7 +483,46 @@ return text returned of r''')
         with open(temporary,'w') as file:json.dump({'files':component_records},file,ensure_ascii=False,indent=2)
         os.replace(temporary,path)
     twijfel = set()
-    for n, g in enumerate(gs, 1):
+    parallel=bool(a.geen_vragen and not worker_context and a.workers>1 and len(gs)>1 and len({os.path.basename(path) for path in scans})==len(scans))
+    if parallel:
+        import json,shutil
+        from pathlib import Path
+        from scan_workers import ComponentPool
+        commands=[];job_folders={}
+        for n,g in enumerate(gs,1):
+            folder=Path(tmp)/('worker-'+str(n));folder.mkdir();stage=folder/'scans';stage.mkdir();destination=folder/'outputs'
+            for source in g:os.symlink(os.path.realpath(source),stage/os.path.basename(source))
+            known=confirmed_parts.get(os.path.abspath(g[0]),'')
+            profile={'scan_groups':[{'part':known,'files':[os.path.basename(p) for p in g]}]} if known else {}
+            (stage/'.anouk-referenties.json').write_text(json.dumps(profile))
+            context=folder/'context.json';context.write_text(json.dumps({'references':references,'primary_positions':list(primary_positions)}))
+            command=[PY,__file__,*[str(stage/os.path.basename(p)) for p in g],'--geen-vragen','--een-onderdeel','--geen-discogs-namen','--workers','1','--component-worker',str(context),'--uit',str(destination)]
+            if url:command+=['--discogs',url]
+            if a.discogs_stand:command+=['--discogs-stand']
+            if a.discogs_kleur:command+=['--discogs-kleur']
+            commands.append((n,command));job_folders[n]=destination
+        commands.sort(key=lambda item:len(gs[item[0]-1]),reverse=True)
+        completed={}
+        with ComponentPool(len(gs),Path(tmp)/'pool',a.workers) as pool:
+            for n in pool.run(commands):
+                destination=job_folders[n]
+                record=json.loads((destination/'Worker-resultaat.json').read_text())
+                if record['files']:
+                    if len(record['files'])!=1:raise ValueError('Een onderdeel leverde niet precies één resultaat op')
+                    item=record['files'][0];source=(destination/item['name']).resolve()
+                    if source.parent!=destination.resolve() or source.suffix.lower()!='.png':raise ValueError('Invalid component output')
+                    soort=item['type'];bron=gs[n-1][0]
+                    veilig=os.path.join(out,f'{os.path.splitext(os.path.basename(bron))[0]}_{soort}.png');suffix=2
+                    while os.path.exists(veilig):veilig=os.path.join(out,f'{os.path.splitext(os.path.basename(bron))[0]}_{soort}_{suffix}.png');suffix+=1
+                    shutil.move(source,veilig)
+                    completed[n]=(veilig,soort,bron)
+                    item['name']=os.path.basename(veilig);item['scans']=[os.path.realpath(p) for p in gs[n-1]]
+                    component_records.append(item);save_components()
+                    if item.get('matched_primary'):detected_cover_parts[veilig]='front'
+                    if item.get('needs_review'):twijfel.add(veilig)
+                pool.finished(n)
+        results=[completed[n] for n in sorted(completed)]
+    for n, g in enumerate([] if parallel else gs, 1):
         if len(g) == 1:
             probe,_ = small(g[0],700)
             gray = cv2.cvtColor(probe,cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -436,22 +538,33 @@ return text returned of r''')
         dst = os.path.join(tmp, f'deel{n}.png')
         if len(g) > 1:
             src = os.path.join(tmp, f'deel{n}_samengevoegd.png')
-            cmd = [PY, os.path.join(HERE,'scan_stitch.py'),src]+g
+            cmd = [PY, os.path.join(HERE,'scan_stitch.py'),src]+g+['--rechtop','--snelle-tussenbestanden']
             known_part = confirmed_parts.get(os.path.abspath(g[0]),'')
             if known_part: cmd += ['--vorm','plaat' if known_part.startswith('side') else 'hoes']
             r = run_stitch_live(cmd)
             if r.returncode:
                 raise RuntimeError(r.stdout + r.stderr)
+            for line in r.stdout.splitlines():
+                if line.startswith('SLEEVE_INTERMEDIATE '):
+                    import json
+                    candidate=json.loads(line[len('SLEEVE_INTERMEDIATE '):])['path']
+                    if os.path.abspath(candidate)!=os.path.abspath(src+'.tif'):
+                        raise ValueError('Invalid intermediate output')
+                    src=candidate
             # samenvoegen herkent de vorm al; samengevoegd = altijd een lp-formaat
             soort = 'vinyl' if 'plaat:' in r.stdout else 'hoes'
         else:
-            dia = is_disc(src)
-            if dia is None:
-                soort = 'hoes'
+            fixed=confirmed_parts.get(os.path.abspath(g[0]),'') if a.een_onderdeel else ''
+            if fixed:
+                soort='vinyl' if fixed.startswith('side') else 'cd' if fixed.startswith('cd') else 'hoes'
             else:
-                d = dpi_of(src)
-                mm = dia / d * 25.4 if d else None
-                soort = 'vinyl' if (mm is not None and mm > 140) else 'cd'
+                dia = is_disc(src)
+                if dia is None:
+                    soort = 'hoes'
+                else:
+                    d = dpi_of(src)
+                    mm = dia / d * 25.4 if d else None
+                    soort = 'vinyl' if (mm is not None and mm > 140) else 'cd'
         if a.een_onderdeel:
             fixed=confirmed_parts.get(os.path.abspath(g[0]),'')
             if fixed.startswith('side'):soort='vinyl'
@@ -465,7 +578,7 @@ return text returned of r''')
             progress('Samengevoegde hoes opslaan')
             save_merged_cover(src,dst)
             progress('Leesrichting van de hoes controleren')
-            if upright_cover(dst) is None:
+            if 'leesrichting: onbekend' in r.stdout:
                 twijfel.add(dst)
         else:
             subprocess.run([PY, os.path.join(HERE, 'scan_cutout.py'), 'cover', src, dst], check=True)
@@ -494,9 +607,15 @@ return text returned of r''')
             twijfel.discard(dst); twijfel.add(veilig)
         results.append((veilig, soort, g[0]))
         if matched_primary:detected_cover_parts[veilig]='front'
-        component_records.append({'name':os.path.basename(veilig),'part':confirmed_parts.get(os.path.abspath(g[0]),detected_cover_parts.get(veilig,'unknown')),'type':soort,'source':os.path.realpath(g[0]),'scans':[os.path.realpath(p) for p in g]})
+        component_records.append({'name':os.path.basename(veilig),'part':confirmed_parts.get(os.path.abspath(g[0]),detected_cover_parts.get(veilig,'unknown')),'type':soort,'matched_primary':matched_primary,'needs_review':veilig in twijfel,'source':os.path.realpath(g[0]),'scans':[os.path.realpath(p) for p in g]})
         save_components()
         progress('Onderdeel verwerkt',completed=len(results))
+
+    if worker_context is not None:
+        import json,shutil
+        with open(os.path.join(out,'Worker-resultaat.json'),'w') as file:json.dump({'files':component_records},file)
+        shutil.rmtree(tmp,ignore_errors=True)
+        return
 
     progress('Onderdelen herkennen voor de bestandsnamen',scope='finishing',completed=len(results))
     # namen
@@ -554,7 +673,7 @@ return item 1 of d''')
                 op = {'90 graden rechtsom': Image.ROTATE_270, '90 graden linksom': Image.ROTATE_90, '180 graden': Image.ROTATE_180}.get(d)
                 if op is not None:
                     with Image.open(dst) as im:
-                        im.load(); im.transpose(op).save(dst, compress_level=3)
+                        im.load(); im.transpose(op).save(dst, compress_level=1)
             ql.terminate()
             kant = k or kant
         if use_names:
