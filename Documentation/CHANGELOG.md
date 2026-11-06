@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.7 — local test build, 6 November 2026
+## 0.4.7 — prerelease, 6 November 2026
 
 - Process separate components concurrently with a shared memory budget; start the largest group first and preserve original grouping, source identities and final roles.
 - Reuse work previews only at the exact requested scale, with the same colour conversion and an unchanged source fingerprint. Remove consumed temporary previews.
@@ -12,7 +12,7 @@
 
 Measured FIRE run: 28 scans to six full-resolution images in 11 minutes 23 seconds including file checks, without the separate colour pass. All six files exactly match the verified faster control run.
 
-Output resolution is retained. Timing, pixel comparisons and test limitations are documented in TESTS.md. This build is prepared locally; it has not been published to GitHub.
+Output resolution is retained. Timing, pixel comparisons and test limitations are documented in TESTS.md. This is a prerelease tested on one Apple M1 Mac with 8 GB RAM.
 
 ## 0.4.6 — local test build
 

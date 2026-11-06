@@ -17,7 +17,7 @@ staan in [CHANGELOG.md](Documentation/CHANGELOG.md).
 Verder beschikbaar: Discogs-releasevoorstellen en een aparte kleurstap
 voor hoezen en platen. Ook beschikbaar: ronde uitsneden zelf bijstellen, één
 onderdeel opnieuw verwerken en de geheugenfix voor grote FIRE-scans.
-De eerdere publieke download staat bij Releases; deze versie wordt lokaal getest.
+Deze versie is een proefversie; download het volledige app-pakket bij Releases.
 
 Apple Silicon, macOS 14 of nieuwer. De app is lokaal ondertekend en nog niet
 bij Apple genotariseerd. Deze proefversie heeft een eenmalige installatie van
