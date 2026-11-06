@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 MiB=1024**2
 GiB=1024**3
+GB=1000**3
 
 def physical_memory():
     try:
@@ -31,7 +32,7 @@ class MappedScanStore:
         needed=total+int(output_bytes)+GiB
         free=shutil.disk_usage(self.scratch).free
         if free < needed and not os.environ.get('SLEEVE_MEMORY_POOL'):
-            raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {needed/GiB:.1f} GB nodig, {free/GiB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
+            raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {needed/GB:.1f} GB nodig, {free/GB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
         if maximum*4 > physical_memory()*.35:
             raise ValueError('Een afzonderlijke scan is te groot om op deze Mac veilig te openen. Gebruik een scan op lagere resolutie of een Mac met meer geheugen.')
         self.required_bytes=needed
@@ -90,13 +91,15 @@ class MappedArrayStore:
     def __init__(self,expected_bytes,scratch=None):
         self.scratch=scratch or tempfile.gettempdir();self.arrays={};self.maps={}
         needed=int(expected_bytes)+GiB;free=shutil.disk_usage(self.scratch).free
-        if free<needed:raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {needed/GiB:.1f} GB nodig, {free/GiB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
+        if free<needed:raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {needed/GB:.1f} GB nodig, {free/GB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
+        self.activity=ScratchActivity()
     def empty(self,key,shape,dtype=np.float32):
         self.discard(key)
         dtype=np.dtype(dtype);length=int(np.prod(shape))*dtype.itemsize
         with tempfile.TemporaryFile(prefix='sleeve-work-',dir=self.scratch) as file:
             file.truncate(length);mapped=mmap.mmap(file.fileno(),length,access=mmap.ACCESS_WRITE)
         self.maps[key]=mapped;self.arrays[key]=np.ndarray(shape,dtype=dtype,buffer=mapped)
+        self.activity.set(True)
         return self.arrays[key]
     def put(self,key,value):
         result=self.empty(key,value.shape,value.dtype);result[:]=value;self.drop_pages();return result
@@ -104,6 +107,7 @@ class MappedArrayStore:
         self.arrays.pop(key,None)
         mapped=self.maps.pop(key,None)
         if mapped is not None:mapped.close()
+        if not self.maps:self.activity.set(False)
     def keep_only(self,keys):
         for key in list(self.maps):
             if key not in keys:self.discard(key)
@@ -113,6 +117,7 @@ class MappedArrayStore:
         self.arrays.clear()
         for mapped in self.maps.values():mapped.close()
         self.maps.clear()
+        self.activity.set(False)
     def __enter__(self):return self
     def __exit__(self,*args):self.close()
 
@@ -263,13 +268,16 @@ class ScratchLease:
                         item=json.loads(path.read_text());pid=int(item['pid'])
                         if pid<=0:raise ValueError('Invalid pid')
                         os.kill(pid,0)
+                        # Our own work buffers cannot make progress while this
+                        # thread waits here; do not count them as another producer.
+                        if item.get('activity') and pid==os.getpid():continue
                         reserved+=max(0,int(item['remaining']));others+=1
                     except (OSError,ValueError,KeyError,TypeError):path.unlink(missing_ok=True)
                 free=shutil.disk_usage(self.scratch).free
                 if free-reserved>=self.needed:
                     self.write();self.active=True;break
                 if not others:
-                    raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {self.needed/GiB:.1f} GB nodig, {free/GiB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
+                    raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {self.needed/GB:.1f} GB nodig, {free/GB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
             if not announced:
                 from scan_progress import progress
                 progress('Wachten op tijdelijke schijfruimte');announced=True
@@ -286,3 +294,30 @@ class ScratchLease:
             self.remaining=max(0,self.remaining-int(count));self.write()
     def __exit__(self,*args):
         if self.active:self.marker.unlink(missing_ok=True);self.active=False
+
+
+class ScratchActivity:
+    """Keep live mapped work/output buffers visible until their maps close.
+
+    These bytes already appear in disk_usage, so they reserve no extra space.
+    Unlike source maps, output maps remain alive during repair and PNG encoding.
+    """
+    def __init__(self):
+        import uuid
+        from pathlib import Path
+        root=os.environ.get('SLEEVE_MEMORY_POOL')
+        self.root=Path(root) if root else None
+        self.marker=self.root/('scratch-work-'+uuid.uuid4().hex+'.json') if root else None
+        self.active=False
+    def set(self,active):
+        if self.root is None or active==self.active:return
+        import fcntl,json
+        self.root.mkdir(parents=True,exist_ok=True)
+        with (self.root/'scratch-guard').open('a+b') as guard:
+            fcntl.flock(guard,fcntl.LOCK_EX)
+            if active:
+                temporary=self.marker.with_suffix('.tmp')
+                temporary.write_text(json.dumps({'pid':os.getpid(),'remaining':0,'activity':True}))
+                os.replace(temporary,self.marker)
+            else:self.marker.unlink(missing_ok=True)
+            self.active=active

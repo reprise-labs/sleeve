@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 @main struct ModelChecks {
-    @MainActor static func main() {
+    @MainActor static func main() async throws {
         let model=StudioModel(libraryDirectory:FileManager.default.temporaryDirectory.appendingPathComponent("StudioModelChecks-"+UUID().uuidString))
         for (name,part) in [("release_sidea_kleur.png","sidea"),("release_sideb_2_kleur_3.png","sideb"),("release_cd1.png","cd1"),("release_front.png","front")] {
             precondition(model.inferredPart(name)==part,"Onderdeel kwijt: "+name)
@@ -68,6 +68,24 @@ import SwiftUI
         precondition(model.progressDetail=="4 deelscans","Details moeten bij het huidige onderdeel horen")
         model.receive(BridgeEvent(event:"progress",phase:"Afronden",scope:"finishing",activeParts:1))
         precondition(model.activePartCount==1 && model.currentPart==nil)
+        let checkRoot=URL(fileURLWithPath:CommandLine.arguments[1])
+        try FileManager.default.createDirectory(at:checkRoot,withIntermediateDirectories:true)
+        let broken=checkRoot.appendingPathComponent("invalid.png")
+        try Data("not an image".utf8).write(to:broken)
+        let sample=Bundle.main.resourceURL!.appendingPathComponent("Samples/Voorbeeld_sidea.png")
+        let failed=StudioModel(libraryDirectory:checkRoot.appendingPathComponent("Library"))
+        failed.inputs=[MediaItem(url:broken,part:"sidea")];failed.outputFolder=checkRoot
+        failed.discogs="";failed.useNames=false;failed.useStand=false;failed.useColour=false
+        failed.launch(action:"scan")
+        precondition(failed.busy,"De gecontroleerde fout moet via een echt proces lopen")
+        failed.receive(BridgeEvent(event:"outputs",files:[BridgeFile(path:sample.path,source:broken.path,partial:true,part:"front")]))
+        let deadline=Date().addingTimeInterval(15)
+        while failed.busy {
+            if Date()>deadline {failed.cancel();fatalError("Foutafhandeling liep vast")}
+            try await Task.sleep(nanoseconds:20_000_000)
+        }
+        precondition(failed.showResults && !failed.showReview && failed.errorMessage != nil,"Een fout moet zichtbaar zijn voordat de eindcontrole wordt geopend")
+        precondition(failed.outputs.count==1 && failed.outputs[0].partial,"Bewaarde gedeeltelijke uitvoer moet beschikbaar blijven")
         print("Modelcontroles geslaagd: onderdelen, bronverbinding, volgende stap, referentiekeuze.")
     }
 }
