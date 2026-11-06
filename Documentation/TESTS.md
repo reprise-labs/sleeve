@@ -307,3 +307,27 @@ Dit is één dataset op één Apple M1 met 8 GB RAM. Geen algemene tijdgarantie
 voor andere scanformaten of aantallen. Gemengde cd/vinyl-invoer en de eerder
 uitgestelde interfacewijzigingen zijn hiermee niet toegevoegd of getest.
 Visuele goedkeuring van kleur, volledigheid en juiste uitgave blijft handmatig.
+
+
+## Schijfruimte-hotfix 0.4.8 — 6 november 2026
+
+De gebruikersrun met 0.4.7 brak af bij 3,4 GiB nodig en 3,0 GiB vrij. Bronmaps
+waren op dat moment gesloten, maar grote werk-/uitvoermaps van andere onderdelen
+bestonden nog tijdens repareren en PNG opslaan. Die buffers blijven nu als actieve
+ruimteproducent zichtbaar, zonder hun al geschreven bytes opnieuw te reserveren.
+Eigen werkbuffers worden niet als een andere ruimteproducent beschouwd.
+
+Een gerichte test met twee echte processen reproduceert deze grens: de bronlease
+is afgesloten, een uitvoermap van een ander proces blijft open, en de volgende
+werker moet wachten. Na het sluiten van de uitvoermap gaat hij verder. De test
+controleert ook het verdwijnen van reserveringen en het vermijden van zelfwachten.
+De bestaande geheugen-, schijfruimte-, beeld-, annulerings- en workflowcontroles
+blijven geslaagd. Een native modeltest stuurt gedeeltelijke uitvoer gevolgd door
+een echte procesfout: resultaten blijven beschikbaar, maar de fout wordt niet
+meer door een automatisch geopende eindcontrole bedekt.
+
+Dit is geen garantie dat 10 GB voor elke uitgave volstaat: tijdelijke buffers,
+reeds bewaarde resultaten en macOS-wisselgeheugen kunnen de vrije ruimte wijzigen.
+De volledige FIRE-run is voor deze hotfix nog niet opnieuw gemeten; de gebruiker
+heeft gevraagd 0.4.8 direct beschikbaar te maken voor de eigen praktijktest.
+De beeldberekeningen zijn niet aangepast.

@@ -6,14 +6,14 @@ van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Testversie 0.4.7
+## Testversie 0.4.8
 
-Nieuw in deze testversie: begrensde gelijktijdige verwerking van onderdelen,
-hergebruik van exacte werkbeelden, minder grote tussentijdse PNG-bestanden en
-een gezamenlijke bewaking van werkgeheugen en tijdelijke schijfruimte.
-De uitvoer blijft op volledige scanresolutie. De afzonderlijke metingen en
-kwaliteitscontroles staan in [TESTS.md](Documentation/TESTS.md); wijzigingen
-staan in [CHANGELOG.md](Documentation/CHANGELOG.md).
+Nieuw in deze testversie: de schijfruimteregeling blijft tijdelijke uitvoerbuffers
+volgen tijdens het opslaan, zodat andere onderdelen op vrijkomende ruimte kunnen
+wachten. Na een fout verschijnt de foutmelding voordat een eindcontrole wordt
+geopend. De beeldberekening en uitvoerresolutie zijn ongewijzigd.
+Metingen en kwaliteitscontroles staan in [TESTS.md](Documentation/TESTS.md);
+wijzigingen staan in [CHANGELOG.md](Documentation/CHANGELOG.md).
 Verder beschikbaar: Discogs-releasevoorstellen en een aparte kleurstap
 voor hoezen en platen. Ook beschikbaar: ronde uitsneden zelf bijstellen, één
 onderdeel opnieuw verwerken en de geheugenfix voor grote FIRE-scans.

@@ -418,7 +418,7 @@ final class PipeReader: @unchecked Sendable {
             stateText="Gestopt op een fout";showLog=true
         }
         if status==0 && !warnings.isEmpty {stateText += " · \(warnings.count) opmerkingen in het logboek";showLog=true}
-        if ["scan","colour","namesApply","manualCrop"].contains(activeAction) && !outputs.isEmpty {showResults=true;selectedID=outputs.first?.id;if activeAction != "colour" && activeQueueID==nil && panel != .queue{showReview=true}}
+        if ["scan","colour","namesApply","manualCrop"].contains(activeAction) && !outputs.isEmpty {showResults=true;selectedID=outputs.first?.id;if status==0 && receivedComplete && !cancelled && activeAction != "colour" && activeQueueID==nil && panel != .queue{showReview=true}}
         if activeAction=="colour",!activeColourOutputPaths.isEmpty {
             showResults=true;selectedID=outputs.first(where:{activeColourOutputPaths.contains($0.url.path)})?.id;compare=0
         }

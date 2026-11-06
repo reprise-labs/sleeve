@@ -7,7 +7,7 @@ RUNTIME_PY="$HOME/Library/Application Support/com.repriselabs.Sleeve/Runtime/bin
 if [[ ! -x "$RUNTIME_PY" ]]; then RUNTIME_PY=/usr/bin/python3; fi
 export PYTHONDONTWRITEBYTECODE=1
 "$RUNTIME_PY" Tests/check_names.py
-for check in bridge audits progress cancel circle_edit memory scratch release_advice grouping speed previews blend fields handoff preview_cache preview_cancel workers parallel_images; do
+for check in bridge audits progress cancel circle_edit memory scratch scratch_work release_advice grouping speed previews blend fields handoff preview_cache preview_cancel workers parallel_images; do
  "$RUNTIME_PY" "Tests/check_${check}.py" "$CHECK_DIR/$check"
 done
 mkdir -p "$CHECK_DIR/Checks.app/Contents/MacOS"
@@ -21,6 +21,6 @@ PLIST
 "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" "$CHECK_DIR/editing"
 /usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Source/StudioColour.swift Tests/ColourWorkflowChecks.swift -o "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" -framework SwiftUI -framework AppKit
 "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" "$CHECK_DIR/colour-workflow"
-/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Source/StudioColour.swift Tests/ModelChecks.swift -o "$CHECK_DIR/ModelChecks" -framework SwiftUI -framework AppKit
-"$CHECK_DIR/ModelChecks"
+/usr/bin/swiftc -swift-version 5 -O -parse-as-library Source/StudioModel.swift Source/StudioProjects.swift Source/StudioEditing.swift Source/StudioDiscovery.swift Source/StudioColour.swift Tests/ModelChecks.swift -o "$CHECK_DIR/Checks.app/Contents/MacOS/Checks" -framework SwiftUI -framework AppKit
+"$CHECK_DIR/Checks.app/Contents/MacOS/Checks" "$CHECK_DIR/model"
 print "Controles geslaagd. Verslagen: $CHECK_DIR"

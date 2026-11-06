@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.8 — prerelease, 6 November 2026
+
+- Keep mapped work/output files visible to the scratch scheduler through repair and PNG encoding, after source maps have closed. Other workers can wait for those buffers to release space instead of failing prematurely.
+- Exclude a worker’s own output activity from its wait condition, avoiding self-waits; stale claims and genuinely insufficient space remain handled.
+- Show disk-space amounts in decimal GB, matching Finder.
+- Present processing errors before opening review; preserve partial outputs for inspection.
+- Image-processing calculations and output resolution are unchanged. Targeted cross-process disk regression checks and image tests passed. This hotfix is provided for the user’s FIRE practice test; the full FIRE timing remains the measured 0.4.7 result.
+
 ## 0.4.7 — prerelease, 6 November 2026
 
 - Process separate components concurrently with a shared memory budget; start the largest group first and preserve original grouping, source identities and final roles.
