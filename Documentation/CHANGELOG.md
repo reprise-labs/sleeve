@@ -1,3 +1,8 @@
+# 0.4.20 — Uitgeklapte binnenkant als twee vierkanten; doorzichtig vinyl als plaat
+
+- Uitgeklapte binnenkant (twee panelen naast elkaar, in delen gescand): de scans worden één groep, ook als de uiteinden elkaar niet raken (meerdere sterke kwartslag-overlappen; bij een exacte kwartslag volstaan 25 passende punten, `MIN_INLIERS_QUARTER`). Het samengevoegde vlak (≥1,7:1) krijgt een kader van 2:1, en Sleeve slaat dat op als twee vierkanten, precies op de vouw gesplitst (`inside`, `inside_2`). Deena & Jim: kamer en bed, rechtop.
+- Hoes of plaat: is de cirkel bijna even sterk als het vierkant (doorzichtig vinyl op het witte deksel), dan beslist het asgat midden in de cirkel (`centre_hole`). To Get Her Together kant A was als hoes verwerkt.
+
 # 0.4.19 — Tekstvellen niet meer als plaat
 
 - 0.4.18 gaf het ruimere hoeskader de randsteun van de zwakke papierrand. Daarmee won de cirkelzoeker en werden de Deena & Jim-tekstvellen als plaat uitgesneden. Hoes of plaat wordt nu weer beslist op de steun van het sterke vierkant (zoals in 0.4.17); het ruimere kader bepaalt alleen de uitsnede.

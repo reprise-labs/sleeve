@@ -74,6 +74,14 @@ assert len(A.cluster_paths(paths,scores,None,quarter))==2, 'Record sides at rand
 assert len(A.cluster_paths(paths,scores))==2
 assert A.quarter_turn(np.array([[0.,-1,5],[1,0,3]])) and not A.quarter_turn(cv2.getRotationMatrix2D((0,0),17,1))
 print('Quarter-turned sheet parts merge; record sides at random angles stay separate.')
+# Unfolded inside (DEENA 37-42): a wide sheet whose ends do not overlap, linked by
+# several strong quarter-turn pairs, becomes one group; random angles do not.
+scores=np.full((6,6),np.nan)
+for (i,j),v in {(0,1):.97,(1,2):.93,(0,4):.90,(1,3):.80,(1,4):.63,(2,3):.85,(3,4):.93,(4,5):.93}.items():scores[i,j]=scores[j,i]=v
+paths=[str(i) for i in range(6)];quarter=np.ones((6,6),bool)
+assert A.cluster_paths(paths,scores,None,quarter)==[paths]
+assert len(A.cluster_paths(paths,scores,None,np.zeros((6,6),bool)))>1
+print('Unfolded inside chain merges only through exact quarter turns.')
 # A repeated logo cannot identify an entire cover as the front.
 first=rng.integers(0,256,(700,700,3),dtype=np.uint8);second=rng.integers(0,256,(700,700,3),dtype=np.uint8)
 first=cv2.GaussianBlur(first,(0,0),1);second=cv2.GaussianBlur(second,(0,0),1)

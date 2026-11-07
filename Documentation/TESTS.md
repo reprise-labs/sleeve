@@ -1,3 +1,10 @@
+## 0.4.20 — binnenkant en asgat
+
+- Indeling alle 9 uitgaven: alleen DEENA-binnenkant 37–42 (nu één groep) gewijzigd. DEENA 37–42 volledig verwerkt: inside (kamer) en inside_2 (bed), 7388×7143, rechtop via Discogs.
+- Hoes/plaat op alle 50 samengevoegde onderdelen: alleen TGHT kant A verandert (hoes → plaat).
+- 0.4.19-run (600 dpi): HNY-voorkant compleet met ANOUK-balk; GF stopte op volle schijf. Bekend: HNY kant A label 1,45° scheef (onder de bijstelgrens).
+- Nieuwe controles in `check_grouping.py` en `check_cover_boundary.py`. Volledige projectcontroles geslaagd.
+
 ## 0.4.19 — hoes of plaat
 
 - DEENA-tekstvellen 10–13 en 14–17 (600 dpi) samengevoegd: hoes, 6955 px (~29 cm), compleet met credits en marge; plaatkant A (18–21): plaat. Controle toegevoegd in `check_cover_boundary.py`. Volledige projectcontroles geslaagd.

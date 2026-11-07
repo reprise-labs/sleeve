@@ -49,6 +49,8 @@ INK_OUTSIDE = 0.03    # zoveel drukwerk mag buiten het hoeskader vallen; meer = 
 INK_MARGIN = 0.01     # ruimer kader begint minstens zo ver (deel van de zijde) buiten de tekst
 INK_WINDOW = 15       # px (op 0,2): vak waarin drukwerk randen in beide richtingen heeft
 INK_BOTH = 0.15       # zoveel van dat vak met randen per richting
+HOLE_RADIUS = 0.022   # asgat (straal) als deel van de plaatstraal; iets kleiner dan 0,026 voor de marge
+SPREAD_ASPECT = 1.7   # samengevoegd vlak minstens zo langwerpig: uitgeklapte binnenkant (2:1)
 INK_MIN_AREA = 0.002  # minder drukwerk dan dit deel van het canvas: geen controle (alleen lijnen)
 REFINE_SLACK = 0.5     # px: bijstellen mag geen enkel paar meer dan dit verslechteren
 SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
@@ -533,6 +535,29 @@ def find_circle(gray, cover, G, sc=0.2):
     return best
 
 
+def centre_hole(gray, cover, circle):
+    """Asgat midden in de cirkel: daar zie je het deksel doorheen. Het label
+    eromheen wijkt duidelijk af van het deksel. Een hoes met een rond motief
+    heeft dat niet. Alleen bruikbaar als het label van kleur verschilt."""
+    cx, cy, r = circle
+    h, w = gray.shape
+    yy, xx = np.mgrid[0:h, 0:w]; d = np.hypot(xx - cx, yy - cy)
+    outer = cover & (d > 1.05 * r)
+    ring = (d > .06 * r) & (d < .12 * r)
+    if outer.sum() < 50 or ring.sum() < 50:
+        return False
+    lid, label = float(np.median(gray[outer])), float(np.median(gray[ring]))
+    if abs(label - lid) < 20:
+        return False
+    hole_r = max(2.0, HOLE_RADIUS * r); best = 1e9; step = max(1, int(hole_r / 3))
+    for oy in range(-int(.04 * r), int(.04 * r) + 1, step):
+        for ox in range(-int(.04 * r), int(.04 * r) + 1, step):
+            spot = np.hypot(xx - cx - ox, yy - cy - oy) < hole_r
+            if spot.any():
+                best = min(best, abs(float(gray[spot].mean()) - lid))
+    return best < .35 * abs(label - lid)
+
+
 def text_ink(Gx, Gy, gradient):
     """Drukwerk: randen in beide richtingen dicht bij elkaar (letters, beeld).
     Een rechte lijn (hoesrand, deksel, scannerstreep) heeft er maar één."""
@@ -543,7 +568,7 @@ def text_ink(Gx, Gy, gradient):
     return ((fx > INK_BOTH) & (fy > INK_BOTH) & (gradient > t)).astype(np.float32)
 
 
-def edge_box(Gx, Gy, ink, angle, c):
+def edge_box(Gx, Gy, ink, angle, c, ratio=1.0):
     """Kader op de eerste duidelijke rand buiten de tekst, per zijde (gedraaid
     over 'angle'). Geeft een kandidaat zoals find_square die kent, of None."""
     h, w = Gx.shape
@@ -566,12 +591,13 @@ def edge_box(Gx, Gy, ink, angle, c):
         edges.append((lo, span[1] + m + hi))
     (y0, y1), (x0, x1) = edges
     Sx, Sy = x1 - x0, y1 - y0
-    if min(Sx, Sy) <= 0 or max(Sx, Sy) / min(Sx, Sy) > 1.10:
+    if min(Sx, Sy) <= 0 or abs(max(Sx, Sy) / min(Sx, Sy) - ratio) > .10 * ratio:
         return None
-    # Een hoes is vierkant: de korte zijde aanvullen tot de lange, aan de kant
-    # waar op die afstand de duidelijkste rand ligt (Hotel New York: 3716 x 3516).
-    S = max(Sx, Sy)
-    def square_up(lo, hi, P):
+    # Een hoes is vierkant (binnenkant: 2 x 1): de te korte zijde aanvullen, aan de
+    # kant waar op die afstand de duidelijkste rand ligt (Hotel New York: 3716 x 3516).
+    short = max(min(Sx, Sy), max(Sx, Sy) / ratio); size_y, size_x = (ratio * short, short) if Sy > Sx else (short, ratio * short)
+    def square_up(lo, hi, P, S):
+        S = int(round(S))
         if hi - lo >= S:
             return lo, hi
         options = [(lo, lo + S), (hi - S, hi)]
@@ -579,7 +605,7 @@ def edge_box(Gx, Gy, ink, angle, c):
         if not options:
             return lo, hi
         return max(options, key=lambda ab: P[ab[0]] + P[ab[1]])
-    y0, y1 = square_up(y0, y1, Py); x0, x1 = square_up(x0, x1, Px)
+    y0, y1 = square_up(y0, y1, Py, size_y); x0, x1 = square_up(x0, x1, Px, size_x)
     return (0.0, angle, int(x0), int(y0), int(x1 - x0), int(y1 - y0))
 
 
@@ -592,37 +618,47 @@ def ink_span(profile):
     return int(np.searchsorted(cumulative, .005)), int(np.searchsorted(cumulative, .995))
 
 
-def find_square(Gx, Gy, size, sc=0.2):
+def find_square(Gx, Gy, size, sc=0.2, ratio=1.0):
     """Het vierkant (hoes) dat het best op de randen past. Voor elke kleine
     draaiing: profiel van horizontale en verticale randen, en het paar randen
-    op afstand S (x en y bijna gelijk) met de meeste steun.
+    op afstand S (x en y bijna gelijk) met de meeste steun. ratio=2: een
+    uitgeklapte binnenkant (twee panelen naast elkaar), lange zijde = 2 x korte.
     Geeft (masker op canvas, hoek, kader na draaien, steun) of None."""
     h, w = Gx.shape
     c = (w / 2, h / 2)
     Smin, Smax = int(0.55 * min(w, h)), min(w, h) - 2
+    long_y = h >= w                                   # alleen van belang bij ratio > 1
     gradient = np.hypot(Gx, Gy)
     ink = text_ink(Gx, Gy, gradient)
     def search():
         best = None
         def pairs(P):
-            n = len(P); out = np.full(Smax + 1, -1.0); arg = np.zeros(Smax + 1, int)
-            for S in range(Smin, min(Smax, n - 1) + 1):
+            n = len(P); out = np.full(n, -1.0); arg = np.zeros(n, int)
+            for S in range(Smin, n - 1):
                 v = P[:n - S] + P[S:]; i = int(np.argmax(v)); out[S] = v[i]; arg[S] = i
             return out, arg
         for ang in np.arange(-4, 4.01, 0.1):
             R = cv2.getRotationMatrix2D(c, ang, 1.0)
             Py = cv2.warpAffine(Gy, R, (w, h)).sum(axis=1); Px = cv2.warpAffine(Gx, R, (w, h)).sum(axis=0)
             by_, ay = pairs(Py); bx_, ax = pairs(Px)
+            # korte zijde S op de ene as, de andere as rond ratio x S
+            short, other = (bx_, by_) if ratio > 1 and long_y else (by_, bx_)
             for S in range(Smin, Smax + 1):
-                if by_[S] < 0:
+                if short[S] < 0:
                     continue
-                lo, hi = int(S * 0.96), min(int(S * 1.04) + 1, Smax)
-                j = lo + int(np.argmax(bx_[lo:hi + 1]))
-                if bx_[j] < 0:
+                lo, hi = int(ratio * S * 0.96), min(int(ratio * S * 1.04) + 1, Smax if ratio == 1 else len(other) - 1)
+                if lo > hi:
                     continue
-                sc_ = by_[S] + bx_[j]
+                j = lo + int(np.argmax(other[lo:hi + 1]))
+                if other[j] < 0:
+                    continue
+                sc_ = short[S] + other[j]
+                if ratio > 1 and long_y:
+                    candidate = (sc_, ang, ax[S], ay[j], S, j)
+                else:
+                    candidate = (sc_, ang, ax[j], ay[S], j, S)
                 if best is None or sc_ > best[0]:
-                    best = (sc_, ang, ax[j], ay[S], j, S)
+                    best = candidate
         return best
     def outside(candidate):
         """Deel van de tekst (sterke randen) dat buiten het kader valt."""
@@ -637,7 +673,7 @@ def find_square(Gx, Gy, size, sc=0.2):
     # A closed outer rectangle is stronger evidence than unrelated profile
     # peaks (scanner lid on one side, printed artwork on another).
     closed=[]
-    for threshold in (8,12,20,30):
+    for threshold in ((8,12,20,30) if ratio == 1 else ()):
         edges=cv2.morphologyEx((gradient>threshold).astype(np.uint8),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
         contours,_=cv2.findContours(edges,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
@@ -669,7 +705,7 @@ def find_square(Gx, Gy, size, sc=0.2):
         # zwak en een kader binnen de hoes scoort hoger (Deena & Jim tekstvel: 27%
         # van de tekst erbuiten; Hotel New York-voorkant: de ANOUK-balk). Neem dan
         # per zijde de eerste duidelijke rand buiten de tekst.
-        wider = edge_box(Gx, Gy, ink, best[1], c)
+        wider = edge_box(Gx, Gy, ink, best[1], c, ratio)
         if wider is not None and outside(wider) <= INK_OUTSIDE:
             print(f'hoes: kader liet {outside(best):.0%} van de tekst weg; ruimer kader op de papierrand gekozen', flush=True)
             # De steun (hoes of plaat?) blijft die van het sterke vierkant: een zwakke
@@ -1019,10 +1055,17 @@ def main_with_resources(resources,lease=None):
     if a.vorm != 'geen':
         Gx, Gy, gmean, cover = edge_maps(warped, frames, order, size)
         G = np.hypot(Gx, Gy)
-        sq = find_square(Gx, Gy, size) if a.vorm in ('auto', 'hoes') else None
-        ci = find_circle(gmean, cover, G) if a.vorm in ('auto', 'plaat') else None
+        # Uitgeklapte binnenkant: het samengevoegde vlak is ongeveer twee keer zo
+        # lang als breed (Deena & Jim: 6 deelscans, ~61 x 30 cm). Dan een
+        # rechthoek van 2:1 zoeken; Sleeve splitst die daarna in twee panelen.
+        spread = max(size) / min(size) >= SPREAD_ASPECT
+        sq = find_square(Gx, Gy, size, ratio=2.0 if spread else 1.0) if a.vorm in ('auto', 'hoes') else None
+        ci = find_circle(gmean, cover, G) if a.vorm == 'plaat' or (a.vorm == 'auto' and not spread) else None
         if os.environ.get('STITCH_DEBUG'): print('DEBUG steun vierkant', None if sq is None else round(sq[3], 1), 'cirkel', None if ci is None else round(ci[0], 1))
-        is_disc = ci is not None and (sq is None or a.vorm == 'plaat' or (not sq[4] and ci[0] > 1.15 * sq[3]))
+        # Twijfel (cirkel bijna even sterk als het vierkant, bv. doorzichtig vinyl
+        # op het witte deksel, To Get Her Together): het asgat beslist.
+        holed = ci is not None and sq is not None and not sq[4] and ci[0] > .85 * sq[3] and centre_hole(gmean, cover, ci[1])
+        is_disc = ci is not None and (sq is None or a.vorm == 'plaat' or (not sq[4] and (ci[0] > 1.15 * sq[3] or holed)))
         if is_disc:
             cx, cy, r = (v / 0.2 for v in ci[1])
             disc = np.zeros((size[1], size[0]), np.uint8)

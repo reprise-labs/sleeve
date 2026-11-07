@@ -32,6 +32,8 @@ from scan_memory import MemoryLease,physical_memory,GiB
 MERGE_SCORE = 0.65        # gemiddelde gelijkenis waarboven twee groepen scans samengaan
 MERGE_WEAKEST = 0.50      # ...of: alle paren passen, geen onder deze waarde
 MERGE_STRONGEST = 0.70    #    en minstens één paar boven deze waarde
+MIN_INLIERS = 40          # passende punten voor een paar deelscans
+MIN_INLIERS_QUARTER = 25  # ... als ze precies een kwartslag (of recht) t.o.v. elkaar liggen
 KANTEN = ['front', 'back', 'inside', 'insert', 'inlay', 'sidea', 'sideb', 'sidec', 'sided', 'cd', 'cd1', 'cd2', 'sticker']
 LAST = os.path.expanduser('~/.sleeve_laatste_discogs')
 
@@ -304,7 +306,10 @@ def group_with_previews(paths,scratch):
                 continue
             src, dst = pm
             M, inl = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=2.0)
-            if M is None or inl.sum() < 40 or not 0.97 < np.hypot(M[0,0], M[1,0]) < 1.03:
+            # Minder punten mag bij een exacte kwartslag (zo worden delen gescand): een
+            # toevallige valse match valt vrijwel nooit precies zo (DEENA binnenkant 41-42: 36).
+            needed = MIN_INLIERS_QUARTER if M is not None and quarter_turn(M) else MIN_INLIERS
+            if M is None or inl.sum() < needed or not 0.97 < np.hypot(M[0,0], M[1,0]) < 1.03:
                 continue
             if quarter_turn(M):
                 # Alleen bij een kwartslag (zo worden grote vellen in delen gescand).
@@ -379,8 +384,14 @@ def cluster_paths(paths,S,sides=None,quarter=None):
                 # Alleen als alle paren een kwartslag verschillen: kant A en B van
                 # een plaat scoren ook zo (Graduated Fool: 0,58-0,77), maar liggen
                 # in een willekeurige hoek.
-                if quarter is not None and all(quarter[i, j] for i in cl[x] for j in cl[y]) and len(vals) == len(cl[x]) * len(cl[y]) and min(vals) >= MERGE_WEAKEST and max(vals) >= MERGE_STRONGEST:
-                    score = max(score, MERGE_SCORE)
+                linked = [(i, j) for i in cl[x] for j in cl[y] if np.isfinite(S[i, j])]
+                if quarter is not None and all(quarter[i, j] for i, j in linked) and min(vals) >= MERGE_WEAKEST:
+                    strong = sum(v >= MERGE_STRONGEST for v in vals)
+                    # Alle paren passen (vier delen van één vel), of: een breed vel
+                    # (uitgeklapte binnenkant) waarvan de uiteinden elkaar niet raken,
+                    # maar dat op minstens twee plekken sterk overlapt.
+                    if (len(vals) == len(cl[x]) * len(cl[y]) and strong >= 1) or strong >= 2:
+                        score = max(score, MERGE_SCORE)
                 if score >= MERGE_SCORE and (best is None or score > best[0]):
                     best = (score, x, y)
         if best is None:
@@ -414,6 +425,45 @@ def same_cover(first, second):
     src,dst = pm
     M,inliers = cv2.estimateAffinePartial2D(src,dst,method=cv2.RANSAC,ransacReprojThreshold=3)
     return M is not None and inliers.sum() >= 60 and inliers.mean() > .6 and inliers.sum() > .15*min(len(features[0][0]),len(features[1][0]))
+
+
+SPREAD_RANGE = (1.85, 2.15)   # lange/korte zijde van een uitgeklapte binnenkant
+
+
+def split_spreads(results,detected_cover_parts,twijfel,component_records):
+    """Uitgeklapte binnenkant (twee panelen, 2:1) als twee vierkanten opslaan,
+    precies op de vouw gesplitst, zonder tussenstuk. Beide heten 'inside'
+    (inside en inside_2). Staat de stand niet vast, dan beide ter controle."""
+    out=[]
+    for path,soort,bron in results:
+        if soort!='hoes':
+            out.append((path,soort,bron));continue
+        with Image.open(path) as im:
+            w,h=im.size
+            if not SPREAD_RANGE[0]<=max(w,h)/min(w,h)<=SPREAD_RANGE[1]:
+                out.append((path,soort,bron));continue
+            im.load()
+            half=max(w,h)//2
+            boxes=[(0,0,half,h),(w-half,0,w,h)] if w>h else [(0,0,w,half),(0,h-half,w,h)]
+            panels=[im.crop(box) for box in boxes]
+        stem,ext=os.path.splitext(path)
+        names=[stem+'_links'+ext,stem+'_rechts'+ext]
+        for panel,name in zip(panels,names):
+            panel.save(name,compress_level=1)
+        record=next((r for r in component_records if r['name']==os.path.basename(path)),None)
+        part=detected_cover_parts.pop(path,None)
+        doubt=path in twijfel;twijfel.discard(path)
+        os.remove(path)
+        for name in names:
+            detected_cover_parts[name]=part if part not in (None,'front','back') else 'inside'
+            if doubt or w<h:twijfel.add(name)          # staand: links/rechts nog niet zeker
+            out.append((name,soort,bron))
+            if record is not None:
+                copy=dict(record,name=os.path.basename(name),part=detected_cover_parts[name],needs_review=name in twijfel)
+                component_records.append(copy)
+        if record is not None:component_records.remove(record)
+        log(f'Uitgeklapte binnenkant ({w}x{h}) in twee vierkanten gesplitst: '+', '.join(os.path.basename(n) for n in names))
+    return out
 
 
 def mark_repeated_fronts(results,detected_cover_parts,twijfel,component_records):
@@ -820,6 +870,7 @@ return text returned of r''')
         return
 
     progress('Onderdelen herkennen voor de bestandsnamen',scope='finishing',completed=len(results))
+    results=split_spreads(results,detected_cover_parts,twijfel,component_records)
     mark_repeated_fronts(results,detected_cover_parts,twijfel,component_records)
     save_components()
     # namen
