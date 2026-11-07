@@ -40,6 +40,7 @@ Image.MAX_IMAGE_PIXELS = None
 
 HOLE = 0.138        # cd/dvd: gatdiameter / schijfdiameter, zoals op de site
 HOLE_VINYL = 0.026  # lp/7": klein asgat, zoals op de site (7" met groot gat: --gat 0.217)
+SWEEP_MARGIN = 1.2     # leesstand-zoektocht: de winnaar moet 20% meer echte woorden halen dan de rest
 LABEL_REFINE_MIN = 1.5 # graden: kleinere bijstellingen zijn ruis van het labelontwerp (gemeten tot 1,3)
 LABEL_REFINE = 4.0     # graden: fijnbijstelling op de tekstregels na de grove meting
 MAX_LABEL_SKEW = 12.0  # graden: grotere fijne scheefstand van een label is eerder een meetfout
@@ -280,6 +281,41 @@ def _words():
     return _WORDS
 
 
+def reading_sweep(img):
+    """Terugval als de hoek- en leesrichtingmeting het opgeven: draai het label in
+    stappen van 15 graden (met de vier standen van de tekstherkenning samen de hele
+    cirkel) en neem de stand waarin de meeste echte woorden gelezen worden.
+    Geeft de hoek (tegen de klok in) of None als geen stand duidelijk wint."""
+    import subprocess, tempfile
+    exe = ocr_tool()
+    if exe is None:
+        return None
+    W = _words(); score = {}
+    for extra in range(0, 90, 15):
+        rotated = img.rotate(extra, resample=Image.BICUBIC, fillcolor=(255, 255, 255))
+        with tempfile.NamedTemporaryFile(suffix='.png') as f:
+            rotated.convert('RGB').save(f.name)
+            try:
+                out = subprocess.run([exe, f.name], capture_output=True, text=True, timeout=90).stdout
+            except subprocess.TimeoutExpired:
+                continue
+        for ln in out.strip().split('\n'):
+            p = ln.split('\t', 2)
+            if len(p) < 3:
+                continue
+            total = (extra - int(p[0])) % 360
+            for tok in re.findall(r"[A-Za-z]{3,}", p[2]):
+                if tok.lower() in W:
+                    score[total] = score.get(total, 0.0) + len(tok) * float(p[1])
+    if not score:
+        return None
+    best = max(score, key=score.get)
+    rest = max([v for a, v in score.items() if min(abs(a - best), 360 - abs(a - best)) > 15] or [0.0])
+    if score[best] < 8 or score[best] < SWEEP_MARGIN * rest:
+        return None
+    return float(((best + 180) % 360) - 180)
+
+
 def reading_quadrant(img):
     """Welke kant is boven? Apple's tekstherkenning leest de tekst in alle vier
     de standen; de stand met de meeste echte woorden wint. Geeft 0/90/180/270
@@ -478,6 +514,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
         sq = sq.resize((size, size), Image.LANCZOS)
     if auto:
         progress('Tekst op het etiket recht draaien')
+        skew_rejected = False
         small = sq.resize((1200, 1200), Image.LANCZOS) if size > 1200 else sq
         if vinyl:                                        # alleen het label lezen, groot genoeg
             lb = int(size * 0.18); c0 = size // 2
@@ -487,7 +524,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
             ta = disc_text_angle(lab_im) or 0.0
             if abs(((ta + 45) % 90) - 45) > MAX_LABEL_SKEW:
                 print(f'tekst: rechtzethoek {ta:+.1f} graden onwaarschijnlijk, alleen kwartslagen')
-                ta = 0.0
+                ta = 0.0; skew_rejected = True
             else:
                 ta += label_line_refine(lab_im.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)))
             t1 = lab_im.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)) if ta else lab_im
@@ -495,10 +532,19 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
             ta = disc_text_angle(small, vinyl) or 0.0
             t1 = small.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)) if ta else small
         q = reading_quadrant(t1)                         # rechtop, op z'n kant of ondersteboven?
-        if q is not None:
+        # sterk scheef label of geen duidelijke leesrichting: dan is ook de gewone
+        # kwartslag onbetrouwbaar (TGHT) en beslist de leesstand-zoektocht
+        swept = reading_sweep(lab_im) if vinyl and (q is None or skew_rejected) else None
+        if q is not None and swept is None:
             ta = ta - q
             angle = ((ta + angle + 180) % 360) - 180
             print(f'tekst rechtop gezet: {ta:+.1f} graden')
+        elif swept is not None:
+            # Label met een misleidend ontwerp (schuine titel, strepen): de stand
+            # waarin de meeste echte woorden leesbaar zijn, in stappen van 15 graden
+            swept += label_line_refine(lab_im.rotate(swept, resample=Image.BICUBIC, fillcolor=(255, 255, 255)))
+            angle = ((swept + angle + 180) % 360) - 180
+            print(f'tekst rechtop gezet via leesstand: {swept:+.1f} graden')
         else:
             print('tekst: geen duidelijke leesrichting gevonden, niet gedraaid')
     if angle:

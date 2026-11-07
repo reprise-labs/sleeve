@@ -40,6 +40,7 @@ FEATHER = 700          # px: zo ver van de scanrand weegt een pixel pas volledig
 EDGE = 150             # px van de rand die niet meetelt bij het kleurmeten
 QUALITY_WINDOW = 48    # px (rekenschaal): vakjes waarin de eindcontrole naden en scherpte meet
 QUALITY_MIN_SPOTS = 3  # pas vanaf zoveel plekken een melding (één plek is vaak structuur, geen tekst)
+QUALITY_RESPONSE = 0.3 # minimale betrouwbaarheid van de verschuivingsmeting
 QUALITY_SHIFT = 4.0   # px (uitvoer): zoveel verschuiving op een naad door tekst wordt gemeld
 SEAM_CORRIDOR = 40    # px (rekenschaal): zo ver mag een naad van de scherpste-scan-grens afwijken
 SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
@@ -303,8 +304,10 @@ def stitch_quality(img, masks, ks, best, height, width, scale):
             if len(pair) < 2 or min(masks[ks[v]][sl].mean() for v in pair) < 0.95:
                 continue
             (dx, dy), response = cv2.phaseCorrelate(grays[pair[0]][sl], grays[pair[1]][sl], window)
+            if response < QUALITY_RESPONSE or max(abs(dx), abs(dy)) > QUALITY_WINDOW / 6:
+                continue            # geen duidelijke match (weinig contrast) of uitslag tegen de vakrand: ruis
             shift = float(np.hypot(dx, dy)) * scale
-            if response > 0.1 and shift >= QUALITY_SHIFT:
+            if shift >= QUALITY_SHIFT:
                 report['seam_text_shift'] += 1
                 report['seam_text_max_px'] = round(max(report['seam_text_max_px'], shift), 1)
     return report
