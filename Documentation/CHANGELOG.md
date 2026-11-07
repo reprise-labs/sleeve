@@ -1,3 +1,11 @@
+# 0.4.16 — Release-zoeker voor promo's en labels bij onbekende leesrichting
+
+- Releasevoorstellen: als titel telt nu de tekst die op meerdere delen staat (hoes, achterkant, cd), zonder speelduur ("New Day 3.37" → "New Day"). Copyright-, credit-, UPC- en ISRC-regels tellen niet mee, ook als © als "@" gelezen wordt. Voorheen zocht New Day op "@ 2015 Goldilox, under the exclusive license…", de copyrightregel langs de cd-rand.
+- Artiest: de grootste tekst die op meer dan één deel staat; "& DOUWE BOB" onder de naam hoort erbij. Ondersteboven gelezen tekst met onzinwoorden (">lnONV") verliest het nu van de goede leesrichting.
+- ISRC: Sleeve leest het ISRC-nummer ("ISRC: NL-XA9-15-00003"). Discogs zoekt er niet op, maar staat het bij een gevonden uitgave (ook zonder landcode), dan staat er "ISRC komt overeen" en komt die uitgave bovenaan.
+- Staat er "For promotional use only" of "Not for sale" op, dan gaat een promo-uitgave voor.
+- Labelstand: vindt Sleeve de leesrichting van een label niet, dan wordt de gemeten scheefstand toch rechtgezet; de kwartslag volgt uit de Discogs-foto. Voorheen bleef het label dan scheef (Deena & Jim kant A op 600 dpi: 4,4 graden).
+
 # 0.4.15 — Rechtere labels en minder onterechte meldingen
 
 - Labelstand: de fijnbijstelling op de tekstregels mag tot 8 graden (`LABEL_REFINE`, was 4). Na de leesstand-zoektocht in stappen van 15 graden kan de rest tot 7,5 graden zijn (Deena & Jim kant B stond 6,1 graden scheef, To Get Her Together kant A 4,2).

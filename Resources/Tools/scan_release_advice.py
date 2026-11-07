@@ -2,7 +2,7 @@
 import concurrent.futures,json,re,subprocess,urllib.error,urllib.parse,urllib.request
 from pathlib import Path
 
-UA='Sleeve/0.4.12 (+https://github.com/reprise-labs/sleeve)'
+UA='Sleeve/0.4.16 (+https://github.com/reprise-labs/sleeve)'
 
 def normalized(value):return re.sub(r'[^a-z0-9]','',str(value).casefold())
 def split_words(value):
@@ -31,8 +31,14 @@ def sample_rows(rows,limit=6):
   if usable[i] not in selected:selected.append(usable[i])
  return selected[:limit]
 
+DURATION=re.compile(r'\s*\d{1,2}[.:,]{1,2}\d{2}\s*$')   # "New Day 3.37" -> "New Day"
+# ISRC van de opname (promo's): "ISRC: NL-XA9-15-00002". Discogs zoekt er niet op,
+# maar zet hem vaak bij de uitgave; dan bevestigt hij een kandidaat.
+ISRC=re.compile(r'IS[RA]C\W*([A-Z]{2})\W?([A-Z0-9]{3})\W?(\d{2})\W?(\d{5})')
+CREDITS=re.compile(r'^\s*(?:[@©℗]|\([cp]\))|\bis[ra]c\b|\bupc\b|\bean\b|^ed\.?:|licen[cs]|promotional use|not for sale|\b(?:written|produced|mixed|published|engineered|recorded|mastered|arranged|programming|vocals|lyrics|music) by\b',re.I)
+
 def extract_hints(documents):
- lines={};barcodes=[]
+ lines={};barcodes=[];seen_in={};isrcs=[]
  for document in documents:
   for value in document.get('barcodes',[]):
    code=valid_barcode(value)
@@ -47,18 +53,36 @@ def extract_hints(documents):
   def reading_score(rows):
    text=' '.join(r['text'] for r in rows)
    words=len(re.findall(r"\b(?:the|and|of|to|in|on|for|music|records|made|exclusive|license|universal|netherlands|germany|vinyl|disc|reserved|all|rights|you|me|can|how|with)\b",text,re.I))
-   return words*30+sum(min(35,len(r['text']))*float(r.get('confidence',0)) for r in rows)
+   # Ondersteboven gelezen tekst geeft onzinwoorden (">lnONV", "3Mnoa"): cijfers
+   # midden in letters of rare tekens tellen tegen.
+   junk=len(re.findall(r"\S*(?:[A-Za-z]\d|\d[A-Za-z]|[<>|\[\]{}\\])\S*",text))
+   return words*30-junk*15+sum(min(35,len(r['text']))*float(r.get('confidence',0)) for r in rows)
   best=max(rotations.values(),key=reading_score)
   for row in best:
    text=row['text'];code=valid_barcode(text)
    if code and code not in barcodes:barcodes.append(code)
    key=text.casefold()
    if key not in lines or row.get('height',0)>lines[key].get('height',0):lines[key]=row
+   for found in ISRC.findall(text.upper()):
+    if ''.join(found) not in isrcs:isrcs.append(''.join(found))
+   seen_in.setdefault(normalized(DURATION.sub('',text)),set()).add(id(document))
  ordered=sorted(lines.values(),key=lambda r:float(r.get('height',0)),reverse=True)
  clean=[r['text'] for r in ordered if len(r['text'])>=3 and not re.search(r'copyright|reserved|manufactur|photograph|art direction|graphic design|exclusive license|www\.|https?:|made in|stereo|side [abcd]|rpm|\bbiem\b|\bsdrm\b',r['text'],re.I) and sum(c.isalpha() for c in r['text'])>=3]
- clean=[s for s in clean if len(s)<=100 and not re.match(r'^\d{1,2}[.)]\s',s)][:16]
- artist=clean[0] if clean else ''
- title=next((s for s in clean[1:] if normalized(s)!=normalized(artist)),'')
+ clean=[s for s in clean if len(s)<=100 and not re.match(r'^\d{1,2}[.)]\s',s) and not CREDITS.search(s)][:16]
+ repeats=lambda s:len(seen_in.get(normalized(DURATION.sub('',s)),()))
+ # Artiest: de grootste tekst die op meer dan één deel staat (ANOUK op hoes,
+ # achterkant en cd), anders de grootste; losse randtekst van een cd telt dan niet.
+ artist=next((s for s in clean if repeats(s)>=2 and not DURATION.search(s)),clean[0] if clean else '')
+ # "& DOUWE BOB" / "feat. …" onder de naam hoort bij de artiest.
+ partner=next((s for s in clean if re.match(r'^\s*(?:&|feat\.?|ft\.|with)\s',s,re.I) and normalized(s)!=normalized(artist)),'')
+ if partner and normalized(partner) not in normalized(artist):artist=f'{artist} {partner.strip()}'
+ options=[]
+ for s in clean:
+  s=DURATION.sub('',s)
+  if normalized(s) and normalized(s)!=normalized(artist) and normalized(s) not in normalized(artist) and normalized(s) not in [normalized(o) for o in options]:options.append(s)
+ # Een titel staat meestal op meerdere delen (hoes, achterkant, cd); een
+ # copyright- of creditregel niet. Herhaalde tekst gaat dus voor, dan grootte.
+ title=max(options,key=lambda s:(repeats(s)>=2,repeats(s)),default='') if options else ''
  # Een catalogusnummer staat in het kleine drukwerk ("Made in the EU … MOVLP1572").
  # Grote losse tekst die erop lijkt is vaak een titel of logo, verkeerd om gelezen
  # (TOGETHER ondersteboven -> JIH13901): drukwerkregels eerst, dan kleinste tekst.
@@ -72,7 +96,7 @@ def extract_hints(documents):
  catalogs=[]
  for _,_,candidate in sorted(found,key=lambda f:f[:2]):
   if candidate not in catalogs:catalogs.append(candidate)
- return {'artist':artist,'title':title,'barcode':barcodes[0] if barcodes else '', 'catno':catalogs[0] if catalogs else '', 'text':clean,'barcodes':barcodes[:4]}
+ return {'artist':artist,'title':title,'barcode':barcodes[0] if barcodes else '', 'catno':catalogs[0] if catalogs else '', 'text':clean,'barcodes':barcodes[:4],'isrc':isrcs[:4],'promo':any(re.search(r'promotional|promo only|not for sale',k) for k in lines)}
 
 def recognize(rows,runner=None):
  helper=Path(__file__).with_name('sleeve_ocr')
@@ -91,7 +115,7 @@ def recognize(rows,runner=None):
   if document and any(valid_barcode(value) for value in document.get('barcodes',[])):break
  hints=extract_hints([d for d in documents[:len(sampled)] if d])
  everything=extract_hints([d for d in documents if d])
- hints['barcodes']=everything['barcodes'];hints['barcode']=everything['barcode']
+ hints['barcodes']=everything['barcodes'];hints['barcode']=everything['barcode'];hints['isrc']=everything['isrc'];hints['promo']=everything['promo']
  if not hints['catno']:hints['catno']=everything['catno']
  return hints
 
@@ -107,6 +131,7 @@ def api_get(url):
 def search(hints,format_filter='',get=api_get):
  terms={k:str(hints.get(k,'')).strip()[:160] for k in ('artist','title','barcode','catno')}
  terms['barcode']=valid_barcode(terms['barcode'])
+ isrcs=[str(code) for code in hints.get('isrc',[]) if str(code).strip()][:4]
  common={'type':'release','per_page':20}
  if format_filter in ('Vinyl','CD'):common['format']=format_filter
  # Eerst de barcode; levert die niets op (of is er geen), dan catalogusnummer
@@ -137,6 +162,7 @@ def search(hints,format_filter='',get=api_get):
   title=normalized(row.get('title',''))
   if terms['artist'] and normalized(terms['artist']) in title:score+=15;reasons.append('Artiest komt overeen')
   if terms['title'] and normalized(terms['title']) in title:score+=20;reasons.append('Titel komt overeen')
+  if hints.get('promo') and 'Promo' in row.get('format',[]):score+=10;reasons.append('Promo-uitgave, zoals op de scan')
   return score,reasons
  ranked=sorted(results.values(),key=lambda r:(-evidence(r)[0],r['id']))[:5]
  def convert(row):
@@ -145,8 +171,13 @@ def search(hints,format_filter='',get=api_get):
   except RuntimeError:pass
   formats=detail.get('formats',[])
   variant=' · '.join(str(f.get('text','')) for f in formats if f.get('text'))
-  return {'id':row['id'],'title':str(row.get('title','')),'year':str(row.get('year','')),'country':str(row.get('country','')),'format':', '.join(map(str,row.get('format',[]))),'catno':str(row.get('catno','')),'variant':variant,'url':f"https://www.discogs.com/release/{row['id']}",'reasons':evidence(row)[1] or ['Gevonden met deze zoekgegevens']}
+  reasons=evidence(row)[1]
+  listed=normalized(' '.join(str(i.get('value','')) for i in detail.get('identifiers',[]))+' '+str(detail.get('notes','')))
+  # Soms zonder landcode ingevoerd (Hold Me: "XA9-15-00001").
+  if any(normalized(code)[2:] in listed for code in isrcs):reasons=reasons+['ISRC komt overeen']
+  return {'id':row['id'],'title':str(row.get('title','')),'year':str(row.get('year','')),'country':str(row.get('country','')),'format':', '.join(map(str,row.get('format',[]))),'catno':str(row.get('catno','')),'variant':variant,'url':f"https://www.discogs.com/release/{row['id']}",'reasons':reasons or ['Gevonden met deze zoekgegevens']}
  with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:candidates=list(pool.map(convert,ranked))
+ candidates.sort(key=lambda c:'ISRC komt overeen' not in c['reasons'])   # stabiel: verder volgorde van het bewijs
  message='Controleer formaat, kleur en land voordat je een uitgave kiest.' if candidates else (problems[0] if problems else 'Geen passende uitgaven gevonden. Controleer de herkende zoekgegevens.')
  if candidates and problems:message+=' Een deel van de zoekopdrachten lukte niet.'
  return candidates,message
@@ -154,12 +185,13 @@ def search(hints,format_filter='',get=api_get):
 def advice(req,rows,runner=None,get=api_get):
  hints=recognize(rows,runner) if req.get('recognize',True) else {k:req.get(k,'') for k in ('artist','title','barcode','catno')}
  candidates,message=search(hints,req.get('format',''),get)
- if req.get('recognize',True) and any('Barcode komt overeen' in c['reasons'] or 'Catalogusnummer komt overeen' in c['reasons'] for c in candidates):
+ if req.get('recognize',True) and any(reason in c['reasons'] for c in candidates for reason in ('Barcode komt overeen','Catalogusnummer komt overeen','ISRC komt overeen')):
   hints['artist']='';hints['title']=''     # zekere treffer: geen gelezen tekstruis tonen
  barcode_hits=[c for c in candidates if 'Barcode komt overeen' in c['reasons'] and c['catno']]
  if req.get('recognize',True) and barcode_hits and len({normalized(c['catno']) for c in barcode_hits})==1:
   hints['catno']=barcode_hits[0]['catno']  # catalogusnummer van de uitgave zelf, niet een misgelezen titel
- if candidates and len({c['title'] for c in candidates})==1:
-  artist,separator,title=candidates[0]['title'].partition(' - ')
+ sure=[c for c in candidates if any(reason in c['reasons'] for reason in ('Barcode komt overeen','Catalogusnummer komt overeen','ISRC komt overeen'))]
+ if len({c['title'] for c in sure or candidates})==1 and candidates:
+  artist,separator,title=(sure or candidates)[0]['title'].partition(' - ')
   if separator:hints['artist']=artist;hints['title']=title
  return {'hints':hints,'candidates':candidates,'message':message}

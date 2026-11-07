@@ -1,3 +1,10 @@
+## 0.4.16 — promo's, ISRC en labels zonder leesrichting
+
+- Release-zoeker op 9 cd-promo's (Feet On The Ground 2×, Places To Go, You & I, Dominique, Hold Me, New Day, Pretending As Always, Together Alone), echte OCR en Discogs: 7 met de juiste uitgave bovenaan (was 0). Feet On The Ground, Dominique en Hold Me met "ISRC komt overeen"; New Day via promo-voorrang (Discogs heeft daar geen ISRC). Places To Go (gespiegeld logo) en You & I (losse letters) niet.
+- Zelfde OCR op de 9 vinyluitgaven, oud tegen nieuw: betere zoekteksten bij WEN, Urban Solitude, FBOW, Together Alone en DEENA; geen barcode of catalogusnummer verloren, behalve de foute JIH13901 bij TA.
+- 0.4.15-herhaling: TGHT A en B 0,0 graden, DEENA B +0,2 (was 6,1). DEENA kant A los: op 1200 dpi +0,3, op 600 dpi +4,4 zonder leesrichting; met deze versie op 600 dpi +0,2.
+- Nieuwe controle in `check_release_advice.py` (promo-titel, ISRC met en zonder landcode). Volledige projectcontroles geslaagd.
+
 ## 0.4.15 — labels tot 8 graden bijstellen, minder meldingen
 
 - 0.4.14-eindtest (9 uitgaven, volle resolutie): alle zonder fouten. Labels recht en rechtop, ook TGHT en FIRE (−0,8 / +0,7 graden), behalve DEENA kant B (6,1 graden) en TGHT kant A (4,2): buiten de oude grens van 4 graden. Vinylkleur: TA goud, US groen, HNY geel en FBOW rood komen overeen met Discogs; bij FIRE twee oranje `_kleur`-voorstellen.

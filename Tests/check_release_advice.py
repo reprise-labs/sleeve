@@ -33,6 +33,19 @@ with patch.object(A,'recognize',return_value=dict(h,artist='bad OCR',title='wron
  assert recognized['hints']['artist']=='Anouk'
  assert recognized['hints']['title']=='Set This Thing On Fire'
  assert not any('bad+OCR' in u or 'wrong+song' in u for u in calls)
+# Promo (New Day): copyright langs de cd-rand is groter dan de titel; de titel staat op
+# meerdere delen, met speelduur. ISRC bevestigt een uitgave, ook zonder landcode.
+line=lambda text,height:{'text':text,'confidence':.9,'height':height,'rotation':0}
+docs=[{'lines':[line('ANOUK',.07),line('NEW DAY',.02)]},
+      {'lines':[line('ANOUK',.05),line('New Day 3.37',.03),line('ISRC: NL-XA9-15-00002',.01),line('For promotional use only - NOT FOR SALE',.02)]},
+      {'lines':[line('ANOUK',.06),line('@ 2015 Goldilox, under the exclusive licen* to Universal Music BV',.09),line('New Day 3:37',.02)]}]
+h=A.extract_hints(docs)
+assert (h['artist'],h['title'],h['isrc'],h['promo'])==('ANOUK','New Day',['NLXA91500002'],True),h
+def promo_get(url):
+ if '/database/search?' in url:return {'results':[{'id':2,'title':'Anouk - New Day','format':['File','AAC']},{'id':3,'title':'Anouk - New Day','format':['CDr','Promo']}]}
+ return {'identifiers':[{'type':'ISRC','value':'XA9-15-00002'}]} if url.endswith('/3') else {}
+found,_=A.search(h,'',promo_get)
+assert found[0]['id']==3 and 'ISRC komt overeen' in found[0]['reasons'] and 'ISRC komt overeen' not in found[1]['reasons']
 def offline(url):raise RuntimeError('Geen verbinding met Discogs.')
 failed=A.advice(req,[],get=offline);assert not failed['candidates'] and 'Geen verbinding' in failed['message']
 # A usable barcode stops recognition without decoding the rest of the batch.
@@ -58,5 +71,5 @@ with tempfile.TemporaryDirectory(dir=work) as folder:
   try:B.scan({'output':str(output),'discogs':'https://www.discogs.com/release/33664818','useNames':False,'useStand':False,'useColour':True},[{'path':str(sample),'part':'sidea'}],staging)
   except Captured:pass
  assert captured and '--discogs-kleur' not in captured
-checks={'barcode_checksum_and_upc_ean_equivalence':True,'distinct_pressings_need_user_choice':True,'orange_variant_shown':True,'no_upload_of_images_or_raw_text':True,'offline_and_no_text_handled':True,'format_filter_and_bounded_sampling':True,'legacy_scan_colour_disabled':True}
+checks={'barcode_checksum_and_upc_ean_equivalence':True,'distinct_pressings_need_user_choice':True,'orange_variant_shown':True,'no_upload_of_images_or_raw_text':True,'offline_and_no_text_handled':True,'format_filter_and_bounded_sampling':True,'legacy_scan_colour_disabled':True,'promo_title_isrc':True}
 (work/'RESULTAAT.json').write_text(json.dumps(checks,indent=2));print(checks)
