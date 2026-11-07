@@ -1,3 +1,8 @@
+# 0.4.18 — Samengevoegde hoezen en vellen niet meer te krap bijgesneden
+
+- Hoeskader: Sleeve zoekt het vierkant dat het best op de randen past. Bij een wit vel op het witte deksel is de papierrand zwak, en kon een gedrukte lijn met een tekstregel een kleiner "vierkant" vormen: Deena & Jim tekstvel verloor links, rechts en boven tekst (27% van het drukwerk viel erbuiten), Hotel New York-voorkant de ANOUK-balk bovenaan. Nu: valt er duidelijk drukwerk (randen in beide richtingen; lijnen en scannerstrepen tellen niet) buiten het kader (`INK_OUTSIDE`), dan neemt Sleeve per zijde de eerste duidelijke rand buiten het drukwerk, en vult de korte zijde aan tot een vierkant.
+- Testset: de wachtrijtest stopt bij drukte netjes (na 120 s) in plaats van te crashen met een macOS-melding "Checks is onverwacht gestopt".
+
 # 0.4.17 — Grote vellen in kwartslag-delen als één geheel
 
 - Groeperen: een tekstvel of inlay dat groter is dan de scanner, scan je in vier delen en draai je steeds een kwartslag. Die delen werden niet samengevoegd. Bij het vergelijken telt nu de scannerrek mee (y/x ~0,9975, draait mee met de kwartslag; bij fijne tekst zakte de gelijkenis daardoor onder de grens), en vier delen gaan samen als álle paren een kwartslag verschillen, ook al overlappen de diagonale delen maar smal (`MERGE_WEAKEST`, `MERGE_STRONGEST`). Beide alleen bij kwartslagen (`QUARTER_TOL`): kant A en B van een plaat liggen in een willekeurige hoek en scoren anders even hoog (Graduated Fool). Deena & Jim: tekstvellen 10–13 en 14–17; To Get Her Together: inlay 9–12 en 13–16.

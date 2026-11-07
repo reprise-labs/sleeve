@@ -4,9 +4,11 @@ import CryptoKit
 
 @main struct ProjectQueueChecks {
     @MainActor static func waitForIdle(_ model:StudioModel) async throws {
-        let deadline=Date().addingTimeInterval(45)
+        // Ruim: tijdens een zware verwerking ernaast duurt het langer. Bij een
+        // time-out netjes stoppen (exit 1), geen crash met macOS-meldvenster.
+        let deadline=Date().addingTimeInterval(120)
         while model.busy || model.queueRunning {
-            if Date()>deadline {model.cancel();fatalError("Wachtrij-test liep vast")}
+            if Date()>deadline {model.cancel();fputs("Wachtrij-test liep vast\n",stderr);exit(1)}
             try await Task.sleep(nanoseconds:50_000_000)
         }
     }

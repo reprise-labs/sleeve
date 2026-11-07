@@ -1,3 +1,8 @@
+## 0.4.18 — hoeskader
+
+- Kader van alle samengevoegde hoezen en vellen van de 9 uitgaven, oud tegen nieuw: alleen veranderd waar drukwerk buiten het oude kader viel — DEENA-tekstvellen (2693 → 3568 px, op de papierrand) en HNY-voorkant (3247×3207 → 3716×3716, ANOUK-balk binnen). FIRE-achterkant, GF-voorkant, FBOW-achterkant en de overige hoezen gelijk.
+- Nieuw geval in `check_cover_boundary.py` (vel met gedrukte binnenlijn en tekst erbuiten). Volledige projectcontroles geslaagd.
+
 ## 0.4.17 — kwartslag-delen groeperen en samen plaatsen
 
 - Indeling van alle scans van de 9 vinyluitgaven, oud tegen nieuw: alleen DEENA-tekstvellen (10–13, 14–17) en TGHT-inlay (9–12, 13–16) veranderd; de rest gelijk aan 0.4.14. Een eerdere variant zonder kwartslag-eis voegde GF kant A en B samen (A/B 0,58–0,77); verworpen.

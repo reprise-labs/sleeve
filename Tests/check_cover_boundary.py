@@ -23,3 +23,16 @@ clean_x[80:921,80:83]=100;clean_x[80:921,918:921]=100
 clean_y[80:83,80:921]=100;clean_y[918:921,80:921]=100
 assert not S.find_square(clean_x,clean_y,(5000,5000))[4]
 print('A clean existing crop is retained.')
+# White sheet on the white lid (Deena & Jim lyrics): faint paper edge, a printed
+# rule plus a text line form a stronger inner 'square'. Text outside it must
+# widen the crop to the paper edge instead of cutting the text away.
+rng=np.random.default_rng(5)
+sheet_x=np.zeros((1000,1000),np.float32);sheet_y=sheet_x.copy()
+sheet_x[60:941,60:62]=6;sheet_x[60:941,938:940]=6;sheet_y[60:62,60:941]=6;sheet_y[938:940,60:941]=6
+sheet_x[150:850,250:254]=120;sheet_y[150:154,250:850]=120;sheet_x[150:850,846:850]=120;sheet_y[846:850,250:850]=120
+for top,left in [(100,90),(100,300),(400,90),(400,500),(700,300),(860,120),(860,600),(200,870)]:
+    block=rng.uniform(20,60,(50,50)).astype(np.float32)
+    sheet_x[top:top+50,left:left+50]=block;sheet_y[top:top+50,left:left+50]=block[::-1]
+left,top,w,h=S.find_square(sheet_x,sheet_y,(5000,5000))[2]
+assert left<350 and top<350 and w>4300 and abs(w-h)<60,(left,top,w,h)
+print('Text outside a printed inner frame widens the crop to the faint paper edge.')

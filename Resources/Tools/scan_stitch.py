@@ -44,6 +44,12 @@ QUALITY_RESPONSE = 0.3 # minimale betrouwbaarheid van de verschuivingsmeting
 QUALITY_SHIFT = 4.0   # px (uitvoer): zoveel verschuiving op een naad door tekst wordt gemeld
 SEAM_CORRIDOR = 40    # px (rekenschaal): zo ver mag een naad van de scherpste-scan-grens afwijken
 REFINE_MAX_ERROR = 4.0 # px (rekenschaal): paren die volgens de boom verder afwijken, tellen niet mee bij het bijstellen
+INK_EDGE = 0.35       # deel van de sterkste randen dat als tekst/drukwerk telt (hoeskader)
+INK_OUTSIDE = 0.03    # zoveel drukwerk mag buiten het hoeskader vallen; meer = kader te klein
+INK_MARGIN = 0.01     # ruimer kader begint minstens zo ver (deel van de zijde) buiten de tekst
+INK_WINDOW = 15       # px (op 0,2): vak waarin drukwerk randen in beide richtingen heeft
+INK_BOTH = 0.15       # zoveel van dat vak met randen per richting
+INK_MIN_AREA = 0.002  # minder drukwerk dan dit deel van het canvas: geen controle (alleen lijnen)
 REFINE_SLACK = 0.5     # px: bijstellen mag geen enkel paar meer dan dit verslechteren
 SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
 WINNER_SMOOTH = 8     # px (rekenschaal): keuzekaart per deelscan samenhangend maken
@@ -527,6 +533,65 @@ def find_circle(gray, cover, G, sc=0.2):
     return best
 
 
+def text_ink(Gx, Gy, gradient):
+    """Drukwerk: randen in beide richtingen dicht bij elkaar (letters, beeld).
+    Een rechte lijn (hoesrand, deksel, scannerstreep) heeft er maar één."""
+    t = INK_EDGE * np.percentile(gradient, 99.5)
+    k = (INK_WINDOW, INK_WINDOW)
+    fx = cv2.boxFilter((np.abs(Gx) > t / 2).astype(np.float32), -1, k)
+    fy = cv2.boxFilter((np.abs(Gy) > t / 2).astype(np.float32), -1, k)
+    return ((fx > INK_BOTH) & (fy > INK_BOTH) & (gradient > t)).astype(np.float32)
+
+
+def edge_box(Gx, Gy, ink, angle, c):
+    """Kader op de eerste duidelijke rand buiten de tekst, per zijde (gedraaid
+    over 'angle'). Geeft een kandidaat zoals find_square die kent, of None."""
+    h, w = Gx.shape
+    R = cv2.getRotationMatrix2D(c, angle, 1.0)
+    rotated = cv2.warpAffine(ink, R, (w, h))
+    Py = np.abs(cv2.warpAffine(Gy, R, (w, h))).sum(axis=1); Px = np.abs(cv2.warpAffine(Gx, R, (w, h))).sum(axis=0)
+    edges = []
+    for P, span in ((Py, ink_span(rotated.sum(axis=1))), (Px, ink_span(rotated.sum(axis=0)))):
+        if span is None:
+            return None
+        m = max(2, int(INK_MARGIN * (span[1] - span[0])))      # buitenste tekstregel is geen papierrand
+        before, after = P[:max(0, span[0] - m)], P[span[1] + m:]
+        if len(before) < 3 or len(after) < 3:
+            return None
+        # eerst naar buiten lopend: de papierrand ligt vóór de rand van het scanbereik
+        lo = next((i for i in range(len(before) - 1, -1, -1) if before[i] >= .5 * before.max()), None)
+        hi = next((i for i in range(len(after)) if after[i] >= .5 * after.max()), None)
+        if lo is None or hi is None:
+            return None
+        edges.append((lo, span[1] + m + hi))
+    (y0, y1), (x0, x1) = edges
+    Sx, Sy = x1 - x0, y1 - y0
+    if min(Sx, Sy) <= 0 or max(Sx, Sy) / min(Sx, Sy) > 1.10:
+        return None
+    # Een hoes is vierkant: de korte zijde aanvullen tot de lange, aan de kant
+    # waar op die afstand de duidelijkste rand ligt (Hotel New York: 3716 x 3516).
+    S = max(Sx, Sy)
+    def square_up(lo, hi, P):
+        if hi - lo >= S:
+            return lo, hi
+        options = [(lo, lo + S), (hi - S, hi)]
+        options = [(a, b) for a, b in options if a >= 0 and b < len(P)]
+        if not options:
+            return lo, hi
+        return max(options, key=lambda ab: P[ab[0]] + P[ab[1]])
+    y0, y1 = square_up(y0, y1, Py); x0, x1 = square_up(x0, x1, Px)
+    return (0.0, angle, int(x0), int(y0), int(x1 - x0), int(y1 - y0))
+
+
+def ink_span(profile):
+    """Van waar tot waar ligt de tekst langs één as (0,5-99,5% van de inkt)."""
+    total = float(profile.sum())
+    if total <= 0:
+        return None
+    cumulative = np.cumsum(profile) / total
+    return int(np.searchsorted(cumulative, .005)), int(np.searchsorted(cumulative, .995))
+
+
 def find_square(Gx, Gy, size, sc=0.2):
     """Het vierkant (hoes) dat het best op de randen past. Voor elke kleine
     draaiing: profiel van horizontale en verticale randen, en het paar randen
@@ -535,32 +600,43 @@ def find_square(Gx, Gy, size, sc=0.2):
     h, w = Gx.shape
     c = (w / 2, h / 2)
     Smin, Smax = int(0.55 * min(w, h)), min(w, h) - 2
-    best = None
-    def pairs(P):
-        n = len(P); out = np.full(Smax + 1, -1.0); arg = np.zeros(Smax + 1, int)
-        for S in range(Smin, min(Smax, n - 1) + 1):
-            v = P[:n - S] + P[S:]; i = int(np.argmax(v)); out[S] = v[i]; arg[S] = i
-        return out, arg
-    for ang in np.arange(-4, 4.01, 0.1):
-        R = cv2.getRotationMatrix2D(c, ang, 1.0)
-        Py = cv2.warpAffine(Gy, R, (w, h)).sum(axis=1); Px = cv2.warpAffine(Gx, R, (w, h)).sum(axis=0)
-        by_, ay = pairs(Py); bx_, ax = pairs(Px)
-        for S in range(Smin, Smax + 1):
-            if by_[S] < 0:
-                continue
-            lo, hi = int(S * 0.96), min(int(S * 1.04) + 1, Smax)
-            j = lo + int(np.argmax(bx_[lo:hi + 1]))
-            if bx_[j] < 0:
-                continue
-            sc_ = by_[S] + bx_[j]
-            if best is None or sc_ > best[0]:
-                best = (sc_, ang, ax[j], ay[S], j, S)
+    gradient = np.hypot(Gx, Gy)
+    ink = text_ink(Gx, Gy, gradient)
+    def search():
+        best = None
+        def pairs(P):
+            n = len(P); out = np.full(Smax + 1, -1.0); arg = np.zeros(Smax + 1, int)
+            for S in range(Smin, min(Smax, n - 1) + 1):
+                v = P[:n - S] + P[S:]; i = int(np.argmax(v)); out[S] = v[i]; arg[S] = i
+            return out, arg
+        for ang in np.arange(-4, 4.01, 0.1):
+            R = cv2.getRotationMatrix2D(c, ang, 1.0)
+            Py = cv2.warpAffine(Gy, R, (w, h)).sum(axis=1); Px = cv2.warpAffine(Gx, R, (w, h)).sum(axis=0)
+            by_, ay = pairs(Py); bx_, ax = pairs(Px)
+            for S in range(Smin, Smax + 1):
+                if by_[S] < 0:
+                    continue
+                lo, hi = int(S * 0.96), min(int(S * 1.04) + 1, Smax)
+                j = lo + int(np.argmax(bx_[lo:hi + 1]))
+                if bx_[j] < 0:
+                    continue
+                sc_ = by_[S] + bx_[j]
+                if best is None or sc_ > best[0]:
+                    best = (sc_, ang, ax[j], ay[S], j, S)
+        return best
+    def outside(candidate):
+        """Deel van de tekst (sterke randen) dat buiten het kader valt."""
+        _, ang, x0, y0, Sx, Sy = candidate
+        rotated = cv2.warpAffine(ink, cv2.getRotationMatrix2D(c, ang, 1.0), (w, h))
+        m = max(2, int(.01 * max(Sx, Sy)))
+        inside = rotated[max(0, y0 - m):y0 + Sy + m, max(0, x0 - m):x0 + Sx + m].sum()
+        return 1 - inside / max(float(rotated.sum()), 1.0)
+    best = search()
     if best is None:
         return None
     # A closed outer rectangle is stronger evidence than unrelated profile
     # peaks (scanner lid on one side, printed artwork on another).
     closed=[]
-    gradient=np.hypot(Gx,Gy)
     for threshold in (8,12,20,30):
         edges=cv2.morphologyEx((gradient>threshold).astype(np.uint8),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
         contours,_=cv2.findContours(edges,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
@@ -587,6 +663,15 @@ def find_square(Gx, Gy, size, sc=0.2):
         # the closed boundary disagrees materially in position or dimensions.
         discrepancy=max(abs(candidate[i]-best[i]) for i in range(2,6))/max(candidate[4:6])
         if discrepancy>.025:best=candidate;closed_choice=True
+    if ink.sum() >= INK_MIN_AREA * w * h and outside(best) > INK_OUTSIDE:
+        # Wit vel op het witte deksel, of een gedrukte balk/lijn: de papierrand is
+        # zwak en een kader binnen de hoes scoort hoger (Deena & Jim tekstvel: 27%
+        # van de tekst erbuiten; Hotel New York-voorkant: de ANOUK-balk). Neem dan
+        # per zijde de eerste duidelijke rand buiten de tekst.
+        wider = edge_box(Gx, Gy, ink, best[1], c)
+        if wider is not None and outside(wider) <= INK_OUTSIDE:
+            print(f'hoes: kader liet {outside(best):.0%} van de tekst weg; ruimer kader op de papierrand gekozen', flush=True)
+            best = wider; closed_choice = False
     _, ang, x0, y0, Sx, Sy = best
     # vierkant terug naar het canvas (volle resolutie)
     R = cv2.getRotationMatrix2D(c, ang, 1.0); Ri = cv2.invertAffineTransform(R)
