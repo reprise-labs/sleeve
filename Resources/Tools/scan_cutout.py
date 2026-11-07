@@ -545,6 +545,11 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
             swept += label_line_refine(lab_im.rotate(swept, resample=Image.BICUBIC, fillcolor=(255, 255, 255)))
             angle = ((swept + angle + 180) % 360) - 180
             print(f'tekst rechtop gezet via leesstand: {swept:+.1f} graden')
+        elif ta and not skew_rejected:
+            # Leesrichting onbekend, scheefstand wel gemeten: die alvast rechtzetten;
+            # de kwartslag volgt uit de Discogs-foto of de gebruiker (DEENA A op 600 dpi).
+            angle = ((ta + angle + 180) % 360) - 180
+            print(f'tekst: geen duidelijke leesrichting, alleen scheefstand rechtgezet: {ta:+.1f} graden')
         else:
             print('tekst: geen duidelijke leesrichting gevonden, niet gedraaid')
     if angle:
