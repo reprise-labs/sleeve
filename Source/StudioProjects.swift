@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import Darwin
 import CryptoKit
 
-enum StudioPanel: String, Identifiable {case queue, review, crop, retry, advice;var id:String{rawValue}}
+enum StudioPanel: String, Identifiable {case queue, review, crop, retry, advice, arrange;var id:String{rawValue}}
 
 let studioProjectType = UTType(exportedAs:"com.repriselabs.sleeve-project",conformingTo:.package)
 let legacyStudioProjectType = UTType(importedAs:"nl.anoukmusic.scan-project",conformingTo:.package)

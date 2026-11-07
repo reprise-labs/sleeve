@@ -900,6 +900,8 @@ return text returned of r''')
         progress('Making final file names',result_index,len(results),scope='finishing',completed=len(results))
         i = teller[soort]; teller[soort] += 1
         fixed_part = confirmed_parts.get(os.path.abspath(bron),detected_cover_parts.get(dst,''))
+        if detected_cover_parts.get(dst) in ('insert_left','insert_right'):
+            fixed_part = detected_cover_parts[dst]      # helft van een uitgeklapte binnenkant gaat voor het vak
         if fixed_part:
             kant = fixed_part
             if soort=='hoes':cover_reps.append((dst,kant))
@@ -917,7 +919,8 @@ return text returned of r''')
             kant = 'side'+label_side.lower() if label_side else ['sidea', 'sideb', 'sidec', 'sided'][min(i, 3)]
         else:
             kant = 'cd' if teller['cd'] == 1 else f'cd{i + 1}'
-        kant = confirmed_parts.get(os.path.abspath(bron),kant)
+        if detected_cover_parts.get(dst) not in ('insert_left','insert_right'):
+            kant = confirmed_parts.get(os.path.abspath(bron),kant)
         if not a.geen_vragen:
             ql = subprocess.Popen(['qlmanage', '-p', dst], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             lst = '{' + ', '.join(f'"{k}"' for k in KANTEN) + '}'

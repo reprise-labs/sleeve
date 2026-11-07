@@ -130,6 +130,48 @@ def profile_for(rows):
   if names:profile['scan_groups'].append({'part':group['part'],'files':names})
  return profile
 
+def layout_from_groups(rows):
+ """Vakken uit de app: scans die je samen in één vak sleepte, vormen één onderdeel.
+ Het onderdeel van het vak (Front, Side A …) staat vast; zonder onderdeel bepaalt
+ Sleeve de soort zelf. Referenties doen niet mee."""
+ groups={}
+ for row in rows:
+  key=str(row.get('group') or '').strip()
+  if key and not row.get('reference'):groups.setdefault(key,[]).append(row)
+ layout=[]
+ for members in groups.values():
+  parts={m.get('part') for m in members if m.get('part') in PARTS}
+  layout.append({'part':parts.pop() if len(parts)==1 else '','files':[Path(m['path']).name for m in members]})
+ return layout
+
+def remember_layout(rows,layout):
+ """Indeling per bronmap onthouden (.anouk-referenties.json), zodat de vakken de
+ volgende keer meteen gevuld zijn. Lukt schrijven niet (alleen-lezen), dan niet."""
+ parent=Path(rows[0]['path']).parent;p=parent/'.anouk-referenties.json'
+ try:
+  data=json.loads(p.read_text()) if p.exists() else {}
+  data['scan_groups']=layout
+  data['reference_files']=[Path(r['path']).name for r in rows if r.get('reference')]
+  p.write_text(json.dumps(data,ensure_ascii=False,indent=1))
+ except (OSError,ValueError):
+  emit('log',message='Layout not remembered (folder not writable).')
+
+def suggest_groups(rows):
+ """Voorstel voor de vakken: dezelfde automatische indeling als bij het verwerken,
+ met de kant als die op het label te lezen is. De gebruiker controleert en sleept."""
+ import scan_alles as A
+ paths=[row['path'] for row in rows if not row.get('reference')]
+ if not paths:raise ValueError('Only reference images are selected. Add the original scans too.')
+ emit('status',message='Grouping scans…')
+ with contextlib.redirect_stdout(sys.stderr):
+  grouped=A.groups(paths) if len(paths)>1 else [paths]
+  result=[]
+  for group in grouped:
+   letters={A.disc_side(path) for path in group}-{None}
+   result.append({'files':group,'part':'side'+letters.pop().lower() if len(letters)==1 else 'unknown'})
+ emit('groups',groups=result)
+ emit('complete',message=f'{len(result)} groups suggested. Check them and drag scans where needed.')
+
 def report_outputs(folder,mapping=None,partial=False,part=None):
  files=[];components={}
  try:components={r['name']:r for r in json.loads((folder/'Studio-onderdelen.json').read_text()).get('files',[]) if isinstance(r,dict) and 'name' in r}
@@ -166,6 +208,10 @@ def scan(req,rows,work):
   if req.get('useStand') and not metadata.get('images'):
    raise ValueError('This release has no reference photos. Turn off ‘Rotate cover and record correctly’ or choose another release.')
  profile=profile_for(rows)
+ layout=layout_from_groups(rows)
+ if layout and not req.get('rerunPart'):
+  # Jij hebt de scans in vakken gesleept: die indeling volgen, niets raden.
+  profile['scan_groups']=layout;remember_layout(rows,layout)
  if req.get('rerunPart'):
   part=req['rerunPart']
   if part not in PARTS:raise ValueError('Choose a valid part.')
@@ -198,7 +244,7 @@ def scan(req,rows,work):
  if not files:raise ValueError('No processed images were made. See the log.')
  has_vinyl=any(re.search(r'_side[abcd](?:_\d+)?$',Path(file['path']).stem) for file in files)
  made,name=auto_vinyl_colour(release_url(req['discogs']),files,work) if has_vinyl and req.get('discogs') and req.get('autoColour',True) else ([],'')
- if made:note=f' The record color differed from Discogs ({name}): {len(made)} kleurvoorstel{"len" if len(made)!=1 else ""} (_kleur) made with a Discogs photo; the originals are kept.'
+ if made:note=f' The record color differed from Discogs ({name}): {len(made)} color suggestion{"s" if len(made)!=1 else ""} (_kleur) made with a Discogs photo; the originals are kept.'
  elif has_vinyl and name in __import__('scan_colour').HUES:note=f' Vinyl color matches Discogs ({name}).'
  else:note=' Vinyl color not adjusted yet.' if has_vinyl else ''
  emit('complete',message=f'{len(files)} images processed.'+note,path=str(output))
@@ -465,6 +511,7 @@ def main():
     os.killpg(process.pid,signal.SIGKILL);process.communicate();raise
    finally:OCR_CHILDREN.discard(process)
   emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Release suggestions fetched.');return
+ if action=='suggestGroups':suggest_groups(inputs(req));return
  if action=='references':reference_photos(req,work);emit('complete',message='Reference photos loaded. Choose the right photo.');return
  rows=inputs(req)
  CHECKING_AFTER_PROCESS=action in ('scan','colour','namesApply','manualCrop')

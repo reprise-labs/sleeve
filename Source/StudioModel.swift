@@ -30,6 +30,8 @@ struct MediaItem: Identifiable, Hashable, Codable {
     var partial = false
     var previousVersion: URL? = nil
     var colourSource:URL? = nil
+    // Vak in het indelingsscherm: scans met hetzelfde vak vormen samen één onderdeel.
+    var group:String? = nil
     var title: String { url.lastPathComponent }
 }
 struct NameProposal: Codable, Identifiable {
@@ -59,6 +61,7 @@ struct BridgeEvent: Decodable {
     var detail:String?
     var advice: ReleaseAdvice?
     var audits: [ImageAudit]?
+    var groups: [SuggestedGroup]?
 }
 
 final class PipeReader: @unchecked Sendable {
@@ -148,6 +151,10 @@ final class PipeReader: @unchecked Sendable {
     @Published var queueRunning = false
     @Published var activeQueueID: UUID?
     @Published var panel: StudioPanel?
+    @Published var emptySlots: [ScanSlot] = []
+    @Published var suggesting = false
+    @Published var suggestStatus = ""
+    var suggestProcess:Process?
     var showQueue: Bool {get{panel == .queue} set{if newValue{panel = .queue}else if panel == .queue{panel=nil}}}
     var showReview: Bool {get{panel == .review} set{if newValue{panel = .review}else if panel == .review{panel=nil}}}
     @Published var cropTarget: MediaItem?
@@ -207,7 +214,7 @@ final class PipeReader: @unchecked Sendable {
         cancelReleaseAdvice(clear:true)
         saveExistingProject();restoringProject=true;defer{restoringProject=false}
         panel=nil;projectID=UUID();projectURL=nil;editionTitle="";runs=[];reviews=[:];projectSaveText="Not saved yet"
-        errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Ready for a new release";lastJobFolder=nil
+        errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];emptySlots=[];suggestStatus="";selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Ready for a new release";lastJobFolder=nil
     }
     func pickImages() {
         guard !busy else{return}
@@ -232,14 +239,16 @@ final class PipeReader: @unchecked Sendable {
         for url in files where !inputs.contains(where:{$0.url==url}) {
             var part=inferredPart(url.lastPathComponent)
             var reference=false
+            var group:String?=nil
             let profile=url.deletingLastPathComponent().appendingPathComponent(".anouk-referenties.json")
             if let data=try? Data(contentsOf:profile),let json=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] {
                 reference=(json["reference_files"] as? [String] ?? []).contains(url.lastPathComponent)
-                for group in json["scan_groups"] as? [[String:Any]] ?? [] where (group["files"] as? [String] ?? []).contains(url.lastPathComponent) {
-                    if let name=group["part"] as? String,partChoices.contains(name){part=name}
+                for (index,saved) in (json["scan_groups"] as? [[String:Any]] ?? []).enumerated() where (saved["files"] as? [String] ?? []).contains(url.lastPathComponent) {
+                    if let name=saved["part"] as? String,partChoices.contains(name){part=name}
+                    group="saved-\(index)"     // eerder opgeslagen indeling van deze map
                 }
             }
-            inputs.append(MediaItem(url:url,part:part,reference:reference))
+            inputs.append(MediaItem(url:url,part:part,reference:reference,group:group))
         }
         showResults=false;selectedID=inputs.first?.id;proposals=[];demo=false
         if outputFolder==nil {outputFolder=files[0].deletingLastPathComponent()}
@@ -323,7 +332,7 @@ final class PipeReader: @unchecked Sendable {
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Jobs/"+UUID().uuidString)
         do {
             try FileManager.default.createDirectory(at:cache,withIntermediateDirectories:true)
-            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":false,"strength":strength,"scope":colourScope]
+            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? "","group":$0.group ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":false,"strength":strength,"scope":colourScope]
             if let folder=outputFolder{req["output"]=folder.path}
             if let ref=referenceURL{req["reference"]=ref.path}
             if action=="namesApply" {req["proposals"]=try JSONSerialization.jsonObject(with:JSONEncoder().encode(proposals))}

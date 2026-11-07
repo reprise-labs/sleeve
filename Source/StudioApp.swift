@@ -89,6 +89,7 @@ struct StudioView: View {
             case .review:StudioReviewView(model:model)
             case .crop:if let item=model.cropTarget{StudioCircleView(model:model,target:item)}
             case .retry:if let item=model.retryTarget{StudioRetryView(model:model,target:item)}
+            case .arrange:StudioArrangeView(model:model)
             }
         }
         .onDrop(of:["public.file-url"],isTargeted:nil) {providers in
@@ -102,7 +103,7 @@ struct StudioView: View {
     }
     var sidebar: some View {
         VStack(alignment:.leading,spacing:7) {
-            Text("WERKTAFEL").font(.system(size:10,weight:.bold)).tracking(1.6).foregroundStyle(.secondary).padding(.horizontal,10).padding(.bottom,9)
+            Text("WORKSPACE").font(.system(size:10,weight:.bold)).tracking(1.6).foregroundStyle(.secondary).padding(.horizontal,10).padding(.bottom,9)
             ForEach(WorkMode.allCases) {mode in
                 Button {model.changeMode(mode)} label: {
                     Label(mode.title,systemImage:mode.icon).font(.system(size:13,weight:model.mode==mode ? .semibold : .regular)).frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,11).padding(.vertical,12)
@@ -202,6 +203,13 @@ struct StudioView: View {
                 Toggle("Use file names",isOn:$model.useNames)
                 Toggle("Rotate cover and record correctly",isOn:$model.useStand)
                 Text("Check your results first. You can then fine-tune cover and record colors under ‘Adjust Color’.").font(.caption).foregroundStyle(.secondary)
+            }
+            if model.mode == .scans && !model.inputs.isEmpty {
+                VStack(alignment:.leading,spacing:7) {
+                    Text("Arrangement").font(.system(size:12,weight:.semibold))
+                    Text(model.arrangementSummary).font(.caption).foregroundStyle(.secondary)
+                    Button("Arrange Scans…"){model.panel = .arrange}.help("Drag the scans into slots: Front, Back, Side A, Side B …")
+                }
             }
             if !model.inputs.isEmpty {
                 VStack(alignment:.leading,spacing:7) {

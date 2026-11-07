@@ -28,6 +28,31 @@ import SwiftUI
         precondition(model.discogs==candidate.url)
         var unsafe=candidate;unsafe.url="https://example.com/release/33664818";model.chooseRelease(unsafe)
         precondition(model.discogs==candidate.url)
+        // Vakken: slepen bepaalt de indeling; Suggest vult alleen wat nog vrij is.
+        let arrange=StudioModel(libraryDirectory:FileManager.default.temporaryDirectory.appendingPathComponent("StudioArrangeChecks-"+UUID().uuidString))
+        let scans=(1...6).map{MediaItem(url:URL(fileURLWithPath:"/tmp/arrange/Scan \($0).jpeg"))}
+        arrange.inputs=scans+[MediaItem(url:URL(fileURLWithPath:"/tmp/arrange/Scan 7.jpeg"),reference:true)]
+        precondition(arrange.unassignedInputs.count==6 && arrange.slots.isEmpty,"Begin: alles vrij, referentie telt niet mee")
+        let sideA=arrange.addSlot(part:"sidea");let front=arrange.addSlot(part:"front")
+        precondition(arrange.slots.count==2 && arrange.slots.allSatisfy{$0.items.isEmpty},"Lege vakken zichtbaar")
+        for item in scans[0...1] {arrange.assign(item.id,to:sideA)}
+        arrange.assign(scans[2].id,to:front)
+        precondition(arrange.inputs[0].part=="sidea" && arrange.inputs[2].part=="front","Scan krijgt het onderdeel van zijn vak")
+        precondition(arrange.slots.map{$0.items.count}==[2,1],"Vakken met scans in volgorde")
+        arrange.setSlotPart(sideA,"sideb")
+        precondition(arrange.inputs[0].part=="sideb" && arrange.inputs[1].part=="sideb","Onderdeel van het hele vak wijzigt")
+        arrange.unassign(scans[2].id)
+        precondition(arrange.inputs[2].group==nil && arrange.inputs[2].part=="unknown" && arrange.slots.contains(where:{$0.id==front && $0.items.isEmpty}),"Laatste scan eruit: vak blijft leeg staan")
+        // Voorstel overschrijft geen eigen indeling
+        arrange.applySuggestion([SuggestedGroup(files:["/tmp/arrange/Scan 1.jpeg","/tmp/arrange/Scan 4.jpeg","/tmp/arrange/Scan 5.jpeg"],part:"sidea")])
+        precondition(arrange.inputs[0].group==sideA,"Eigen vak blijft staan")
+        precondition(arrange.inputs[3].group != nil && arrange.inputs[3].group==arrange.inputs[4].group && arrange.inputs[3].part=="sidea","Vrije scans uit het voorstel samen in een nieuw vak")
+        precondition(arrange.unassignedInputs.map{$0.title}==["Scan 3.jpeg","Scan 6.jpeg"],"Rest blijft vrij")
+        arrange.removeSlot(sideA)
+        precondition(arrange.inputs[0].group==nil && arrange.inputs[1].group==nil,"Vak weg: scans weer vrij")
+        arrange.clearArrangement()
+        precondition(arrange.arrangedCount==0 && arrange.emptySlots.isEmpty && arrange.inputs[6].reference,"Wissen laat referenties staan")
+        print("Arrangement: slots, drag, suggestion without overwriting, clear.")
         let generation=model.adviceGeneration
         model.adviceArtist="Anouk";model.adviceTitle="Set This Thing On Fire"
         precondition(model.discogsSearchURL?.host=="www.discogs.com")
