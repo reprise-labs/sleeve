@@ -91,12 +91,12 @@ enum QueueState: String, Codable {
     case waiting, running, done, failed, cancelled, interrupted
     var label: String {
         switch self {
-        case .waiting:return "Klaar om te starten"
-        case .running:return "Wordt verwerkt"
-        case .done:return "Verwerkt"
-        case .failed:return "Fout · wachtrij gepauzeerd"
-        case .cancelled:return "Gestopt door jou"
-        case .interrupted:return "Onderbroken · opnieuw klaarzetten"
+        case .waiting:return "Ready to start"
+        case .running:return "Processing"
+        case .done:return "Processed"
+        case .failed:return "Error · queue paused"
+        case .cancelled:return "Stopped by you"
+        case .interrupted:return "Interrupted · queue again"
         }
     }
 }
@@ -168,7 +168,7 @@ extension JSONEncoder {
 @MainActor extension StudioModel {
     var titleForEdition: String {
         let value=editionTitle.trimmingCharacters(in:.whitespacesAndNewlines)
-        return value.isEmpty ? (inputs.first?.url.deletingLastPathComponent().lastPathComponent ?? "Nieuwe uitgave") : value
+        return value.isEmpty ? (inputs.first?.url.deletingLastPathComponent().lastPathComponent ?? "New Release") : value
     }
     var pendingCount: Int {queue.filter{$0.state == .waiting}.count}
     var reviewCount: Int {outputs.filter{review(for:$0).completed}.count}
@@ -213,9 +213,9 @@ extension JSONEncoder {
                 let library=try JSONDecoder().decode(StudioLibrary.self,from:Data(contentsOf:file))
                 guard library.schemaVersion==1 else{throw CocoaError(.fileReadCorruptFile)}
                 queue=library.queue;recentProjects=library.recentProjects
-                for i in queue.indices where queue[i].state == .running {queue[i].state = .interrupted;queue[i].detail="De vorige sessie eindigde tijdens deze taak. Er wordt niets automatisch herhaald."}
+                for i in queue.indices where queue[i].state == .running {queue[i].state = .interrupted;queue[i].detail="The previous session ended during this task. Nothing is repeated automatically."}
                 persistLibrary()
-            } catch {errorMessage="De bewaarde wachtrij kon niet worden gelezen. Het bestand blijft behouden; je scans en resultaten zijn niet gewijzigd.";libraryWritable=false}
+            } catch {errorMessage="The saved queue couldn't be read. The file is kept; your scans and results are unchanged.";libraryWritable=false}
         }
         projectObservation=objectWillChange.sink{[weak self] _ in self?.scheduleProjectSave()}
     }
@@ -229,32 +229,32 @@ extension JSONEncoder {
         guard let url=projectURL,!savingProject,!restoringProject else{return}
         savingProject=true;defer{savingProject=false}
         projectSaveWork?.cancel()
-        do {try ProjectFiles.write(captureProject(),to:url);projectSaveText="Project bewaard"}
-        catch {queueRunning=false;projectSaveText="Bewaren mislukt";errorMessage="Het project kon niet worden bewaard: "+error.localizedDescription}
+        do {try ProjectFiles.write(captureProject(),to:url);projectSaveText="Project saved"}
+        catch {queueRunning=false;projectSaveText="Saving failed";errorMessage="The project couldn't be saved: "+error.localizedDescription}
     }
     func saveProjectAs() {
         guard !busy else{return}
-        let panel=NSSavePanel();panel.title="Bewaar je uitgave als project";panel.allowedContentTypes=[studioProjectType];panel.canCreateDirectories=true
+        let panel=NSSavePanel();panel.title="Save your release as a project";panel.allowedContentTypes=[studioProjectType];panel.canCreateDirectories=true
         panel.nameFieldStringValue=titleForEdition+".sleeveproject"
         guard panel.runModal() == .OK,let url=panel.url else{return}
         projectURL=url;saveExistingProject();rememberProject(url)
     }
     func pickProject() {
         guard !busy else{return}
-        let panel=NSOpenPanel();panel.title="Open een Sleeve-project";panel.allowedContentTypes=[studioProjectType,legacyStudioProjectType];panel.canChooseDirectories=false;panel.canChooseFiles=true
+        let panel=NSOpenPanel();panel.title="Open a Sleeve project";panel.allowedContentTypes=[studioProjectType,legacyStudioProjectType];panel.canChooseDirectories=false;panel.canChooseFiles=true
         if panel.runModal() == .OK,let url=panel.url {openProject(url)}
     }
     func openProject(_ url:URL) {
-        guard !busy else{errorMessage="Laat de actieve taak eerst afronden of stop de verwerking.";return}
+        guard !busy else{errorMessage="Let the active task finish first or stop processing.";return}
         saveExistingProject()
         do {
             let document=try ProjectFiles.read(url)
             restoreWorkspace(document.workspace);restoringProject=true
-            projectID=document.id;editionTitle=document.title;runs=document.runs;projectURL=url;projectSaveText="Project geopend";restoringProject=false
+            projectID=document.id;editionTitle=document.title;runs=document.runs;projectURL=url;projectSaveText="Project opened";restoringProject=false
             rememberProject(url);showQueue=false
             let missing=inputs.filter{!FileManager.default.fileExists(atPath:$0.url.path)}.count
-            if missing>0 {errorMessage="\(missing) bronbestanden staan niet meer op hun bewaarde plek. De resultaten en instellingen zijn behouden; voeg de bronnen opnieuw toe als je ze wilt verwerken."}
-        } catch {errorMessage="Dit project kon niet worden geopend: "+error.localizedDescription}
+            if missing>0 {errorMessage="\(missing) source files are no longer where they were saved. Results and settings are kept; add the sources again if you want to process them."}
+        } catch {errorMessage="This project couldn't be opened: "+error.localizedDescription}
     }
     func rememberProject(_ url:URL) {recentProjects.removeAll{$0==url};recentProjects.insert(url,at:0);recentProjects=Array(recentProjects.prefix(10));persistLibrary()}
     @discardableResult func persistLibrary() -> Bool {
@@ -263,15 +263,15 @@ extension JSONEncoder {
             try FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
             try JSONEncoder.studio.encode(StudioLibrary(queue:queue,recentProjects:recentProjects)).write(to:url,options:.atomic)
             return true
-        } catch {queueRunning=false;errorMessage="De wachtrij kon niet worden bewaard. Automatisch doorgaan is gepauzeerd: "+error.localizedDescription;return false}
+        } catch {queueRunning=false;errorMessage="The queue couldn't be saved. Automatic continuation is paused: "+error.localizedDescription;return false}
     }
     func enqueueCurrent() {
-        guard libraryWritable,canStart,let libraryURL else{errorMessage="Kies eerst bronbeelden, de benodigde instellingen en een resultatenmap.";return}
+        guard libraryWritable,canStart,let libraryURL else{errorMessage="First choose source images, the required settings and an output folder.";return}
         do {
             var project=captureProject()
             project.workspace=try ProjectFiles.retainReferences(project.workspace,at:libraryURL.deletingLastPathComponent().appendingPathComponent("QueueReferences"),portable:false)
             queue.append(StudioQueueItem(project:project,projectURL:projectURL));guard persistLibrary() else {queue.removeLast();return};saveExistingProject();showQueue=true
-        } catch {errorMessage="De referentiefoto kon niet bij de wachtrij worden bewaard: "+error.localizedDescription}
+        } catch {errorMessage="The reference photo couldn't be saved with the queue: "+error.localizedDescription}
     }
     func startQueue() {
         guard libraryWritable,!busy,pendingCount>0 else{return}
@@ -286,7 +286,7 @@ extension JSONEncoder {
         mergeSavedRuns();activeQueueID=item.id;queue[i].state = .running;queue[i].detail=""
         guard persistLibrary() else {queue[i].state = .waiting;activeQueueID=nil;return}
         launch(action:mode == .scans ? "scan" : mode == .colour ? "colour" : "namesApply")
-        if !busy && activeQueueID==item.id {finishQueueItem(success:false,detail:errorMessage ?? "De taak kon niet worden gestart.")}
+        if !busy && activeQueueID==item.id {finishQueueItem(success:false,detail:errorMessage ?? "The task couldn't be started.")}
     }
     func mergeSavedRuns() {
         if let url=projectURL,let previous=try? ProjectFiles.read(url),previous.id==projectID {
@@ -320,29 +320,29 @@ extension JSONEncoder {
     }
     func recordFinishedRun(action:String,success:Bool) {
         guard ["scan","colour","namesApply","manualCrop"].contains(action) else{return}
-        mergeSavedRuns();runs.append(StudioRun(label:action=="manualCrop" ? "Ronde uitsnede bijgesteld" : lastEditingWasRetry ? "Eén onderdeel opnieuw verwerkt" : mode.rawValue,success:success,workspace:captureWorkspace(),action:action,scanRecipe:action=="scan" ? activeScanRecipe : nil,processedPaths:activeProcessedPaths));lastEditingWasRetry=false
+        mergeSavedRuns();runs.append(StudioRun(label:action=="manualCrop" ? "Round crop adjusted" : lastEditingWasRetry ? "One part reprocessed" : mode.title,success:success,workspace:captureWorkspace(),action:action,scanRecipe:action=="scan" ? activeScanRecipe : nil,processedPaths:activeProcessedPaths));lastEditingWasRetry=false
         saveExistingProject()
     }
     func prepareForQuit() {
         cancelReleaseAdvice()
         queueRunning=false
-        if let id=activeQueueID,let i=queue.firstIndex(where:{$0.id==id}) {queue[i].state = .interrupted;queue[i].detail="De app is gesloten tijdens de taak.";queue[i].project=captureProject()}
+        if let id=activeQueueID,let i=queue.firstIndex(where:{$0.id==id}) {queue[i].state = .interrupted;queue[i].detail="The app was closed during the task.";queue[i].project=captureProject()}
         persistLibrary();saveExistingProject();cancel()
     }
     func exportReview() {
         guard let folder=lastJobFolder ?? outputFolder else{return}
-        let stem="Eindcontrole-"+UUID().uuidString.prefix(8)
+        let stem="Final-check-"+UUID().uuidString.prefix(8)
         do {
             let document=captureProject()
             try JSONEncoder.studio.encode(document).write(to:folder.appendingPathComponent(String(stem)+".json"),options:.atomic)
-            var lines=[titleForEdition,"EINDCONTROLE", "Door jou akkoord: \(reviewCount) van \(outputs.count)", ""]
+            var lines=[titleForEdition,"EINDCONTROLE", "Approved by you: \(reviewCount) of \(outputs.count)", ""]
             for item in outputs {
                 let r=review(for:item)
-                lines += [item.title,"Bestand leesbaar: \(r.audit?.readable == true ? "ja" : "niet bevestigd")","Rond gemeten: \(r.audit?.round.map{$0 ? "ja" : "nee"} ?? "niet meetbaar / niet van toepassing")","Beeld / naam / kleur door jou akkoord: \(r.visualApproved) / \(r.nameApproved) / \(r.colourApproved)",r.audit?.message ?? "",r.notes,""]
+                lines += [item.title,"File readable: \(r.audit?.readable == true ? "ja" : "not confirmed")","Round measured: \(r.audit?.round.map{$0 ? "ja" : "nee"} ?? "not measurable / not applicable")","Image / name / color approved by you: \(r.visualApproved) / \(r.nameApproved) / \(r.colourApproved)",r.audit?.message ?? "",r.notes,""]
             }
             try lines.joined(separator:"\n").write(to:folder.appendingPathComponent(String(stem)+".txt"),atomically:true,encoding:.utf8)
-            stateText="Controleverslag bewaard bij de resultaten"
-        } catch {errorMessage="Het controleverslag kon niet worden bewaard: "+error.localizedDescription}
+            stateText="Check report saved with the results"
+        } catch {errorMessage="The check report couldn't be saved: "+error.localizedDescription}
     }
     func auditCurrentResults() {guard !outputs.isEmpty,!busy else{return};launch(action:"audit")}
 }

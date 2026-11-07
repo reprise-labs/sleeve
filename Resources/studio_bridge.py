@@ -6,7 +6,7 @@ TOOLS=Path(__file__).parent/'Tools'
 try:
  import numpy,cv2,PIL
 except ImportError:
- print(json.dumps({'event':'error','message':'De beeldonderdelen ontbreken. Sluit Sleeve en voer eerst Installeer beeldonderdelen.command uit het downloadpakket uit.'}),flush=True)
+ print(json.dumps({'event':'error','message':'The image components are missing. Quit Sleeve and first run Installeer beeldonderdelen.command from the download package.'}),flush=True)
  raise SystemExit(1)
 sys.path.insert(0,str(TOOLS))
 PARTS={'front','back','inside','insert','insert_left','insert_right','inlay','sidea','sideb','sidec','sided','cd','cd1','cd2','sticker'}
@@ -39,87 +39,87 @@ def cancel(signum,frame):
  if os.getpgrp()==os.getpid():
   try:os.killpg(os.getpgrp(),signal.SIGTERM)
   except ProcessLookupError:pass
- emit('error',message='Verwerking door jou gestopt. Reeds gemaakte bestanden blijven bewaard.')
+ emit('error',message='Processing stopped by you. Files already made are kept.')
  raise SystemExit(130)
 signal.signal(signal.SIGTERM,cancel);signal.signal(signal.SIGINT,cancel)
 
 def release_url(value):
  p=urllib.parse.urlparse(value.strip())
  if p.scheme not in ('http','https') or p.hostname not in ('discogs.com','www.discogs.com') or not re.search(r'/(release|master)/\d+',p.path):
-  raise ValueError('Vul de Discogs-link van de juiste uitgave in.')
+  raise ValueError('Enter the Discogs link of the right release.')
  return value.strip()
 
 def inputs(req):
  rows=req.get('inputs',[])
- if not rows:raise ValueError('Voeg eerst afbeeldingen toe.')
+ if not rows:raise ValueError('Add images first.')
  seen=set();out=[]
  for row in rows:
   p=Path(row['path']).expanduser().resolve()
-  if not p.is_file() or p.suffix.lower() not in EXTS:raise ValueError('Deze afbeelding is niet beschikbaar: '+p.name)
+  if not p.is_file() or p.suffix.lower() not in EXTS:raise ValueError('This image isn’t available: '+p.name)
   if str(p) in seen:continue
   seen.add(str(p));out.append(dict(row,path=str(p),part=row.get('part','front') if row.get('part') in PARTS|{'unknown'} else 'unknown'))
  return out
 
 def job_folder(req,label):
  parent=Path(req['output']).expanduser().resolve()
- if not parent.is_dir():raise ValueError('Kies een bestaande resultatenmap.')
+ if not parent.is_dir():raise ValueError('Choose an existing output folder.')
  stamp=datetime.datetime.now().strftime('%Y-%m-%d %H.%M.%S')
  for number in range(1,1000):
   p=parent/(label+' '+stamp+(' '+str(number) if number>1 else ''))
   try:p.mkdir();return p
   except FileExistsError:continue
- raise ValueError('Een nieuwe resultatenmap kon niet worden gemaakt.')
+ raise ValueError('A new output folder couldn’t be created.')
 
 def run(args):
  global child
- emit('status',message='De verwerking loopt op je Mac.')
- stage='Verwerking';index=None;total=None;resource_error=None
+ emit('status',message='Processing runs on your Mac.')
+ stage='Processing';index=None;total=None;resource_error=None
  child=subprocess.Popen([sys.executable,*map(str,args)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=True)
  for line in child.stdout:
   text=line.rstrip()
   if text.startswith('SLEEVE_PROGRESS '):
    try:payload=json.loads(text[len('SLEEVE_PROGRESS '):])
    except ValueError:continue
-   phase=payload.get('phase','Verwerking');scope=payload.get('scope','component');fraction=payload.get('fraction')
+   phase=payload.get('phase','Processing');scope=payload.get('scope','component');fraction=payload.get('fraction')
    if not isinstance(fraction,(float,int)) or not 0<=fraction<=1:fraction=None
    if isinstance(payload.get('componentTotal'),int):total=payload['componentTotal']
    component=payload.get('componentIndex',index) if scope=='component' else None
    active=payload.get('activeParts',1)
-   current_stage=f'Onderdeel {component} van {total}' if component is not None and total else stage
+   current_stage=f'Part {component} of {total}' if component is not None and total else stage
    emit('progress',fraction=fraction,index=component,total=total,phase=phase,scope=scope,unitsDone=payload.get('unitsDone'),unitsTotal=payload.get('unitsTotal'),completedParts=payload.get('completedParts'),activeParts=active,detail=payload.get('detail',''))
    emit('status',message=(current_stage+' · ' if scope=='component' else '')+phase)
    emit('log',message=phase+(f" · {payload['unitsDone']} / {payload['unitsTotal']}" if payload.get('unitsTotal') else ''))
    continue
-  if text.startswith(('ValueError: Te weinig vrije schijfruimte','ValueError: Een afzonderlijke scan','ValueError: Onvolledige schijf','ValueError: De schijf valt buiten')):resource_error=text.split(': ',1)[1]
+  if text.startswith(('ValueError: Not enough free disk space','ValueError: A single scan','ValueError: Incomplete disc','ValueError: The disc extends beyond')):resource_error=text.split(': ',1)[1]
   if text:
    emit('log',message=text)
-   if any(word in text.lower() for word in ('niet beschikbaar','niet betrouwbaar','mislukt')):emit('warning',message=text)
+   if any(word in text.lower() for word in ('not available','not reliabl','failed')):emit('warning',message=text)
    m=re.match(r'\[(\d+)/(\d+)\]\s*(.*)',text)
    if m:
-    index=int(m[1]);total=int(m[2]);stage='Onderdeel '+m[1]+' van '+m[2]
-    emit('progress',fraction=None,index=index,total=total,phase='Uitlijnen en samenvoegen')
+    index=int(m[1]);total=int(m[2]);stage='Part '+m[1]+' of '+m[2]
+    emit('progress',fraction=None,index=index,total=total,phase='Aligning and merging')
     emit('status',message=stage+': '+m[3][:150])
    elif re.fullmatch(r'\s*\d+%',text):
     percent=int(text.strip()[:-1])
     if percent<100:
-     emit('progress',fraction=percent/100,index=index,total=total,phase='Beeld opbouwen')
-     emit('status',message=stage+' · beeld opbouwen')
+     emit('progress',fraction=percent/100,index=index,total=total,phase='Building image')
+     emit('status',message=stage+' · building image')
     else:
-     emit('progress',fraction=None,index=index,total=total,phase='Beeld opslaan')
-     emit('status',message=stage+' · beeld opgebouwd; opslaan…')
-   elif 'volle resolutie opbouwen:' in text:
-    emit('progress',fraction=0,index=index,total=total,phase='Beeld opbouwen')
+     emit('progress',fraction=None,index=index,total=total,phase='Saving image')
+     emit('status',message=stage+' · image built; saving…')
+   elif 'building full resolution:' in text:
+    emit('progress',fraction=0,index=index,total=total,phase='Building image')
     emit('status',message=stage+' · '+text)
-   elif text.startswith('klaar:'):
-    emit('progress',fraction=None,index=index,total=total,phase='Controle en uitsnijden')
-    emit('status',message=stage+' · samengestelde scan controleren…')
+   elif text.startswith('done:'):
+    emit('progress',fraction=None,index=index,total=total,phase='Checking and cutting out')
+    emit('status',message=stage+' · checking merged scan…')
  rc=child.wait();child=None
  if rc and resource_error:raise RuntimeError(resource_error)
- if rc:raise RuntimeError('De verwerking is gestopt op een controlefout. Bekijk het logboek; er wordt niets als compleet aangemerkt als het dat niet is.')
+ if rc:raise RuntimeError('Processing stopped on a check error. See the log; nothing is marked complete unless it is.')
 
 def profile_for(rows):
  parents={str(Path(row['path']).parent) for row in rows}
- if len(parents)!=1:raise ValueError('Kies scans van één uitgave uit één bronmap. Cd en vinyl apart verwerken.')
+ if len(parents)!=1:raise ValueError('Choose scans of one release from one source folder. Process CD and vinyl separately.')
  parent=Path(next(iter(parents)));p=parent/'.anouk-referenties.json'
  if not p.exists():return {}
  raw=json.loads(p.read_text());profile={'reference_files':[],'scan_groups':[]}
@@ -144,9 +144,9 @@ def report_outputs(folder,mapping=None,partial=False,part=None):
 def reference_photos(req,work):
  import scan_discogs as D,scan_naam as N
  url=release_url(req.get('discogs',''))
- emit('status',message='Referentiefoto’s van Discogs ophalen…')
+ emit('status',message='Fetching reference photos from Discogs…')
  title,images=D.release_images(url)
- if not images:raise ValueError('Deze uitgave heeft geen beschikbare referentiefoto’s. Kies een eigen foto.')
+ if not images:raise ValueError('This release has no reference photos available. Choose your own photo.')
  import cv2
  refs=[]
  folder=work/'references';folder.mkdir(exist_ok=True)
@@ -157,19 +157,19 @@ def reference_photos(req,work):
 def scan(req,rows,work):
  import scan_naam as N
  selected=[row for row in rows if not row.get('reference')]
- if not selected:raise ValueError('Er zijn alleen referentiebeelden geselecteerd. Voeg ook de oorspronkelijke scans toe.')
+ if not selected:raise ValueError('Only reference images are selected. Add the original scans too.')
  if req.get('discogs') and any(req.get(flag) for flag in ('useNames','useStand')):
   url=release_url(req['discogs']);match=re.search(r'/(release|master)/(\d+)',urllib.parse.urlparse(url).path)
-  emit('status',message='De Discogs-uitgave controleren…')
+  emit('status',message='Checking the Discogs release…')
   metadata=N.get('https://api.discogs.com/'+('masters' if match[1]=='master' else 'releases')+'/'+match[2])
   if match[1]=='master':metadata=N.get('https://api.discogs.com/releases/'+str(metadata['main_release']))
   if req.get('useStand') and not metadata.get('images'):
-   raise ValueError('Deze uitgave heeft geen referentiefoto’s. Zet ‘Hoes en plaat juist draaien’ uit of kies een andere uitgave.')
+   raise ValueError('This release has no reference photos. Turn off ‘Rotate cover and record correctly’ or choose another release.')
  profile=profile_for(rows)
  if req.get('rerunPart'):
   part=req['rerunPart']
-  if part not in PARTS:raise ValueError('Kies een geldig onderdeel.')
-  if any(row.get('reference') for row in rows):raise ValueError('Kies alleen de bronbeelden voor dit onderdeel.')
+  if part not in PARTS:raise ValueError('Choose a valid part.')
+  if any(row.get('reference') for row in rows):raise ValueError('Choose only the source images for this part.')
   profile={'reference_files':[],'scan_groups':[{'part':part,'files':[Path(row['path']).name for row in rows]}]}
  staging=work/'scans';staging.mkdir()
  for row in rows:
@@ -191,17 +191,17 @@ def scan(req,rows,work):
   raise
  files=report_outputs(output,part=req.get('rerunPart'))
  if req.get('rerunPart'):
-  if len(files)!=1:raise ValueError('De gekozen scans leveren niet precies één onderdeel op. Controleer de selectie; het vorige resultaat blijft behouden.')
+  if len(files)!=1:raise ValueError('The chosen scans don’t produce exactly one part. Check the selection; the previous result is kept.')
   for file in files:file['part']=req['rerunPart'];JOB_OUTPUTS[file['path']]=file
   emit('outputs',files=files)
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','inputs':rows,'outputs':files,'discogs':req.get('discogs',''),'one_release_per_batch':True},ensure_ascii=False,indent=2))
- if not files:raise ValueError('Er zijn geen verwerkte afbeeldingen gemaakt. Bekijk het logboek.')
+ if not files:raise ValueError('No processed images were made. See the log.')
  has_vinyl=any(re.search(r'_side[abcd](?:_\d+)?$',Path(file['path']).stem) for file in files)
  made,name=auto_vinyl_colour(release_url(req['discogs']),files,work) if has_vinyl and req.get('discogs') and req.get('autoColour',True) else ([],'')
- if made:note=f' De plaatkleur week af van Discogs ({name}): {len(made)} kleurvoorstel{"len" if len(made)!=1 else ""} (_kleur) gemaakt met een Discogs-foto; de originelen blijven behouden.'
- elif has_vinyl and name in __import__('scan_colour').HUES:note=f' Vinylkleur komt overeen met Discogs ({name}).'
- else:note=' Vinylkleur is nog niet aangepast.' if has_vinyl else ''
- emit('complete',message=f'{len(files)} afbeeldingen verwerkt.'+note,path=str(output))
+ if made:note=f' The record color differed from Discogs ({name}): {len(made)} kleurvoorstel{"len" if len(made)!=1 else ""} (_kleur) made with a Discogs photo; the originals are kept.'
+ elif has_vinyl and name in __import__('scan_colour').HUES:note=f' Vinyl color matches Discogs ({name}).'
+ else:note=' Vinyl color not adjusted yet.' if has_vinyl else ''
+ emit('complete',message=f'{len(files)} images processed.'+note,path=str(output))
 
 def colour_destination(source):
  # Follow only explicit legacy colour provenance, never a raw scan source.
@@ -221,35 +221,35 @@ def colour_destination(source):
 def colour(req,rows,work):
  import scan_colour as C
  ref=Path(req.get('reference','')).expanduser()
- if not ref.is_file():raise ValueError('Kies eerst een eigen foto of een Discogs-referentiefoto.')
+ if not ref.is_file():raise ValueError('First choose your own photo or a Discogs reference photo.')
  strength=float(req.get('strength',1))
- if not 0<=strength<=1:raise ValueError('De kleursterkte moet tussen 0 en 100% liggen.')
+ if not 0<=strength<=1:raise ValueError('The color strength must be between 0 and 100%.')
  scope=req.get('scope','vinyl')
- if scope not in ('vinyl','photo'):raise ValueError('Kies vinylplaten of een hoes.')
+ if scope not in ('vinyl','photo'):raise ValueError('Choose vinyl records or a cover.')
  rows=[row for row in rows if not row.get('reference')]
- if not rows:raise ValueError('Vink eerst de beelden aan die je wilt aanpassen.')
- if scope=='photo' and len(rows)!=1:raise ValueError('Kies één hoes bij de passende referentiefoto.')
+ if not rows:raise ValueError('First check the images you want to adjust.')
+ if scope=='photo' and len(rows)!=1:raise ValueError('Choose one cover for the matching reference photo.')
  if scope=='vinyl':
   from PIL import Image
   import scan_cutout as CU
   for row in rows:
    part=row.get('part','unknown')
-   if part!='unknown' and not part.startswith('side'):raise ValueError('Bij vinylkleur mogen alleen vinylkanten zijn aangevinkt. Een hoes wordt niet met een plaatfoto aangepast.')
+   if part!='unknown' and not part.startswith('side'):raise ValueError('For vinyl color, only vinyl sides may be checked. A cover isn’t adjusted with a record photo.')
    with Image.open(row['path']) as im:
-    if im.mode!='RGBA':raise ValueError('Gebruik hier uitgeknipte vinylplaten met transparantie. Verwerk eerst de scans.')
+    if im.mode!='RGBA':raise ValueError('Use cut-out vinyl records with transparency here. Process the scans first.')
     probe=im.getchannel('A');probe.thumbnail((1400,1400))
-    if CU.already_cut(probe) is None:raise ValueError('Een geselecteerd beeld is nog geen uitgeknipte plaat. Verwerk eerst de scans.')
+    if CU.already_cut(probe) is None:raise ValueError('A selected image isn’t a cut-out record yet. Process the scans first.')
  output=colour_destination(rows[0]['path']);emit('destination',path=str(output))
  files=[colour_copy(row,ref,strength,scope,i,len(rows)) for i,row in enumerate(rows)]
- if not files:raise ValueError('Er zijn geen kleurvoorstellen gemaakt. Kies ook een bronbeeld.')
+ if not files:raise ValueError('No color suggestions were made. Choose a source image too.')
  colour_metadata(ref,strength,scope,rows,files)
- emit('complete',message=f"{len(files)} nieuwe kleurkopie{'ën' if len(files)!=1 else ''} opgeslagen. Bekijk Nieuwe kleuren; de originelen blijven behouden.",path=str(output))
+ emit('complete',message=f"{len(files)} new color cop{'ies' if len(files)!=1 else 'y'} saved. See New Colors; the originals are kept.",path=str(output))
 
 def colour_copy(row,ref,strength,scope,i,total):
  import scan_colour as C
  src=Path(row['path']);output=colour_destination(src);stem=re.sub(r'(?:_kleur(?:_\d+)?)+$','',src.stem)+'_kleur';dst=output/(stem+'.png');suffix=2
  while dst.exists():dst=output/(stem+'_'+str(suffix)+'.png');suffix+=1
- emit('status',message=f'Nieuwe kleur voor {i+1} van {total}: {src.name}')
+ emit('status',message=f'New color for {i+1} of {total}: {src.name}')
  temporary=output/('.voorstel-'+uuid.uuid4().hex+'.png')
  if scope=='vinyl':
   with contextlib.redirect_stdout(io.StringIO()) as captured:C.recolor(str(src),str(ref),str(temporary),strength,progress=lambda fraction,phase:emit('progress',fraction=fraction,index=i+1,total=total,phase=phase))
@@ -264,8 +264,8 @@ def colour_copy(row,ref,strength,scope,i,total):
 def colour_metadata(ref,strength,scope,rows,files,**extra):
  output=colour_destination(rows[0]['path'])
  metadata_folder=output/'.sleeve'/'colour'/uuid.uuid4().hex
- reference_folder=metadata_folder/'Referentie';reference_folder.mkdir(parents=True)
- shutil.copy2(ref,reference_folder/('Gebruikte-foto'+ref.suffix.lower()))
+ reference_folder=metadata_folder/'Reference';reference_folder.mkdir(parents=True)
+ shutil.copy2(ref,reference_folder/('Used-photo'+ref.suffix.lower()))
  (metadata_folder/'Studio-verwerking.json').write_text(json.dumps({'action':'colour','source_reference':str(ref),'strength':strength,'scope':scope,'inputs':rows,'outputs':files,**extra},ensure_ascii=False,indent=2))
 
 def discogs_release(url):
@@ -282,7 +282,7 @@ def auto_vinyl_colour(url,files,work):
  import scan_colour as C,scan_discogs as D,scan_naam as N
  vinyl=[f for f in files if re.search(r'_side[abcd](?:_\d+)?$',Path(f['path']).stem)]
  if not vinyl:return [],''
- emit('status',message='Vinylkleur vergelijken met de kleur op Discogs…')
+ emit('status',message='Comparing vinyl color with the color on Discogs…')
  try:
   formats=discogs_release(url).get('formats',[])
   words=[(d or '').lower() for f in formats for d in (f.get('descriptions') or [])]+[w.lower() for f in formats for w in re.split(r'[\s,/]+',f.get('text') or '')]
@@ -292,7 +292,7 @@ def auto_vinyl_colour(url,files,work):
   _,images=D.release_images(url)
   plan,chosen=C.vinyl_plan([f['path'] for f in vinyl],images,name)
  except (Exception,SystemExit) as error:
-  emit('warning',message=f'Vinylkleur niet met Discogs vergeleken ({error}).');return [],''
+  emit('warning',message=f'Vinyl color not compared with Discogs ({error}).');return [],''
  if not plan:return [],name
  folder=work/'references';folder.mkdir(exist_ok=True)
  ref=folder/f'Discogs-foto {chosen["photo"]}.png';chosen['reference'].save(ref)
@@ -303,18 +303,18 @@ def auto_vinyl_colour(url,files,work):
 
 def names_preview(req,rows):
  import scan_naam as N
- emit('status',message='Bestandsnamen van Discogs ophalen…')
+ emit('status',message='Fetching file names from Discogs…')
  url=release_url(req.get('discogs',''));N.get=functools.lru_cache(maxsize=32)(N.get)
  proposals=[];used=set()
  for row in rows:
   if row.get('reference'):continue
   p=Path(row['path']);part=row['part']
-  if part not in PARTS:raise ValueError('Kies eerst het onderdeel bij elk beeld voordat je bestandsnamen laat voorstellen.')
+  if part not in PARTS:raise ValueError('First choose the part for each image before asking for file names.')
   name=N.naam(url,part,req.get('variant',''))+p.suffix.lower()
   base=Path(name);i=2
   while name.casefold() in used:name=base.stem+'_'+str(i)+base.suffix;i+=1
   used.add(name.casefold());st=p.stat();proposals.append({'source':str(p),'newName':name,'part':part,'size':st.st_size,'mtime':st.st_mtime_ns})
- emit('names',rows=proposals);emit('complete',message='Namen opgehaald. Controleer het voorstel vóór het bewaren.')
+ emit('names',rows=proposals);emit('complete',message='Names fetched. Check the suggestion before saving.')
 
 def independent_copy(source,destination):
  # APFS copy-on-write, with an independent inode. Never use hard links.
@@ -326,21 +326,21 @@ def independent_copy(source,destination):
 
 def names_apply(req,rows):
  proposals=req.get('proposals',[])
- if not proposals:raise ValueError('Haal eerst de voorgestelde namen op.')
+ if not proposals:raise ValueError('Fetch the suggested names first.')
  allowed={row['path'] for row in rows};checked=[];used=set()
  for row in proposals:
   src=Path(row['source']).resolve();name=row['newName']
-  if str(src) not in allowed or not name or Path(name).name!=name or name in ('.','..') or name.casefold() in used:raise ValueError('Het namenvoorstel is ongeldig. Haal het opnieuw op.')
-  if Path(name).suffix.lower() not in EXTS:raise ValueError('De bestandsextensie van het voorstel is ongeldig.')
+  if str(src) not in allowed or not name or Path(name).name!=name or name in ('.','..') or name.casefold() in used:raise ValueError('The name suggestion is invalid. Fetch it again.')
+  if Path(name).suffix.lower() not in EXTS:raise ValueError('The file extension in the suggestion is invalid.')
   st=src.stat()
-  if st.st_size!=row['size'] or st.st_mtime_ns!=row['mtime']:raise ValueError('Een bronbestand is gewijzigd. Haal de namen opnieuw op.')
+  if st.st_size!=row['size'] or st.st_mtime_ns!=row['mtime']:raise ValueError('A source file has changed. Fetch the names again.')
   used.add(name.casefold());checked.append((src,name))
- output=job_folder(req,'Nieuwe namen');emit('destination',path=str(output));mapping={}
+ output=job_folder(req,'New Names');emit('destination',path=str(output));mapping={}
  for src,name in checked:
   dst=output/name;temporary=output/('.kopie-'+uuid.uuid4().hex+dst.suffix);independent_copy(src,temporary);os.replace(temporary,dst);mapping[str(dst)]=str(src)
  files=report_outputs(output,mapping)
  (output/'Naamwijzigingen.json').write_text(json.dumps(proposals,ensure_ascii=False,indent=2))
- emit('complete',message=f'{len(files)} kopieën met nieuwe namen bewaard.',path=str(output))
+ emit('complete',message=f'{len(files)} copies saved with new names.',path=str(output))
 
 def component_quality(path):
  """Meldingen uit het samenvoegen (naad door verschoven tekst, labelstand
@@ -365,10 +365,10 @@ def audit_files(req,files,action):
   p=Path(file['path']);row=rows.get(file.get('source',''),rows.get(str(p),{}))
   match=re.search(r'_(side[abcd]|cd\d*|front|back|inside|insert|inlay|sticker)(?:_kleur)?(?:_\d+)?$',p.stem)
   part=file.get('part') or (match[1] if match else row.get('part','unknown'))
-  emit('progress',fraction=None,index=i+1,total=len(files),phase='Eindcontrole')
-  emit('status',message=f'Bestandscontrole {i+1} van {len(files)}: {p.name}')
+  emit('progress',fraction=None,index=i+1,total=len(files),phase='Final check')
+  emit('status',message=f'File check {i+1} of {len(files)}: {p.name}')
   result={'path':str(p),'readable':False,'part':part,'round':None,'missingInteriorPercent':None,
-          'namesApplied':action=='namesApply' or (action=='scan' and bool(req.get('discogs')) and req.get('useNames',True) and not any('naam via Discogs mislukt' in w for w in JOB_WARNINGS)),
+          'namesApplied':action=='namesApply' or (action=='scan' and bool(req.get('discogs')) and req.get('useNames',True) and not any('name via Discogs failed' in w for w in JOB_WARNINGS)),
           'colourApplied':action=='colour','colourKnown':action in ('scan','colour'),'message':''}
   try:
    before=p.stat()
@@ -379,28 +379,28 @@ def audit_files(req,files,action):
      if 'A' in image.getbands():
       image.thumbnail((1400,1400));mask=np.asarray(image.getchannel('A'))>128
       contours,_=cv2.findContours(mask.astype(np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
-      if not contours:raise ValueError('Geen zichtbare schijf in het transparantiemasker.')
+      if not contours:raise ValueError('No visible disc in the transparency mask.')
       contour=max(contours,key=cv2.contourArea)
-      if len(contour)<5:raise ValueError('De ronde rand kon niet worden gemeten.')
+      if len(contour)<5:raise ValueError('The round edge couldn’t be measured.')
       (cx,cy),(a,b),angle=cv2.fitEllipse(contour)
       result['round']=bool(min(a,b)>0 and max(a,b)/min(a,b)<1.005)
       yy,xx=np.ogrid[:mask.shape[0],:mask.shape[1]];radius=(a+b)/4;distance=np.hypot(xx-cx,yy-cy)
       annulus=(distance>.32*radius)&(distance<.97*radius)
       missing=float(100*(annulus&~mask).sum()/max(1,annulus.sum()))
       result['missingInteriorPercent']=round(missing,4)
-      if missing>=.2:result['message']=f'Er ontbreekt circa {missing:.1f}% binnen de schijf; controleer het bronbeeld.'
-      elif not result['round']:result['message']='De buitenrand is niet betrouwbaar rond gemeten.'
-     else:result['message']='Rondheid niet automatisch meetbaar zonder transparante uitsnede.'
+      if missing>=.2:result['message']=f'About {missing:.1f}% is missing inside the disc; check the source image.'
+      elif not result['round']:result['message']='The outer edge wasn’t measured as reliably round.'
+     else:result['message']='Roundness can’t be measured automatically without a transparent crop.'
    after=p.stat()
-   if before.st_size!=after.st_size or before.st_mtime_ns!=after.st_mtime_ns:raise ValueError('Het bestand is tijdens de controle gewijzigd.')
+   if before.st_size!=after.st_size or before.st_mtime_ns!=after.st_mtime_ns:raise ValueError('The file changed during the check.')
    result['signature']=f'{after.st_size}:{after.st_mtime_ns//10**9}:{after.st_mtime_ns%10**9}'
    result['readable']=True
-   if file.get('partial'):result['message']='Afgebroken verwerking; dit resultaat moet opnieuw worden gecontroleerd.'
+   if file.get('partial'):result['message']='Interrupted run; this result must be checked again.'
    notes=component_quality(p)
    if notes:result['message']=' '.join([result['message']]+notes if result['message'] else notes)
   except Exception as error:result['message']=str(error)
   audits.append(result);emit('audit',audits=[result])
- if any(not row['readable'] for row in audits):raise ValueError('Een resultaat kon niet volledig worden gelezen. De wachtrij is gepauzeerd; bekijk de eindcontrole.')
+ if any(not row['readable'] for row in audits):raise ValueError('A result couldn’t be read completely. The queue is paused; see the final check.')
  return audits
 
 def fingerprint(path):
@@ -410,39 +410,39 @@ def fingerprint(path):
 def manual_crop(req,rows,work):
  import math,numpy as np
  from PIL import Image,ImageOps,PngImagePlugin
- if len(rows)!=1:raise ValueError('Kies precies één bronbeeld voor de ronde uitsnede.')
+ if len(rows)!=1:raise ValueError('Choose exactly one source image for the round crop.')
  row=rows[0];src=Path(row['path']);expected=req.get('sourceSignature')
- if not expected or fingerprint(src)!=expected:raise ValueError('Het bronbeeld is gewijzigd. Open de uitsnede opnieuw.')
+ if not expected or fingerprint(src)!=expected:raise ValueError('The source image has changed. Open the crop again.')
  cx,cy,diameter=[float(req[key]) for key in ('cropX','cropY','cropDiameter')]
- if not all(math.isfinite(v) for v in (cx,cy,diameter)) or not(0<=cx<=1 and 0<=cy<=1 and 0<diameter<=1):raise ValueError('De cirkelinstellingen zijn niet geldig.')
+ if not all(math.isfinite(v) for v in (cx,cy,diameter)) or not(0<=cx<=1 and 0<=cy<=1 and 0<diameter<=1):raise ValueError('The circle settings aren’t valid.')
  part=req.get('cropPart','')
- if part not in PARTS or not(part.startswith('side') or part.startswith('cd')):raise ValueError('Deze correctie is bedoeld voor ronde cd- en vinylbeelden.')
- output=job_folder(req,'Uitsnede');emit('destination',path=str(output))
+ if part not in PARTS or not(part.startswith('side') or part.startswith('cd')):raise ValueError('This correction is meant for round CD and vinyl images.')
+ output=job_folder(req,'Crop');emit('destination',path=str(output))
  with Image.open(src) as raw:
   raw.load();icc=raw.info.get('icc_profile');dpi=raw.info.get('dpi');image=ImageOps.exif_transpose(raw).convert('RGBA')
   width,height=image.size;size=int(round(diameter*min(width,height)))
-  if size<16:raise ValueError('De cirkel is te klein. Kies een grotere diameter.')
+  if size<16:raise ValueError('The circle is too small. Choose a larger diameter.')
   left=int(round(cx*width-size/2));top=int(round(cy*height-size/2))
-  if left<0 or top<0 or left+size>width or top+size>height:raise ValueError('De cirkel valt buiten het bronbeeld. Verklein of verplaats hem.')
+  if left<0 or top<0 or left+size>width or top+size>height:raise ValueError('The circle extends beyond the source image. Make it smaller or move it.')
   cropped=image.crop((left,top,left+size,top+size));alpha=np.array(cropped.getchannel('A'));centre=(size-1)/2;radius=(size-1)/2
   xx=np.arange(size,dtype=np.float64)[None,:]-centre
   for start in range(0,size,256):
    end=min(size,start+256);yy=np.arange(start,end,dtype=np.float64)[:,None]-centre
    edge=np.clip(radius+.5-np.hypot(xx,yy),0,1)
    alpha[start:end]=np.rint(alpha[start:end]*edge).astype(np.uint8)
-   emit('progress',fraction=end/size if end<size else None,phase='Ronde uitsnede opbouwen' if end<size else 'Beeld opslaan')
+   emit('progress',fraction=end/size if end<size else None,phase='Building round crop' if end<size else 'Saving image')
   cropped.putalpha(Image.fromarray(alpha));metadata=PngImagePlugin.PngInfo();metadata.add_text('sleeve_disc_cut','3')
-  destination=output/(src.stem+'_uitsnede.png');temporary=output/'.uitsnede.png'
+  destination=output/(src.stem+'_uitsnede.png');temporary=output/'.crop.png'
   options={'pnginfo':metadata}
   if icc:options['icc_profile']=icc
   if dpi:options['dpi']=dpi
   cropped.save(temporary,**options)
-  if fingerprint(src)!=expected:temporary.unlink();raise ValueError('Het bronbeeld is tijdens het verwerken gewijzigd; de vorige versie blijft behouden.')
+  if fingerprint(src)!=expected:temporary.unlink();raise ValueError('The source image changed during processing; the previous version is kept.')
   os.replace(temporary,destination)
  files=[{'path':str(destination),'source':str(src),'part':part,'partial':False}]
  emit('outputs',files=files)
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'manualCrop','inputs':rows,'outputs':files,'circle':{'x':cx,'y':cy,'diameter':diameter},'pixel_box':[left,top,size,size]},indent=2))
- emit('complete',message='Nieuwe ronde uitsnede bewaard. Vergelijk de vorige en nieuwe versie; controleer ook de tekst langs de rand.')
+ emit('complete',message='New round crop saved. Compare the previous and new version; also check the text along the edge.')
 
 
 def main():
@@ -459,13 +459,13 @@ def main():
    OCR_CHILDREN.add(process)
    try:
     stdout,_=process.communicate(timeout=20)
-    if process.returncode:raise ValueError('Tekstherkenning niet gelukt')
+    if process.returncode:raise ValueError('Text recognition failed')
     return stdout
    except subprocess.TimeoutExpired:
     os.killpg(process.pid,signal.SIGKILL);process.communicate();raise
    finally:OCR_CHILDREN.discard(process)
-  emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Releasevoorstellen opgehaald.');return
- if action=='references':reference_photos(req,work);emit('complete',message='Referentiefoto’s geladen. Kies de juiste foto.');return
+  emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Release suggestions fetched.');return
+ if action=='references':reference_photos(req,work);emit('complete',message='Reference photos loaded. Choose the right photo.');return
  rows=inputs(req)
  CHECKING_AFTER_PROCESS=action in ('scan','colour','namesApply','manualCrop')
  if action=='scan':scan(req,rows,work)
@@ -475,11 +475,11 @@ def main():
  elif action=='namesApply':names_apply(req,rows)
  elif action=='audit':
   audit_files(req,[{'path':row['path'],'source':row.get('source',''),'partial':row.get('partial',False)} for row in rows],'audit')
-  emit('complete',message='Bestandscontroles bijgewerkt. Beoordeel de beelden en namen zelf in de eindcontrole.')
- else:raise ValueError('Onbekende actie.')
+  emit('complete',message='File checks updated. Judge the images and names yourself in the final check.')
+ else:raise ValueError('Unknown action.')
  if CHECKING_AFTER_PROCESS:
   audit_files(req,list(JOB_OUTPUTS.values()),action);CHECKING_AFTER_PROCESS=False
-  emit('complete',**(PENDING_COMPLETION or {'message':'Verwerking afgerond; visuele controle staat nog open.'}))
+  emit('complete',**(PENDING_COMPLETION or {'message':'Processing finished; visual check still open.'}))
 if __name__=='__main__':
  try:main()
  except SystemExit:raise

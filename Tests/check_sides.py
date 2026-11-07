@@ -12,7 +12,7 @@ assert SA.side_markers(line('- D -'))=={'D'}
 assert SA.side_markers(line('SIDE TWO'))=={'B'}
 for text in ('INSIDE','SIDEBAR','SIDES','GRADUATED FOOL','ANOUK'):
  assert not SA.side_markers(line(text)),text
-print('Kantmarkeringen: expliciet, leesfouten van SIDE en geen woorden als kant.')
+print('Kantmarkeringen: expliciet, leesfouten of SIDE en geen woorden als kant.')
 # Straight text lines decide the last degrees (HNY side A: Discogs photo 1.5 degrees off).
 from PIL import Image, ImageDraw
 import scan_cutout as CU

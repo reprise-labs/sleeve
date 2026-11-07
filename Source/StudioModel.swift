@@ -11,13 +11,15 @@ func durationText(_ interval:TimeInterval)->String {
 let supportedExtensions: Set<String> = ["png","jpg","jpeg","tif","tiff","bmp","webp"]
 let partChoices = ["unknown","front","back","inside","insert","insert_left","insert_right","inlay","sidea","sideb","sidec","sided","cd","cd1","cd2","sticker"]
 func partLabel(_ value: String) -> String {
-    ["unknown":"Nog te bepalen","front":"Voorkant","back":"Achterkant","inside":"Binnenzijde","insert":"Inlegvel","insert_left":"Inlegvel links","insert_right":"Inlegvel rechts","inlay":"Inlay","sidea":"Kant A","sideb":"Kant B","sidec":"Kant C","sided":"Kant D","cd":"Cd","cd1":"Cd 1","cd2":"Cd 2","sticker":"Sticker"][value] ?? value
+    ["unknown":"Unassigned","front":"Front","back":"Back","inside":"Inside","insert":"Insert","insert_left":"Insert Left","insert_right":"Insert Right","inlay":"Inlay","sidea":"Side A","sideb":"Side B","sidec":"Side C","sided":"Side D","cd":"CD","cd1":"CD 1","cd2":"CD 2","sticker":"Sticker"][value] ?? value
 }
 enum WorkMode: String, CaseIterable, Identifiable, Codable {
     case scans = "Scans verwerken", colour = "Kleur aanpassen", names = "Namen aanpassen"
     var id: String { rawValue }
+    // rawValue is de opgeslagen sleutel in projecten (Nederlands, ongewijzigd); title is wat de app toont.
+    var title: String { switch self {case .scans:return "Process Scans";case .colour:return "Adjust Color";case .names:return "Rename Files"} }
     var icon: String { switch self {case .scans:return "scanner";case .colour:return "slider.horizontal.3";case .names:return "tag"} }
-    var caption: String { switch self {case .scans:return "Eén uitgave · cd en vinyl apart";case .colour:return "Maak kleurkopieën van de aangevinkte beelden";case .names:return "Controleer de namen en bewaar nieuwe kopieën"} }
+    var caption: String { switch self {case .scans:return "One release · CD and vinyl separately";case .colour:return "Make color copies of the checked images";case .names:return "Check the names and save new copies"} }
 }
 struct MediaItem: Identifiable, Hashable, Codable {
     var id = UUID()
@@ -126,7 +128,7 @@ final class PipeReader: @unchecked Sendable {
     @Published var progressDetail=""
     @Published var busy = false
     @Published var cancelled = false
-    @Published var stateText = "Klaar om te beginnen"
+    @Published var stateText = "Ready to begin"
     @Published var errorMessage: String?
     @Published var logText = ""
     @Published var warnings: [String] = []
@@ -137,7 +139,7 @@ final class PipeReader: @unchecked Sendable {
     @Published var demo = false
     @Published var editionTitle = ""
     @Published var projectURL: URL?
-    @Published var projectSaveText = "Nog niet bewaard"
+    @Published var projectSaveText = "Not saved yet"
     @Published var projectID = UUID()
     @Published var runs: [StudioRun] = []
     @Published var reviews: [String:ReviewRecord] = [:]
@@ -196,7 +198,7 @@ final class PipeReader: @unchecked Sendable {
         guard !busy,newMode != mode else{return}
         let preferredURL=selected?.url
         cancelReleaseAdvice(clear:true)
-        if newMode != mode && !outputs.isEmpty {inputs=mode == .colour ? mergedColourInputs : outputs.map{MediaItem(url:$0.url,part:$0.part)};outputs=[];proposals=[];stateText="Resultaatbeelden klaar voor de volgende stap"}
+        if newMode != mode && !outputs.isEmpty {inputs=mode == .colour ? mergedColourInputs : outputs.map{MediaItem(url:$0.url,part:$0.part)};outputs=[];proposals=[];stateText="Result images ready for the next step"}
         mode=newMode;showResults=false;selectedID=inputs.first(where:{$0.url==preferredURL})?.id ?? inputs.first?.id;errorMessage=nil;zoom=1
         if newMode == .colour {chooseColourKind(inputs.isEmpty || inputs.contains(where:{$0.part.hasPrefix("side")}) ? "vinyl" : "photo")}
     }
@@ -204,12 +206,12 @@ final class PipeReader: @unchecked Sendable {
         guard !busy else{return}
         cancelReleaseAdvice(clear:true)
         saveExistingProject();restoringProject=true;defer{restoringProject=false}
-        panel=nil;projectID=UUID();projectURL=nil;editionTitle="";runs=[];reviews=[:];projectSaveText="Nog niet bewaard"
-        errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Klaar voor een nieuwe uitgave";lastJobFolder=nil
+        panel=nil;projectID=UUID();projectURL=nil;editionTitle="";runs=[];reviews=[:];projectSaveText="Not saved yet"
+        errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Ready for a new release";lastJobFolder=nil
     }
     func pickImages() {
         guard !busy else{return}
-        let panel=NSOpenPanel();panel.title="Kies de afbeeldingen van één uitgave";panel.allowsMultipleSelection=true;panel.canChooseDirectories=true;panel.canChooseFiles=true
+        let panel=NSOpenPanel();panel.title="Choose the images of one release";panel.allowsMultipleSelection=true;panel.canChooseDirectories=true;panel.canChooseFiles=true
         if panel.runModal() == .OK { addURLs(panel.urls) }
     }
     func addURLs(_ values: [URL]) {
@@ -222,10 +224,10 @@ final class PipeReader: @unchecked Sendable {
             } else if supportedExtensions.contains(url.pathExtension.lowercased()) {files.append(url)}
         }
         files=files.map{$0.resolvingSymlinksInPath().standardizedFileURL}.sorted{$0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending}
-        guard !files.isEmpty else{errorMessage="In deze selectie staan geen ondersteunde afbeeldingen.";return}
+        guard !files.isEmpty else{errorMessage="This selection contains no supported images.";return}
         if mode == .scans {
             let folders=Set((inputs.map{$0.url}+files).map{$0.deletingLastPathComponent().path})
-            guard folders.count<=1 else{errorMessage="Verwerk één uitgave uit één bronmap. Kies eerst ‘Nieuwe uitgave’ voor een andere map.";return}
+            guard folders.count<=1 else{errorMessage="Process one release from one source folder. Choose ‘New Release’ first for another folder.";return}
         }
         for url in files where !inputs.contains(where:{$0.url==url}) {
             var part=inferredPart(url.lastPathComponent)
@@ -241,7 +243,7 @@ final class PipeReader: @unchecked Sendable {
         }
         showResults=false;selectedID=inputs.first?.id;proposals=[];demo=false
         if outputFolder==nil {outputFolder=files[0].deletingLastPathComponent()}
-        stateText="\(inputCount) bronbeelden · \(inputs.filter{$0.reference}.count) referenties"
+        stateText="\(inputCount) source images · \(inputs.filter{$0.reference}.count) references"
         if mode == .colour {resetColourSelection()}
         scheduleReleaseAdvice()
     }
@@ -272,12 +274,12 @@ final class PipeReader: @unchecked Sendable {
         inputs.removeAll{$0.id==item.id};selectedID=inputs.first?.id;proposals=[];cancelReleaseAdvice(clear:true)
     }
     func chooseOutput() {
-        let p=NSOpenPanel();p.title="Kies waar nieuwe resultaten mogen komen";p.canChooseFiles=false;p.canChooseDirectories=true;p.canCreateDirectories=true
+        let p=NSOpenPanel();p.title="Choose where new results may go";p.canChooseFiles=false;p.canChooseDirectories=true;p.canCreateDirectories=true
         if p.runModal() == .OK,let url=p.url{outputFolder=url;UserDefaults.standard.set(url.path,forKey:"outputFolder")}
     }
     func chooseReference() {
         guard !busy else{return}
-        let p=NSOpenPanel();p.title="Kies een referentiefoto";p.allowedContentTypes=[.image];p.allowsMultipleSelection=false
+        let p=NSOpenPanel();p.title="Choose a reference photo";p.allowedContentTypes=[.image];p.allowsMultipleSelection=false
         if p.runModal() == .OK,let url=p.url{referenceURL=url;referenceFromDiscogs=false}
     }
     func revealOutput() {if mode == .colour,showResults,let selected {NSWorkspace.shared.activateFileViewerSelecting([selected.url])} else if let url=lastJobFolder ?? outputFolder{NSWorkspace.shared.open(url)}}
@@ -293,7 +295,7 @@ final class PipeReader: @unchecked Sendable {
     }
     func cancel() {
         guard let p=process,p.isRunning else{return}
-        queueRunning=false;cancelled=true;stateText="Stoppen… reeds gemaakte resultaten blijven bewaard";p.terminate()
+        queueRunning=false;cancelled=true;stateText="Stopping… results already made are kept";p.terminate()
     }
     func loadDemo() {
         guard !busy,let resources=Bundle.main.resourceURL else{return}
@@ -304,20 +306,20 @@ final class PipeReader: @unchecked Sendable {
         referenceURL=resources.appendingPathComponent("Samples/Oranje-referentie.png");referenceFromDiscogs=false;demo=true
         if outputFolder==nil {outputFolder=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask).first}
         colourScope="vinyl";resetColourSelection()
-        stateText="Voorbeeldbeelden · er is nog niets verwerkt"
+        stateText="Sample images · nothing has been processed yet"
     }
     func launch(action:String, rowsOverride:[MediaItem]? = nil, extra:[String:Any] = [:]) {
         guard !busy else{return}
         cancelReleaseAdvice()
-        guard let resources=Bundle.main.resourceURL else{errorMessage="De onderdelen van de app zijn niet beschikbaar.";return}
-        if action != "references" && action != "audit" && (rowsOverride ?? inputs).isEmpty {errorMessage="Voeg eerst afbeeldingen toe.";return}
+        guard let resources=Bundle.main.resourceURL else{errorMessage="The app's components aren't available.";return}
+        if action != "references" && action != "audit" && (rowsOverride ?? inputs).isEmpty {errorMessage="Add images first.";return}
         if ["scan","namesApply","manualCrop"].contains(action) && outputFolder==nil {chooseOutput();guard outputFolder != nil else{return}}
-        if action=="references" || action=="namesPreview",discogs.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {errorMessage="Vul eerst de Discogs-link van de juiste uitgave in.";return}
+        if action=="references" || action=="namesPreview",discogs.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {errorMessage="First enter the Discogs link of the right release.";return}
         let rows: [MediaItem]
         if let supplied=rowsOverride {rows=supplied}
         else if action=="audit" {rows=outputs}
         else if action=="colour" {rows=colourTargets} else{rows=inputs}
-        if action=="colour" && rows.isEmpty {errorMessage="Vink eerst de vinylkanten aan, of kies één hoes.";return}
+        if action=="colour" && rows.isEmpty {errorMessage="First check the vinyl sides, or choose one cover.";return}
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Jobs/"+UUID().uuidString)
         do {
             try FileManager.default.createDirectory(at:cache,withIntermediateDirectories:true)
@@ -330,7 +332,7 @@ final class PipeReader: @unchecked Sendable {
             activeScanRecipe=action=="scan" ? StudioScanRecipe(inputs:rows,discogs:req["discogs"] as? String ?? "",variant:req["variant"] as? String ?? "",useNames:req["useNames"] as? Bool ?? true,useStand:req["useStand"] as? Bool ?? true,useColour:req["useColour"] as? Bool ?? false) : nil
             let request=cache.appendingPathComponent("request.json");try JSONSerialization.data(withJSONObject:req,options:.prettyPrinted).write(to:request)
             componentPhaseClocks=[:];componentDetails=[:];activePartCount=1
-            busy=true;measuredProgress=nil;currentPart=nil;totalParts=nil;progressPhase="Voorbereiden";phaseStartedAt=Date();lastProgressAt=Date();progressUnitsDone=nil;progressUnitsTotal=nil;completedParts=0;progressDetail="";cancelled=false;reportedError=false;receivedComplete=false;activeAction=action;activeLogFolder=cache;startedAt=Date();logText="";warnings=[];errorMessage=nil;stateText=action=="references" ? "Discogs-foto’s ophalen…" : "Voorbereiden…"
+            busy=true;measuredProgress=nil;currentPart=nil;totalParts=nil;progressPhase="Preparing";phaseStartedAt=Date();lastProgressAt=Date();progressUnitsDone=nil;progressUnitsTotal=nil;completedParts=0;progressDetail="";cancelled=false;reportedError=false;receivedComplete=false;activeAction=action;activeLogFolder=cache;startedAt=Date();logText="";warnings=[];errorMessage=nil;stateText=action=="references" ? "Fetching Discogs photos…" : "Preparing…"
             if action=="colour" {activeColourSourcePaths=Set(rows.map{$0.url.path});activeColourOutputPaths=[]}
             else if ["scan","namesApply","manualCrop"].contains(action) {outputs=[];showResults=false}
             let p=Process();let runtime=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Runtime/bin/python3");p.executableURL=FileManager.default.isExecutableFile(atPath:runtime.path) ? runtime : URL(fileURLWithPath:"/usr/bin/python3");p.arguments=[resources.appendingPathComponent("studio_bridge.py").path,request.path]
@@ -350,7 +352,7 @@ final class PipeReader: @unchecked Sendable {
                 DispatchQueue.main.async {guard let self,self.currentToken==token else{return};self.didFinish(p.terminationStatus)}
             }
         } catch {
-            busy=false;finishEditing(success:false);lastEditingWasRetry=false;stateText="Niet gestart";errorMessage="De verwerking kon niet worden gestart: "+error.localizedDescription
+            busy=false;finishEditing(success:false);lastEditingWasRetry=false;stateText="Not started";errorMessage="Processing couldn't be started: "+error.localizedDescription
         }
     }
     func receive(_ event:BridgeEvent) {
@@ -384,15 +386,15 @@ final class PipeReader: @unchecked Sendable {
             if let count=event.completedParts {completedParts=count}
             if let detail=event.detail,!detail.isEmpty {progressDetail=detail;if let index=nextIndex {componentDetails[index]=detail}}
             if event.scope=="preparation" || event.scope=="finishing" {progressDetail=""}
-        case "status":stateText=event.message ?? "Bezig…"
-        case "warning":warnings.append(event.message ?? "Controleer het logboek")
+        case "status":stateText=event.message ?? "Working…"
+        case "warning":warnings.append(event.message ?? "Check the log")
         case "log":
             logText += (event.message ?? "")+"\n"
             if logText.count>100_000{logText=String(logText.suffix(100_000))}
         case "destination":if let p=event.path{lastJobFolder=URL(fileURLWithPath:p)}
         case "references":
             references=(event.files ?? []).map{MediaItem(url:URL(fileURLWithPath:$0.path))};referenceURL=nil;referenceFromDiscogs=true
-            stateText=event.message ?? "Kies een referentiefoto"
+            stateText=event.message ?? "Choose a reference photo"
         case "names":proposals=event.rows ?? []
         case "outputs":
             for file in event.files ?? [] {
@@ -404,25 +406,25 @@ final class PipeReader: @unchecked Sendable {
                     if activeAction=="colour" {mergeColourOutput(item)} else {outputs.append(item)}
                 }
             }
-        case "error":reportedError=true;stateText=cancelled ? "Gestopt" : "Gestopt op een fout";if !cancelled{errorMessage=event.message}
-        case "complete":receivedComplete=true;stateText=event.message ?? "Afgerond"
+        case "error":reportedError=true;stateText=cancelled ? "Stopped" : "Stopped on an error";if !cancelled{errorMessage=event.message}
+        case "complete":receivedComplete=true;stateText=event.message ?? "Finished"
         default:break
         }
     }
     func didFinish(_ status:Int32) {
         busy=false;activePartCount=1;process=nil;readPipe=nil;reader=nil
         if let folder=activeLogFolder{try? logText.write(to:folder.appendingPathComponent("app-logboek.txt"),atomically:true,encoding:.utf8)}
-        if cancelled {stateText="Gestopt door jou"}
+        if cancelled {stateText="Stopped by you"}
         else if status != 0 || !receivedComplete {
-            if !reportedError{errorMessage="De verwerking is niet afgerond. Bekijk het logboek voor de oorzaak."}
-            stateText="Gestopt op een fout";showLog=true
+            if !reportedError{errorMessage="Processing didn't finish. See the log for the cause."}
+            stateText="Stopped on an error";showLog=true
         }
-        if status==0 && !warnings.isEmpty {stateText += " · \(warnings.count) opmerkingen in het logboek";showLog=true}
+        if status==0 && !warnings.isEmpty {stateText += " · \(warnings.count) notes in the log";showLog=true}
         if ["scan","colour","namesApply","manualCrop"].contains(activeAction) && !outputs.isEmpty {showResults=true;selectedID=outputs.first?.id;if status==0 && receivedComplete && !cancelled && activeAction != "colour" && activeQueueID==nil && panel != .queue{showReview=true}}
         if activeAction=="colour",!activeColourOutputPaths.isEmpty {
             showResults=true;selectedID=outputs.first(where:{activeColourOutputPaths.contains($0.url.path)})?.id;compare=0
         }
-        if editingSession != nil && outputs.count != 1 && status==0 && receivedComplete && !cancelled {errorMessage="De nieuwe verwerking leverde niet precies één beeld op. De vorige resultaten blijven behouden."}
+        if editingSession != nil && outputs.count != 1 && status==0 && receivedComplete && !cancelled {errorMessage="The new run didn't produce exactly one image. The previous results are kept."}
         let success=status==0 && receivedComplete && !cancelled && (editingSession==nil || outputs.count==1)
         if !success && ["scan","colour","namesApply","manualCrop"].contains(activeAction) {for i in outputs.indices where activeAction != "colour" || activeColourOutputPaths.contains(outputs[i].url.path) {outputs[i].partial=true}}
         activeProcessedPaths=outputs.filter{activeAction != "colour" || activeColourOutputPaths.contains($0.url.path)}.map{$0.url}

@@ -25,7 +25,7 @@ import SwiftUI
         model.outputFolder=nil
         try check(model.canStart,"Kleurcorrectie vereist geen aparte uitvoermap")
         try check(model.colourTargets.count==2 && model.colourCandidates.count==2)
-        try check(model.colourActionTitle.contains("2 vinylkanten"))
+        try check(model.colourActionTitle.contains("2 vinyl sides"))
         model.selectedID=model.inputs[0].id
         try check(model.colourTargets.count==2,"Een hoes bekijken mag de kleurselectie niet veranderen")
         model.start();try await wait(model)

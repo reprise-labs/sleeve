@@ -19,9 +19,9 @@ extension StudioModel {
     }
     var colourActionTitle:String {
         let count=colourTargets.count
-        if count==0{return colourScope=="vinyl" ? "Vink eerst vinylkanten aan" : "Kies eerst een hoes"}
-        if referenceURL==nil{return "Kies eerst een referentiefoto"}
-        return colourScope=="vinyl" ? "Maak nieuwe kleur voor \(count) vinyl\(count==1 ? "kant" : "kanten")" : "Maak nieuwe kleur voor deze hoes"
+        if count==0{return colourScope=="vinyl" ? "Check vinyl sides first" : "Choose a cover first"}
+        if referenceURL==nil{return "Choose a reference photo first"}
+        return colourScope=="vinyl" ? "Make new color for \(count) vinyl \(count==1 ? "side" : "sides")" : "Make new color for this cover"
     }
     func chooseColourKind(_ kind:String) {
         guard !busy,["vinyl","photo"].contains(kind) else{return}

@@ -44,25 +44,25 @@ class ComponentPool:
             try:self.emit(index,json.loads(text[len('SLEEVE_PROGRESS '):]))
             except ValueError:pass
         elif re.fullmatch(r'\s*\d+%',text):
-            self.emit(index,{'phase':'Beeld opbouwen','fraction':int(text.strip()[:-1])/100})
+            self.emit(index,{'phase':'Building image','fraction':int(text.strip()[:-1])/100})
         else:
             with self.lock:
-                if re.match(r'^\[\d+/\d+\]',text) or text.startswith('klaar:'):
-                    text='Onderdeel '+str(index)+': '+text
+                if re.match(r'^\[\d+/\d+\]',text) or text.startswith('done:'):
+                    text='Part '+str(index)+': '+text
                 print(text,flush=True)
 
     def execute(self,index,command):
         env=dict(os.environ,SLEEVE_MEMORY_POOL=str((self.folder/'memory').resolve()),SLEEVE_MEMORY_SLOTS='72',PYTHONUNBUFFERED='1',PYTHONDONTWRITEBYTECODE='1',OPENBLAS_NUM_THREADS='1',OMP_NUM_THREADS='2',VECLIB_MAXIMUM_THREADS='1')
         if index in self.start_tickets:env['SLEEVE_MEMORY_START']=self.start_tickets[index].name
         with self.lock:
-            if self.cancelled.is_set():raise RuntimeError('Verwerking gestopt')
+            if self.cancelled.is_set():raise RuntimeError('Processing stopped')
             process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=True,env=env)
             self.running[index]=process;self.active.add(index)
-        self.emit(index,{'phase':'Onderdeel voorbereiden','fraction':None})
+        self.emit(index,{'phase':'Preparing part','fraction':None})
         try:
             for line in process.stdout:self.forward(index,line)
             code=process.wait()
-            if code:raise RuntimeError(f'Onderdeel {index} is niet afgerond (code {code}). Bekijk het logboek.')
+            if code:raise RuntimeError(f'Part {index} didn’t finish (code {code}). See the log.')
             return index
         finally:
             with self.lock:
@@ -75,7 +75,7 @@ class ComponentPool:
 
     def finished(self,index):
         with self.lock:self.completed+=1
-        self.emit(index,{'phase':'Onderdeel veilig opgeslagen','fraction':None})
+        self.emit(index,{'phase':'Part saved safely','fraction':None})
 
     def run(self,commands):
         commands=list(commands)

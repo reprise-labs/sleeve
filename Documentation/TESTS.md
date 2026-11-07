@@ -1,3 +1,8 @@
+## 0.4.23 — English
+
+- Full test suite passes with the English messages (tests updated where they checked Dutch text).
+- TGHT and US processed with 0.4.23 and compared with the reference: both OK (the translated internal signals work).
+
 ## 0.4.22 — namen en release-zoeker
 
 - DEENA (600 dpi) met 0.4.22 vergeleken met de referentie (Tests/golden): eerst één onbedoeld verschil gevonden (tekstvel heette inside) en hersteld; daarna alleen het bedoelde verschil (insert_left/insert_right). Referentie bijgewerkt.

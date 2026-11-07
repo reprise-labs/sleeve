@@ -17,7 +17,7 @@ def swatch(image,reference=False):
  hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
  if reference:
   chroma=mask&(hsv[:,:,1]>60)&(hsv[:,:,2]>60)
-  if chroma.sum()<.02*mask.size:raise ValueError('Referentiefoto heeft te weinig gekleurde plaat buiten het etiket.')
+  if chroma.sum()<.02*mask.size:raise ValueError('The reference photo has too little colored record outside the label.')
   mask=chroma
  lab=cv2.cvtColor(rgb.astype(np.float32)/255,cv2.COLOR_RGB2LAB)
  return np.median(lab[mask],axis=0)
@@ -69,7 +69,7 @@ def recolor(src,reference,dst,strength=1.,progress=None):
  with Image.open(src) as im:raw=im.convert('RGBA')
  with Image.open(reference) as ref:target=swatch(ref,True)
  source=swatch(raw);w,h=raw.size;out=raw;xs=np.arange(w,dtype=np.float32)[None,:]
- if progress:progress(0.,"Kleur toepassen")
+ if progress:progress(0.,"Applying color")
  for y in range(0,h,256):
   block=np.array(raw.crop((0,y,w,min(y+256,h))))
   yy=np.arange(y,min(y+256,h),dtype=np.float32)[:,None]
@@ -82,8 +82,8 @@ def recolor(src,reference,dst,strength=1.,progress=None):
   rgb=(cv2.cvtColor(lab,cv2.COLOR_LAB2RGB).clip(0,1)*255+.5).astype(np.uint8)
   rgb[weight==0]=block[:,:,:3][weight==0];block[:,:,:3]=rgb
   out.paste(Image.fromarray(block),(0,y))
-  if progress:progress(min(y+256,h)/h,"Kleur toepassen")
- if progress:progress(None,"Kleurvoorstel opslaan")
+  if progress:progress(min(y+256,h)/h,"Applying color")
+ if progress:progress(None,"Saving color suggestion")
  metadata={key:raw.info[key] for key in ('dpi','icc_profile') if key in raw.info}
  out.save(dst,compress_level=3,**metadata)
  print(json.dumps({'source':str(src),'reference':str(reference),'output':str(dst),'strength':strength,'source_lab':source.tolist(),'reference_lab':target.tolist(),'label_protected_to_radius':.34},indent=2))

@@ -22,7 +22,7 @@ files=B.report_outputs(folder,partial=True);parts={Path(f['path']).name:f['part'
 assert parts=={'Scan 12_hoes.png':'unknown','album_back.png':'back','Scan 1_hoes.png':'front'},parts
 assert all(f['partial'] for f in files)
 try:B.names_preview({'discogs':'https://www.discogs.com/release/33664818'},[{'path':paths[0],'part':'unknown'}]);raise AssertionError('Unknown parts must be chosen before naming')
-except ValueError as error:assert 'onderdeel' in str(error)
+except ValueError as error:assert 'part' in str(error)
 # If the primary image cannot be downloaded, the first successful secondary
 # image must never silently become the primary/front reference.
 import scan_discogs as D,io

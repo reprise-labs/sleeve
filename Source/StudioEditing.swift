@@ -44,7 +44,7 @@ extension StudioModel {
         guard !busy,!queueRunning,activeQueueID==nil else{return false}
         if outputFolder==nil{chooseOutput();guard outputFolder != nil else{return false}}
         // Preserve the initial result too, including an imported image with no run history.
-        runs.append(StudioRun(label:"Vorige versie · "+partLabel(item.part),success:true,workspace:captureWorkspace(),action:"snapshot"))
+        runs.append(StudioRun(label:"Previous version · "+partLabel(item.part),success:true,workspace:captureWorkspace(),action:"snapshot"))
         editingSession=StudioEditingSession(workspace:captureWorkspace(),target:item,retry:retry)
         lastEditingWasRetry=retry;panel=nil
         return true

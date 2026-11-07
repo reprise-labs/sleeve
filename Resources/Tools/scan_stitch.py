@@ -99,7 +99,7 @@ def load(path,f=1.0,consume_cache=False):
         with open_srgb(path,f) as image:
             return cv2.cvtColor(np.asarray(image),cv2.COLOR_RGB2BGR)
     except Exception as error:
-        sys.exit(f'kan {path} niet lezen: {error}')
+        sys.exit(f'can’t read {path}: {error}')
 
 
 def load_previews(path, factors, inspector=None):
@@ -296,7 +296,7 @@ def refine_placement(H, ref, pairs, D):
     if max(after.values()) > max(before.values()) or any(after[key] > before[key] + REFINE_SLACK for key in links):
         return H
     if max(before.values()) - max(after.values()) >= 0.25:
-        print(f'plaatsing over alle overlappen bijgesteld: slechtste paar {max(before.values()):.2f} -> {max(after.values()):.2f} px', flush=True)
+        print(f'placement adjusted over all overlaps: worst pair {max(before.values()):.2f} -> {max(after.values()):.2f} px', flush=True)
     return refined
 
 
@@ -332,7 +332,7 @@ def place(n, feats):
     Ds = np.diag([1.0, sy, 1.0])                       # eerst de scannerrek eruit
     H = {k: v @ Ds for k, v in H.items()}
     if abs(sy - 1) >= 0.0005:
-        print(f'scannerrek gecorrigeerd: y/x = {sy:.4f} (passing {r0:.2f} -> {r1:.2f} px)')
+        print(f'scanner stretch corrected: y/x = {sy:.4f} (fit {r0:.2f} -> {r1:.2f} px)')
     missing = [k for k in range(n) if k not in H]
     return H, ref, W, missing
 
@@ -392,8 +392,8 @@ def quality_messages(report):
     # 'blurry_text' staat alleen in het logboek: die meting gaf nog vals alarm.
     messages = []
     if report.get('seam_text_shift', 0) >= QUALITY_MIN_SPOTS:
-        messages.append(f"Op {report['seam_text_shift']} plekken loopt een naad door tekst met tot ~{report['seam_text_max_px']:.0f} px verschuiving; "
-                        'de hoes lag in een deelscan waarschijnlijk niet plat. Controleer de tekst of scan dat deel opnieuw.')
+        messages.append(f"At {report['seam_text_shift']} spots a seam runs through text with up to ~{report['seam_text_max_px']:.0f} px shift; "
+                        'the cover probably wasn’t flat in a partial scan. Check the text or rescan that part.')
     return messages
 
 
@@ -410,7 +410,7 @@ def seam_regions(img, masks, ks, height, width):
             small.append(cv2.UMat(cv2.resize(masks[k].astype(np.uint8) * 255, (w, h), interpolation=cv2.INTER_NEAREST)))
         found = cv2.detail_GraphCutSeamFinder('COST_COLOR_GRAD').find(images, [(0, 0)] * len(ks), small)
     except cv2.error as error:
-        print(f'naden: graph cut niet gelukt ({error.code}); samenhangende keuze gebruikt', flush=True)
+        print(f'seams: graph cut unsuccessful ({error.code}); used a coherent choice', flush=True)
         return None
     choice = np.full((h, w), 255, np.uint8)
     for n, m in enumerate(found):
@@ -707,7 +707,7 @@ def find_square(Gx, Gy, size, sc=0.2, ratio=1.0):
         # per zijde de eerste duidelijke rand buiten de tekst.
         wider = edge_box(Gx, Gy, ink, best[1], c, ratio)
         if wider is not None and outside(wider) <= INK_OUTSIDE:
-            print(f'hoes: kader liet {outside(best):.0%} van de tekst weg; ruimer kader op de papierrand gekozen', flush=True)
+            print(f'cover: frame left out {outside(best):.0%} of the text; chose a wider frame on the paper edge', flush=True)
             # De steun (hoes of plaat?) blijft die van het sterke vierkant: een zwakke
             # papierrand mag een tekstvel niet tot plaat maken (Deena & Jim).
             judged = best; best = wider; closed_choice = False
@@ -759,7 +759,7 @@ def flatten_paper(out, inside, sc=0.125):
     gain = cv2.GaussianBlur(gain, (0, 0), sig / 2)
     g = cv2.resize(gain, (w, h), interpolation=cv2.INTER_CUBIC)
     out[:, :, :3] = np.clip(out[:, :, :3].astype(np.float32) * g[..., None], 0, 255).astype(np.uint8)
-    print(f'wit papier gelijkgetrokken (max {gain.max():.2f}x opgehelderd)')
+    print(f'white paper evened out (max {gain.max():.2f}x brightened)')
     return g
 
 
@@ -771,7 +771,7 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
     s = 1.0 / f
     S = np.diag([s, s, 1.0]); Si = np.diag([f, f, 1.0])
     Wf, Hf = int(round(out_small_wh[0] * s)), int(round(out_small_wh[1] * s))
-    print(f'volle resolutie opbouwen: {Wf}x{Hf} px …', flush=True)
+    print(f'building full resolution: {Wf}x{Hf} px …', flush=True)
     wo, ho = out_small_wh
     O2 = O[:2]
     def to_out(m, interp):                              # kaart canvas -> uitvoer (klein)
@@ -790,8 +790,8 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
     F_o = to_out(flat.astype(np.float32), cv2.INTER_LINEAR) if flat is not None else None
     if release_work is not None:release_work()
     gc.collect()
-    progress('Originele scans openen',0,len(ks))
-    with MappedScanStore(paths,ks,load,decode_into=load_into,on_reserved=before_sources,output_bytes=Wf*Hf*4,on_loaded=lambda current,total:progress('Originele scans openen',current,total)) as srcs:
+    progress('Opening original scans',0,len(ks))
+    with MappedScanStore(paths,ks,load,decode_into=load_into,on_reserved=before_sources,output_bytes=Wf*Hf*4,on_loaded=lambda current,total:progress('Opening original scans',current,total)) as srcs:
         if sources_ready is not None:sources_ready()
         M, polys = {}, {}
         for k in ks:
@@ -807,8 +807,8 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
         inverse_O=np.linalg.inv(O)
         sig = TONE_SIGMA * s; pad = int(3 * sig) + 8
         tile=render_tile_size()
-        print(f'geheugenbegrensd: bronbeelden via tijdelijke schijfblokken, uitvoerblokken {tile} px',flush=True)
-        progress('Beeld opbouwen',0,1)
+        print(f'memory-bounded: source images via temporary disk blocks, output blocks {tile} px',flush=True)
+        progress('Building image',0,1)
         out = output_allocator((Hf,Wf,4)) if output_allocator is not None else np.zeros((Hf,Wf,4),np.uint8)
         def sample(m, x0, y0, w, h, interp):               # kleine kaart -> blok op volle schaal
             A = np.array([[f, 0, (x0 + 0.5) * f - 0.5], [0, f, (y0 + 0.5) * f - 0.5]])
@@ -914,10 +914,10 @@ def repair_paper_gaps(out,before_fill=None):
         fill = cv2.resize(fixed,(w,h),interpolation=cv2.INTER_CUBIC)
         mask = cv2.resize(accepted,(w,h),interpolation=cv2.INTER_NEAREST)>0
         out[mask,:3] = fill[mask]; out[mask,3] = 255
-        print(f'kleine lege papierdelen lokaal aangevuld: {100*mask.mean():.2f}%')
+        print(f'small empty paper areas filled in locally: {100*mask.mean():.2f}%')
     remaining = (out[:,:,3]<128).mean()
     if remaining > .001:
-        print(f'LET OP: {100*remaining:.2f}% van de hoes mist scaninformatie; transparant gelaten.')
+        print(f'NOTE: {100*remaining:.2f}% of the cover lacks scan data; left transparent.')
     return out
 
 
@@ -934,9 +934,9 @@ def upright_preview(out):
 
 def upright_output(out,work):
     import scan_cutout as CU
-    progress('Leesrichting van de hoes controleren')
+    progress('Checking cover orientation')
     q=CU.reading_quadrant(upright_preview(out))
-    print('leesrichting: '+('onbekend' if q is None else str(q)),flush=True)
+    print('orientation: '+('unknown' if q is None else str(q)),flush=True)
     if not q:return out
     view=np.rot90(out,-int(q//90))
     rotated=work.empty(('upright-output',0),view.shape,np.uint8)
@@ -959,12 +959,12 @@ def main_with_resources(resources,lease=None):
     p.add_argument('--rechtop',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--snelle-tussenbestanden',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--referentie', type=int)
-    p.add_argument('--klein', action='store_true', help='uitvoer op ~300 dpi (snel) in plaats van de volle scanresolutie')
-    p.add_argument('--vorm', choices=['auto', 'hoes', 'plaat', 'geen'], default='auto', help='hoes = vierkant, plaat = rond, geen = alleen op kleur (standaard: zelf bepalen)')
+    p.add_argument('--klein', action='store_true', help='output at ~300 dpi (fast) instead of full scan resolution')
+    p.add_argument('--vorm', choices=['auto', 'hoes', 'plaat', 'geen'], default='auto', help='hoes = square, plaat = round, geen = by color only (default: decide automatically)')
     a = p.parse_args()
     cv2.setNumThreads(2)
     if len(a.delen) < 2:
-        sys.exit('minstens twee deelscans nodig')
+        sys.exit('at least two partial scans needed')
 
     # grote scans (1200 dpi) eerst verkleinen: een Mac met 8 GB loopt anders vast.
     # Eén factor voor alle delen, anders passen ze niet meer op elkaar.
@@ -975,25 +975,25 @@ def main_with_resources(resources,lease=None):
     # Reserve the larger of preparation and full-source decoding before allocating.
     # Admission only shrinks later, so concurrent workers cannot deadlock upgrading.
     reserve=max(29+max(0,len(a.delen)-4)*3, int(np.ceil((max_source_pixels*8+512*1024**2)/(64*1024**2))))
-    lease=resources.enter_context(MemoryLease(min(70,reserve),phase='Deelscans openen'))
+    lease=resources.enter_context(MemoryLease(min(70,reserve),phase='Opening partial scans'))
     dpis = [float(im.info.get('dpi',(0,0))[0]) for im in metadata]
     ref_dpi = max(dpis) if all(50<d<5000 for d in dpis) else None
     ratios = [ref_dpi/d for d in dpis] if ref_dpi else [1.]*len(dpis)
     longest = max(max(im.size)*ratio for im,ratio in zip(metadata,ratios))
     for im in metadata: im.close()
     if max(ratios)-min(ratios)>.01:
-        print('Verschillende scanresoluties genormaliseerd: '+', '.join(str(round(d))+' dpi' for d in dpis),flush=True)
+        print('Different scan resolutions normalized: '+', '.join(str(round(d))+' dpi' for d in dpis),flush=True)
     f = min(1.0, MAX_SIDE / longest)
     if f < 1:
-        print(f'rekenen op factor {f:.3f} ({int(longest * f)} px); uitvoer op ' + ('die schaal' if a.klein else f'volle resolutie ({longest} px)'))
+        print(f'computing at factor {f:.3f} ({int(longest * f)} px); output at ' + ('that scale' if a.klein else f'full resolution ({longest} px)'))
     if f < 1 and not a.klein:
         # Check scratch requirements before expensive alignment/blending can trigger swap.
         MappedScanStore(a.delen,range(len(a.delen)),load)
     source_scales = [f*ratio for ratio in ratios]
-    imgs=[];progress('Deelscans openen',0,len(a.delen))
+    imgs=[];progress('Opening partial scans',0,len(a.delen))
     for index,(fn,scale) in enumerate(zip(a.delen,source_scales)):
-        imgs.append(load(fn,scale,consume_cache=True));progress('Deelscans openen',index+1,len(a.delen))
-    progress('Randen en achtergrond herkennen')
+        imgs.append(load(fn,scale,consume_cache=True));progress('Opening partial scans',index+1,len(a.delen))
+    progress('Detecting edges and background')
     valid = [~background_mask(im) for im in imgs]
     # kenmerken alleen op de hoes; maar is bijna alles als 'deksel' gezien (witte/crème
     # hoes op een wit deksel), zoek dan op de hele scan, anders mist hij de tekst
@@ -1003,7 +1003,7 @@ def main_with_resources(resources,lease=None):
         m = np.ones(im.shape[:2], bool); m[:6] = m[-6:] = False; m[:, :6] = m[:, -6:] = False
         return m
     feats = [features(im, fmask(im, v)) for im, v in zip(imgs, valid)]
-    progress('Deelscans precies uitlijnen')
+    progress('Aligning partial scans precisely')
     H, ref, W, missing = place(len(imgs), feats)
     if missing:
         unresolved = []
@@ -1012,11 +1012,11 @@ def main_with_resources(resources,lease=None):
             h,w = gray.shape; gray = gray[int(.15*h):int(.85*h),int(.15*w):int(.85*w)]
             detail = gray-cv2.GaussianBlur(gray,(0,0),3)
             if (np.abs(detail)>8).mean() < .001:
-                print('LET OP: lege scan zonder betrouwbare uitlijning overgeslagen: '+a.delen[k])
+                print('NOTE: empty scan without reliable alignment skipped: '+a.delen[k])
             else:
                 unresolved.append(k)
         if unresolved or len(H)<2:
-            raise ValueError('Niet alle scans passen betrouwbaar op elkaar: ' + ', '.join(a.delen[k] for k in missing) + '. Selecteer alleen delen van dezelfde kant.')
+            raise ValueError('Not all scans fit together reliably: ' + ', '.join(a.delen[k] for k in missing) + '. Select only parts of the same side.')
     order = [k for k in range(len(imgs)) if k in H]
     if a.referentie:
         r = a.referentie - 1
@@ -1061,7 +1061,7 @@ def main_with_resources(resources,lease=None):
         spread = max(size) / min(size) >= SPREAD_ASPECT
         sq = find_square(Gx, Gy, size, ratio=2.0 if spread else 1.0) if a.vorm in ('auto', 'hoes') else None
         ci = find_circle(gmean, cover, G) if a.vorm == 'plaat' or (a.vorm == 'auto' and not spread) else None
-        if os.environ.get('STITCH_DEBUG'): print('DEBUG steun vierkant', None if sq is None else round(sq[3], 1), 'cirkel', None if ci is None else round(ci[0], 1))
+        if os.environ.get('STITCH_DEBUG'): print('DEBUG square support', None if sq is None else round(sq[3], 1), 'cirkel', None if ci is None else round(ci[0], 1))
         # Twijfel (cirkel bijna even sterk als het vierkant, bv. doorzichtig vinyl
         # op het witte deksel, To Get Her Together): het asgat beslist.
         holed = ci is not None and sq is not None and not sq[4] and ci[0] > .85 * sq[3] and centre_hole(gmean, cover, ci[1])
@@ -1073,13 +1073,13 @@ def main_with_resources(resources,lease=None):
             disc_c = (cx, cy, r * 1.01)
             for k in order:
                 masks[k] = frames[k] & (disc > 0)
-            print(f'plaat: cirkel gevonden (diameter {2 * r:.0f} px)')
+            print(f'record: circle found (diameter {2 * r:.0f} px)')
         elif sq is not None:
             square = sq[:3]
             sq_mask, sq_angle, sq_box = square
             for k in order:
                 masks[k] = frames[k] & sq_mask
-            print(f'hoes: vierkant gevonden ({sq_box[2]}x{sq_box[3]} px), scheefstand {sq_angle:+.2f} graden')
+            print(f'cover: square found ({sq_box[2]}x{sq_box[3]} px), skew {sq_angle:+.2f} degrees')
 
     Gx=Gy=gmean=G=cover=frames=None
     gc.collect()
@@ -1088,14 +1088,14 @@ def main_with_resources(resources,lease=None):
     #    scannerlamp), gemeten in de overlap met wat al samengevoegd is
     ks = list(order)
     height,width=size[1],size[0]
-    print(f'rekencanvas: {width}x{height} px; werkbuffers op tijdelijke schijfblokken',flush=True)
+    print(f'working canvas: {width}x{height} px; work buffers on temporary disk blocks',flush=True)
     estimate=height*width*(4*len(ks)+32)
-    progress('Werkbestanden voor samenvoegen voorbereiden')
+    progress('Preparing work files for merging')
     work=resources.enter_context(MappedArrayStore(estimate))
     img={k:CorrectedImage(warped[k]) for k in ks}
     wts={k:work.put(('weight',k),feather_weight(masks[k])) for k in ks}
     gainm={}
-    progress('Belichting tussen deelscans afstemmen',0,len(ks))
+    progress('Matching exposure between partial scans',0,len(ks))
     if not a.geen_kleur:
         done=[ref];todo=[k for k in ks if k!=ref]
         while todo:
@@ -1112,10 +1112,10 @@ def main_with_resources(resources,lease=None):
             img[k].gain=gain
             gainm[k]=gain;gain=None
             done.append(k);todo.remove(k);work.drop_pages()
-            progress('Belichting tussen deelscans afstemmen',len(done),len(ks))
+            progress('Matching exposure between partial scans',len(done),len(ks))
         comp=acc=cm=None;work.discard(('composite',0))
     # Same sharpness winner as argmax, computed by bands without stacking all scores.
-    progress('Details tussen deelscans vergelijken',0,height)
+    progress('Comparing details between partial scans',0,height)
     best=np.zeros((height,width),np.uint8)
     # Keep the same 102-row convolution halo; wider bands avoid recomputing it.
     for y0 in range(0,height,768):
@@ -1128,12 +1128,12 @@ def main_with_resources(resources,lease=None):
             better=score>value;value[better]=score[better];winner[better]=n
             work.drop_pages()
         best[y0:y1]=winner
-        progress('Details tussen deelscans vergelijken',y1,height)
+        progress('Comparing details between partial scans',y1,height)
     value=winner=g=sh=score=better=None
     # Eén deelscan per plek: maak de keuzekaart samenhangend en neem ook de
     # grove laag vooral uit die scan. Overal mengen gaf dubbele, vage letters
     # waar een hoes niet vlak lag en de deelscans een paar pixels verschilden.
-    progress('Naden tussen deelscans kiezen')
+    progress('Choosing seams between partial scans')
     value=np.full((height,width),-1.0,np.float32);coherent=np.zeros((height,width),np.uint8)
     for n,k in enumerate(ks):
         share=cv2.GaussianBlur(((best==n)&masks[k]).astype(np.float32),(0,0),WINNER_SMOOTH)
@@ -1160,7 +1160,7 @@ def main_with_resources(resources,lease=None):
     # Per-pixel source order and float32 arithmetic match the mapped-buffer path.
     pad=int(4*TONE_SIGMA)+2
     out=np.zeros((height,width,4),np.uint8);anymask=np.zeros((height,width),bool)
-    progress('Overgangen tussen deelscans afwerken',0,len(ks)*height)
+    progress('Finishing transitions between partial scans',0,len(ks)*height)
     for y0 in range(0,height,256):
         y1=min(height,y0+256);top=max(0,y0-pad);bottom=min(height,y1+pad)
         low=np.zeros((y1-y0,width,3),np.float32);high=np.zeros_like(low)
@@ -1177,15 +1177,15 @@ def main_with_resources(resources,lease=None):
         for k in ks:anymask[y0:y1]|=masks[k][y0:y1]
         out[y0:y1,:,3]=np.where(anymask[y0:y1],255,0)
         work.drop_pages()
-        progress('Overgangen tussen deelscans afwerken',len(ks)*y1,len(ks)*height)
+        progress('Finishing transitions between partial scans',len(ks)*y1,len(ks)*height)
     imgs=valid=feats=warped=frames=img=low=high=score=res=acc=g=sh=mk=lk=win=None
     work.keep_only({('weight',k) for k in ks}|{('gain',k) for k in ks})
     gc.collect()
     flat = None
     if square is not None and not a.geen_kleur:
-        progress('Verlichting van de hoes gelijkmaken')
+        progress('Evening out cover lighting')
         flat = flatten_paper(out, square[0])
-    progress('Vorm rechtzetten en randen controleren')
+    progress('Straightening shape and checking edges')
     O = np.eye(3)                                         # canvas -> uitvoer (kleine schaal)
     if square is not None:
         # recht op de hoesranden en precies op het vierkant bijsnijden
@@ -1212,12 +1212,12 @@ def main_with_resources(resources,lease=None):
         if lease is not None and decoder_units>lease.weight:
             # Reject a group whose decoder would exceed its admitted maximum;
             # never wait for an upgrade beyond the preparation reservation.
-            raise ValueError('Dit onderdeel vraagt meer werkgeheugen dan vooraf beschikbaar was. Verwerk minder delen tegelijk.')
+            raise ValueError('This part needs more memory than was available beforehand. Process fewer parts at once.')
         def release_preparation():
             work.keep_only(set())
             if lease is not None:lease.resize(field_units)
         out = render_full(a.delen, order, H, Tsh, O, f, out_wh, size,
-                          masks, wts, gainm, best, ks, flat, shape, source_scales, release_work=release_preparation,sources_ready=lambda:lease.resize(min(lease.weight,12+max(0,len(ks)-4))) if lease is not None else None,output_allocator=lambda shape:work.empty(('full-output',0),shape,np.uint8),before_sources=lambda:lease.grow(decoder_units,phase='Originele scans openen') if lease is not None else None)
+                          masks, wts, gainm, best, ks, flat, shape, source_scales, release_work=release_preparation,sources_ready=lambda:lease.resize(min(lease.weight,12+max(0,len(ks)-4))) if lease is not None else None,output_allocator=lambda shape:work.empty(('full-output',0),shape,np.uint8),before_sources=lambda:lease.grow(decoder_units,phase='Opening original scans') if lease is not None else None)
         masks=wts=gainm=best=flat=None
         gc.collect()
     # Full source maps and tile buffers have gone. Flushed output bytes can wait
@@ -1226,7 +1226,7 @@ def main_with_resources(resources,lease=None):
     gc.collect()
     encode_units=min(70,4+int(np.ceil(out.nbytes/(64*1024**2))))
     if lease is not None:lease.release()
-    final_lease=resources.enter_context(MemoryLease(encode_units,phase='Samengesteld beeld opslaan'))
+    final_lease=resources.enter_context(MemoryLease(encode_units,phase='Saving merged image'))
     repair_expanded=False
     def before_paper_fill():
         nonlocal final_lease,repair_expanded
@@ -1235,19 +1235,19 @@ def main_with_resources(resources,lease=None):
         drop_array_pages(out)
         gc.collect()
         final_lease.release()
-        final_lease=resources.enter_context(MemoryLease(48,phase='Kleine open randen aanvullen'))
+        final_lease=resources.enter_context(MemoryLease(48,phase='Filling small open edges'))
         repair_expanded=True
     if square is not None:
-        progress('Kleine open randen controleren')
+        progress('Checking small open edges')
         out=repair_paper_gaps(out,before_fill=before_paper_fill)
         drop_array_pages(out)
         if repair_expanded:
             gc.collect()
             final_lease.release()
-            final_lease=resources.enter_context(MemoryLease(encode_units,phase='Samengesteld beeld opslaan'))
+            final_lease=resources.enter_context(MemoryLease(encode_units,phase='Saving merged image'))
     if a.rechtop and square is not None:
         out=upright_output(out,work)
-    progress('Samengesteld beeld opslaan')
+    progress('Saving merged image')
     if a.snelle_tussenbestanden and disc_c is not None:
         import json
         a.uitvoer += '.tif'
@@ -1256,7 +1256,7 @@ def main_with_resources(resources,lease=None):
         print('SLEEVE_INTERMEDIATE '+json.dumps({'path':a.uitvoer}),flush=True)
     elif not cv2.imwrite(a.uitvoer, out, [cv2.IMWRITE_PNG_COMPRESSION, 1]):
         raise OSError('Could not save merged image')
-    print(f'klaar: {a.uitvoer}  ({out.shape[1]}x{out.shape[0]}, {len(order)} delen, referentie: {a.delen[ref]})')
+    print(f'done: {a.uitvoer}  ({out.shape[1]}x{out.shape[0]}, {len(order)} parts, reference: {a.delen[ref]})')
 
 
 if __name__ == '__main__':

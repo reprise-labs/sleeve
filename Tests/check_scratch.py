@@ -28,5 +28,5 @@ with tempfile.TemporaryDirectory() as folder:
   free[0]=0
   try:
    with ScratchLease(3*GiB,folder):raise AssertionError('Expected a clear insufficient-space error')
-  except ValueError as error:assert 'schijfruimte' in str(error)
+  except ValueError as error:assert 'disk space' in str(error)
 print({'waits_for_live_renderer':True,'committed_bytes_not_double_counted':True,'dead_claims_removed':True,'genuine_low_space_rejected':True})

@@ -237,7 +237,7 @@ def group_with_previews(paths,scratch):
     calibrated=all(dpi for _,dpi in headers)
     span=max((pixels/dpi if calibrated else pixels) for pixels,dpi in headers)
     target=min(1400/span,min(dpi for _,dpi in headers)) if calibrated else 1400/span
-    progress('Scans openen en plaatkanten lezen',0,len(paths),scope='preparation')
+    progress('Opening scans and reading record sides',0,len(paths),scope='preparation')
     cache_dpi=max(dpi for _,dpi in headers) if calibrated else None
     cache_f=min(1.0,ST.MAX_SIDE/(span*cache_dpi if calibrated else span))
     import threading
@@ -268,7 +268,7 @@ def group_with_previews(paths,scratch):
             preview_offsets.append(scratch.tell())
             np.save(scratch,preview,allow_pickle=False)
             sides.append(side)
-            progress('Scans openen en plaatkanten lezen',index+1,len(paths),scope='preparation')
+            progress('Opening scans and reading record sides',index+1,len(paths),scope='preparation')
     except BaseException:
         # Cancel queued decoders immediately. In-flight decoders may finish, but
         # cannot recreate a cache directory after the job's ExitStack removes it.
@@ -278,7 +278,7 @@ def group_with_previews(paths,scratch):
     else:executor.shutdown(wait=True)
     label=preview=None
     print("labelkanten:", [(os.path.basename(p), side) for p, side in zip(paths, sides) if side], flush=True)
-    progress("Herkenningspunten zoeken",0,len(paths),scope="preparation")
+    progress("Finding feature points",0,len(paths),scope="preparation")
     for index,(p,(_,dpi)) in enumerate(zip(paths,headers)):
         f=min(1.0,target/dpi if calibrated else target)
         scratch.seek(preview_offsets[index])
@@ -292,12 +292,12 @@ def group_with_previews(paths,scratch):
         kp, des = sift.detectAndCompute(g, valid)
         gf = g.astype(np.float32)
         feats.append((np.float32([k.pt for k in kp]), des, gf - cv2.GaussianBlur(gf, (0, 0), 3), valid > 0))
-        progress("Herkenningspunten zoeken",index+1,len(paths),scope="preparation")
+        progress("Finding feature points",index+1,len(paths),scope="preparation")
     n = len(paths); S = np.full((n, n), np.nan); Q = np.zeros((n, n), bool)
     comparisons=0;comparison_total=n*(n-1)//2
     for i in range(n):
         for j in range(i + 1, n):
-            progress("Scans met elkaar vergelijken",comparisons,comparison_total,scope="preparation");comparisons+=1
+            progress("Comparing scans with each other",comparisons,comparison_total,scope="preparation");comparisons+=1
             if sides[i] and sides[j] and sides[i] != sides[j]:
                 S[i,j] = S[j,i] = -1.0
                 continue
@@ -343,7 +343,7 @@ def group_with_previews(paths,scratch):
                             patches.append(np.corrcoef(hi[sl][v],hj[sl][v])[0,1])
                 conflict = len(patches) >= 5 and (np.asarray(patches)<.10).mean() > .20
                 S[i, j] = S[j, i] = -1.0 if conflict else np.corrcoef(hi[mh], hj[mh])[0, 1]
-    progress("Scans met elkaar vergelijken",comparisons,comparison_total,scope="preparation")
+    progress("Comparing scans with each other",comparisons,comparison_total,scope="preparation")
     return cluster_paths(paths,S,sides,Q)
 
 
@@ -462,7 +462,7 @@ def split_spreads(results,detected_cover_parts,twijfel,component_records):
                 copy=dict(record,name=os.path.basename(name),part=detected_cover_parts[name],needs_review=name in twijfel)
                 component_records.append(copy)
         if record is not None:component_records.remove(record)
-        log(f'Uitgeklapte binnenkant ({w}x{h}) in twee vierkanten gesplitst: '+', '.join(os.path.basename(n) for n in names))
+        log(f'Unfolded inside ({w}x{h}) split into two squares: '+', '.join(os.path.basename(n) for n in names))
     return out
 
 
@@ -484,9 +484,9 @@ def mark_repeated_fronts(results,detected_cover_parts,twijfel,component_records)
             continue
         if sizes[path]<0.985*sizes[keep]:
             detected_cover_parts[path]='insert'
-            log(f'Kleinere voorkant ({sizes[path]:.0f} mm tegen {sizes[keep]:.0f} mm), als insert benoemd; controleer: {os.path.basename(path)}')
+            log(f'Smaller front ({sizes[path]:.0f} mm vs {sizes[keep]:.0f} mm), named insert; check: {os.path.basename(path)}')
         else:
-            log('Voorkant twee keer gescand; beide bewaard, controleer: '+os.path.basename(path))
+            log('Front scanned twice; both kept, check: '+os.path.basename(path))
         twijfel.add(path)
         for record in component_records:
             if record['name']==os.path.basename(path):
@@ -553,7 +553,7 @@ def save_merged_cover(source,destination):
 
 
 def upright_cover(path):
-    with MemoryLease(26,phase='Leesrichting van de hoes controleren'):return upright_cover_with_memory(path)
+    with MemoryLease(26,phase='Checking cover orientation'):return upright_cover_with_memory(path)
 
 
 def upright_cover_with_memory(path):
@@ -566,7 +566,7 @@ def upright_cover_with_memory(path):
             im.load()
             op = {90: Image.ROTATE_270, 180: Image.ROTATE_180, 270: Image.ROTATE_90}[q]   # q = stand waarin hij leest -> terugdraaien
             im.transpose(op).save(path, compress_level=1)
-        print(f'  hoes rechtop: {q} graden')
+        print(f'  cover upright: {q} degrees')
     return q
 
 
@@ -606,7 +606,7 @@ def main():
 def main_with_resources(resources):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--geen-discogs-namen',action='store_true')
-    p.add_argument('--een-onderdeel', action='store_true', help='alle geselecteerde scans zijn delen van één kant')
+    p.add_argument('--een-onderdeel', action='store_true', help='all selected scans are parts of one side')
     p.add_argument('--discogs-stand', action='store_true')
     p.add_argument('--discogs-kleur', action='store_true')
     p.add_argument('scans', nargs='+'); p.add_argument('--uit'); p.add_argument('--geen-vragen', action='store_true'); p.add_argument('--discogs', default=''); p.add_argument('--variant', default='')
@@ -639,9 +639,9 @@ def main_with_resources(resources):
     reference_inputs = [path for path in scans if os.path.basename(path) in reference_names.get(os.path.dirname(os.path.abspath(path)),set())]
     scans = [path for path in scans if path not in reference_inputs]
     if reference_inputs:
-        print('Alleen referentie, niet verwerkt: '+', '.join(os.path.basename(path) for path in reference_inputs),flush=True)
+        print('Reference only, not processed: '+', '.join(os.path.basename(path) for path in reference_inputs),flush=True)
     if not scans:
-        sys.exit('geen scans')
+        sys.exit('no scans')
     out = a.uit or os.path.join(os.path.dirname(os.path.abspath(scans[0])), 'verwerkt')
     os.makedirs(out, exist_ok=True)
     global LOGFILE
@@ -670,7 +670,7 @@ if k is false then return ""
 set AppleScript\'s text item delimiters to "|"
 return k as text''')
         use_names = 'Bestandsnamen' in choices
-        a.discogs_stand = 'Stand / draairichting' in choices
+        a.discogs_stand = 'Orientation / rotation' in choices
         a.discogs_kleur = 'Kleur' in choices
     variant = a.variant
     if use_names and not a.geen_vragen:
@@ -688,7 +688,7 @@ return text returned of r''')
     if worker_context is not None:
         references=worker_context['references'];primary_positions=set(worker_context['primary_positions'])
     elif url and (a.discogs_stand or a.discogs_kleur):
-        progress("Discogs-referentiefoto’s ophalen",scope="preparation")
+        progress("Fetching Discogs reference photos",scope="preparation")
         try:
             import scan_discogs
             _, imgs, roles = scan_discogs.release_images(url, with_metadata=True)
@@ -697,19 +697,19 @@ return text returned of r''')
                 path = os.path.join(tmp, f'discogs_{i}.png')
                 cv2.imwrite(path,img); references.append(path)
         except (Exception, SystemExit) as e:
-            log(f'Discogs-foto’s niet beschikbaar ({e}); scans verwerken zonder referentie.')
+            log(f'Discogs photos not available ({e}); processing scans without reference.')
 
-    print(f'{len(scans)} scans groeperen …', flush=True)
+    print(f'Grouping {len(scans)} scans …', flush=True)
     if a.een_onderdeel:
         gs = [scans]
     elif confirmed_groups:
         used = {path for group in confirmed_groups for path in group}
         remainder = [path for path in scans if os.path.abspath(path) not in used]
         gs = confirmed_groups + (groups(remainder) if remainder else [])
-        log('Gecontroleerde scanindeling van deze uitgave gebruikt.')
+        log('Used the confirmed scan layout of this release.')
     else:
         gs = groups(scans)
-    print(f'{len(gs)} onderdelen gevonden', flush=True)
+    print(f'{len(gs)} parts found', flush=True)
 
     results = []                                       # (pad, soort, bron)
     detected_cover_parts={};component_records=[]
@@ -744,7 +744,7 @@ return text returned of r''')
                 destination=job_folders[n]
                 record=json.loads((destination/'Worker-resultaat.json').read_text())
                 if record['files']:
-                    if len(record['files'])!=1:raise ValueError('Een onderdeel leverde niet precies één resultaat op')
+                    if len(record['files'])!=1:raise ValueError('A part didn’t produce exactly one result')
                     item=record['files'][0];source=(destination/item['name']).resolve()
                     if source.parent!=destination.resolve() or source.suffix.lower()!='.png':raise ValueError('Invalid component output')
                     soort=item['type'];bron=gs[n-1][0]
@@ -766,10 +766,10 @@ return text returned of r''')
             gray = gray[int(.15*h):int(.85*h),int(.15*w):int(.85*w)]
             detail = gray-cv2.GaussianBlur(gray,(0,0),3)
             if (np.abs(detail)>8).mean() < .001:
-                log('Overgeslagen: vrijwel lege scan zonder betrouwbare overlap: '+os.path.basename(g[0]))
+                log('Skipped: nearly empty scan without reliable overlap: '+os.path.basename(g[0]))
                 continue
         print(f'[{n}/{len(gs)}] ' + ', '.join(os.path.basename(x) for x in g), flush=True)
-        progress('Deelscans voorbereiden',detail=f'{len(g)} deelscans voor dit onderdeel',completed=len(results))
+        progress('Preparing partial scans',detail=f'{len(g)} partial scans for this part',completed=len(results))
         src = g[0];matched_primary=False;quality=[];label_check=''
         dst = os.path.join(tmp, f'deel{n}.png')
         if len(g) > 1:
@@ -790,12 +790,12 @@ return text returned of r''')
                 if line.startswith('SLEEVE_QUALITY '):
                     import json
                     quality=ST.quality_messages(json.loads(line[len('SLEEVE_QUALITY '):]))
-            if 'plaat:' in r.stdout:
+            if 'record:' in r.stdout:
                 # Op platen verstoren groeven en de draaiing tussen deelscans de
                 # naadmeting (vals alarm); het label komt meestal uit één scan.
                 quality=[]
             # samenvoegen herkent de vorm al; samengevoegd = altijd een lp-formaat
-            soort = 'vinyl' if 'plaat:' in r.stdout else 'hoes'
+            soort = 'vinyl' if 'record:' in r.stdout else 'hoes'
         else:
             fixed=confirmed_parts.get(os.path.abspath(g[0]),'') if a.een_onderdeel else ''
             if fixed:
@@ -814,18 +814,18 @@ return text returned of r''')
             elif fixed.startswith('cd'):soort='cd'
             elif fixed:soort='hoes'
         if soort in ('cd', 'vinyl'):
-            progress('Plaat of cd uitsnijden en recht draaien')
+            progress('Cutting out and straightening record or CD')
             subprocess.run([PY, os.path.join(HERE, 'scan_cutout.py'), soort, src, dst, '--auto'], check=True)
         elif len(g) > 1:
             # samengevoegde hoes is al recht en precies bijgesneden: niet nog eens snijden
-            progress('Samengevoegde hoes opslaan')
+            progress('Saving merged cover')
             save_merged_cover(src,dst)
-            progress('Leesrichting van de hoes controleren')
-            if 'leesrichting: onbekend' in r.stdout:
+            progress('Checking cover orientation')
+            if 'orientation: unknown' in r.stdout:
                 twijfel.add(dst)
         else:
             subprocess.run([PY, os.path.join(HERE, 'scan_cutout.py'), 'cover', src, dst], check=True)
-            progress('Leesrichting van de hoes controleren')
+            progress('Checking cover orientation')
             if upright_cover(dst) is None:
                 twijfel.add(dst)                       # leesrichting onbekend: straks vragen
         if references and (soort == 'hoes' or (soort == 'vinyl' and a.discogs_stand)):
@@ -835,9 +835,9 @@ return text returned of r''')
             else:
                 if not a.discogs_kleur: cmd.append('--alleen-stand')
                 if not a.discogs_stand: cmd.append('--alleen-kleur')
-            progress('Draairichting vergelijken met Discogs')
+            progress('Comparing rotation with Discogs')
             r = subprocess.run(cmd, capture_output=True,text=True)
-            log(r.stdout.strip() if r.returncode == 0 else 'Discogs-referentie past niet betrouwbaar; scan behouden.')
+            log(r.stdout.strip() if r.returncode == 0 else 'Discogs reference not reliable; scan kept.')
             import re
             match=re.search(r'SLEEVE_REFERENCE_IDENTITY (\d+)',r.stdout) if r.returncode==0 else None
             matched_primary=soort=='hoes' and match is not None and int(match[1]) in primary_positions
@@ -845,11 +845,11 @@ return text returned of r''')
                 # Zeker passende Discogs-foto heeft de stand gezet: de leesrichting
                 # is dan bekend, ook als er geen leesbare tekst op de hoes staat.
                 twijfel.discard(dst)
-            if soort=='vinyl' and r.returncode==0 and 'past best' in r.stdout:label_check='discogs'
+            if soort=='vinyl' and r.returncode==0 and 'fits best' in r.stdout:label_check='discogs'
         if soort=='vinyl' and label_check!='discogs':
             # Zonder passende Discogs-foto van het vinyl is de stand alleen op de
             # labeltekst bepaald; bij schuin ontworpen labels kan die ernaast zitten.
-            quality.append('Labelstand alleen op de labeltekst bepaald (geen passende Discogs-foto van het vinyl). Controleer of het label recht staat.')
+            quality.append('Label orientation set from the label text only (no matching Discogs photo of the vinyl). Check that the label is straight.')
         # meteen veiligstellen in 'verwerkt' (voorlopige naam); hernoemen gebeurt straks
         veilig = os.path.join(out, f'{os.path.splitext(os.path.basename(g[0]))[0]}_{soort}.png'); m = 2
         while os.path.exists(veilig):
@@ -861,7 +861,7 @@ return text returned of r''')
         if matched_primary:detected_cover_parts[veilig]='front'
         component_records.append({'name':os.path.basename(veilig),'part':confirmed_parts.get(os.path.abspath(g[0]),detected_cover_parts.get(veilig,'unknown')),'type':soort,'matched_primary':matched_primary,'needs_review':veilig in twijfel,'source':os.path.realpath(g[0]),'scans':[os.path.realpath(p) for p in g],'quality':quality})
         save_components()
-        progress('Onderdeel verwerkt',completed=len(results))
+        progress('Part processed',completed=len(results))
 
     if worker_context is not None:
         import json,shutil
@@ -869,7 +869,7 @@ return text returned of r''')
         shutil.rmtree(tmp,ignore_errors=True)
         return
 
-    progress('Onderdelen herkennen voor de bestandsnamen',scope='finishing',completed=len(results))
+    progress('Identifying parts for the file names',scope='finishing',completed=len(results))
     results=split_spreads(results,detected_cover_parts,twijfel,component_records)
     mark_repeated_fronts(results,detected_cover_parts,twijfel,component_records)
     save_components()
@@ -879,7 +879,7 @@ return text returned of r''')
     hz = [r for r in results if r[1] == 'hoes']
     if len(hz) > 1 and not confirmed_groups:
         # The matching primary Discogs image identifies the front. A unique barcode
-        # on another cover identifies the back; don't sort a lyric sheet into front.
+        # on another cover identifies the back; don’t sort a lyric sheet into front.
         if detected_cover_parts:
             from scan_release_advice import recognize
             backs=[]
@@ -897,7 +897,7 @@ return text returned of r''')
     teller = {'hoes': 0, 'vinyl': 0, 'cd': 0}
     gebruikt = set()
     for result_index,(dst, soort, bron) in enumerate(results):
-        progress('Definitieve bestandsnamen maken',result_index,len(results),scope='finishing',completed=len(results))
+        progress('Making final file names',result_index,len(results),scope='finishing',completed=len(results))
         i = teller[soort]; teller[soort] += 1
         fixed_part = confirmed_parts.get(os.path.abspath(bron),detected_cover_parts.get(dst,''))
         if fixed_part:
@@ -907,7 +907,7 @@ return text returned of r''')
             duplicate = next((k for path,k in cover_reps if same_cover(path,dst)),None)
             if duplicate:
                 kant = duplicate
-                log('Herhaalde hoes apart bewaard (scanreeksen niet gemengd): '+os.path.basename(bron))
+                log('Repeated cover kept separately (scan sets not mixed): '+os.path.basename(bron))
             else:
                 kant = next((part for part in ['front','back','inside','insert'] if part not in used_cover_parts),'insert')
                 used_cover_parts.add(kant)
@@ -938,7 +938,7 @@ return item 1 of d''')
             try:
                 base = scan_naam.naam(url, kant, variant)
             except BaseException as e:                  # netwerk/Discogs-fout: naam naar de scan
-                log(f'naam via Discogs mislukt ({e}); naam naar de scan')
+                log(f'name via Discogs failed ({e}); name from the scan')
                 base = os.path.splitext(os.path.basename(bron))[0] + '_' + kant
         else:
             base = os.path.splitext(os.path.basename(bron))[0] + '_' + kant
@@ -952,9 +952,9 @@ return item 1 of d''')
         save_components()
         cover_reps = [(final if path == dst else path,k) for path,k in cover_reps]
         print(f'  -> {os.path.basename(final)}')
-        progress('Definitieve bestandsnamen maken',result_index+1,len(results),scope='finishing',completed=len(results))
+        progress('Making final file names',result_index+1,len(results),scope='finishing',completed=len(results))
     __import__('shutil').rmtree(tmp, ignore_errors=True)
-    print(f'klaar: {len(results)} bestanden in {out}')
+    print(f'done: {len(results)} files in {out}')
 
 
 if __name__ == '__main__':
@@ -962,5 +962,5 @@ if __name__ == '__main__':
         main()
     except Exception:
         import traceback
-        log('FOUT:\n' + traceback.format_exc())
+        log('ERROR:\n' + traceback.format_exc())
         sys.exit(1)

@@ -14,7 +14,7 @@ extension StudioModel {
         adviceWorkItem?.cancel();adviceWorkItem=nil;adviceGeneration=UUID()
         if let process=adviceProcess,process.isRunning {process.terminate()}
         adviceProcess=nil
-        if discovering {adviceStatus="Zoeken gestopt; je kunt later opnieuw zoeken."}
+        if discovering {adviceStatus="Search stopped; you can search again later."}
         discovering=false
         if clear {adviceCandidates=[];adviceStatus="";adviceArtist="";adviceTitle="";adviceBarcode="";adviceCatalog="";adviceFormat=""}
     }
@@ -45,9 +45,10 @@ extension StudioModel {
                     if recognize {self.adviceArtist=advice.hints.artist;self.adviceTitle=advice.hints.title;self.adviceBarcode=advice.hints.barcode;self.adviceCatalog=advice.hints.catno}
                     self.adviceCandidates=advice.candidates;self.adviceStatus=advice.message
                 }
-                if event.event=="error" {self.adviceStatus=event.message ?? "Zoeken is niet gelukt."}
+                if event.event=="error" {self.adviceStatus=event.message ?? "The search didn't succeed."}
             }}
-            adviceProcess=process;discovering=true;adviceStatus=recognize ? "Tekst en barcodes lezen; daarna Discogs doorzoeken…" : "Mogelijke uitgaven op Discogs zoeken…"
+            let searching=["Reading text and barcodes; then searching Discogs…","Searching Discogs for possible releases…"]
+            adviceProcess=process;discovering=true;adviceStatus=recognize ? searching[0] : searching[1]
             try process.run()
             DispatchQueue.global(qos:.utility).async {[weak self] in
                 while true {let data=pipe.fileHandleForReading.availableData;if data.isEmpty{break};reader.accept(data)}
@@ -56,15 +57,16 @@ extension StudioModel {
                     try? FileManager.default.removeItem(at:cache)
                     guard let self,self.adviceGeneration==generation else{return}
                     self.discovering=false;self.adviceProcess=nil
-                    if process.terminationStatus != 0 && !self.adviceStatus.contains("niet") {self.adviceStatus="Zoeken is niet afgerond. Je kunt de gegevens zelf invullen en opnieuw zoeken."}
+                    if process.terminationStatus != 0 && searching.contains(self.adviceStatus) {   // geen eerdere foutmelding overschrijven
+                    self.adviceStatus="The search didn't finish. You can fill in the details yourself and search again."}
                 }
             }
-        } catch {discovering=false;adviceProcess=nil;adviceStatus="Releasevoorstellen konden niet worden gestart.";try? FileManager.default.removeItem(at:cache)}
+        } catch {discovering=false;adviceProcess=nil;adviceStatus="Release suggestions couldn't be started.";try? FileManager.default.removeItem(at:cache)}
     }
     func chooseRelease(_ candidate:ReleaseCandidate) {
         guard !busy,let url=URL(string:candidate.url),url.scheme=="https",url.host=="www.discogs.com",url.path=="/release/\(candidate.id)" else{return}
         discogs=candidate.url;references=[];referenceURL=nil;proposals=[];if panel == .advice {panel=nil}
-        adviceStatus="Gekozen: \(candidate.title). Controleer de uitgave op Discogs."
+        adviceStatus="Chosen: \(candidate.title). Check the release on Discogs."
     }
     var discogsSearchURL:URL? {
         let query=[adviceArtist,adviceTitle,adviceBarcode,adviceCatalog].filter{!$0.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty}.joined(separator:" ")

@@ -1,15 +1,15 @@
-"""Vaste vergelijkingsset ('gouden set') voor de eigen testscans.
+"""Reference set for the own test scans: approved results to compare against.
 
-Legt vast wat goed is (indeling, hoes of plaat, onderdeel, afmetingen in mm,
-rechte labels) en vergelijkt een nieuwe versie daarmee, vóórdat er een versie
-gebouwd wordt. De scans staan buiten de broncode (~/Desktop/vinyl), dus dit
-draait lokaal en niet in scripts/check.sh.
+Records what is right (grouping, cover or record, part, size in mm, straight
+labels) and compares a new version with it before a version is built. The scans
+live outside the source (~/Desktop/vinyl), so this runs locally and not in
+scripts/check.sh.
 
-  python3 golden.py vastleggen <run-map> [golden.json]   goede run als maatstaf
-  python3 golden.py run <run-map> [golden.json]          afgeronde run vergelijken
-  python3 golden.py snel [golden.json] [uitgave ...]     zonder verwerken: indeling,
-                                                         hoes/plaat en kader per onderdeel
-Uitkomst: per uitgave GOED of de verschillen; exitcode 1 bij een verschil.
+  python3 reference.py record <run-folder> [reference.json]  approved run as the reference
+  python3 reference.py run <run-folder> [reference.json]     compare a finished run
+  python3 reference.py quick [reference.json] [release ...]  without processing: grouping
+                                                             and cover/record per merged part
+Result: OK per release or the differences; exit code 1 on any difference.
 """
 import contextlib, glob, io, json, os, re, sys
 from collections import Counter
@@ -17,7 +17,7 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, '..', '..', 'Resources', 'Tools')
 sys.path.insert(0, os.path.abspath(TOOLS))
-GOLDEN = os.path.join(HERE, 'golden.json')
+GOLDEN = os.path.join(HERE, 'reference.json')
 SCANS = os.path.expanduser('~/Desktop/vinyl')
 MM_TOLERANCE = 0.025      # afmetingen mogen 2,5% afwijken (bijsnijden, rek)
 LABEL_LIMIT = 1.2         # graden: rechte tekstregels op het label (zoals TEXT_LINE_MIN)
@@ -79,7 +79,7 @@ def record(run_root, target):
         request = json.load(open(os.path.join(run, 'Studio-verwerking.json')))
         golden[release] = describe_run(run)
         golden.setdefault('_inputs', {})[release] = [scan_id(i['path']) for i in request['inputs'] if not i.get('reference')]
-        print(f'{release}: {len(golden[release])} groepen vastgelegd', flush=True)
+        print(f'{release}: {len(golden[release])} groups recorded', flush=True)
     json.dump(golden, open(target, 'w'), indent=1, ensure_ascii=False)
 
 
@@ -92,43 +92,43 @@ def compare_groups(expected, found, check_outputs=True):
     want = {tuple(g['scans']): g for g in expected}
     got = {tuple(g['scans']): g for g in found}
     for key in sorted(set(want) - set(got)):
-        problems.append(f'groep ontbreekt: {", ".join(key)}')
+        problems.append(f'missing group: {", ".join(key)}')
     for key in sorted(set(got) - set(want)):
-        problems.append(f'onverwachte groep: {", ".join(key)}')
+        problems.append(f'unexpected group: {", ".join(key)}')
     for key in sorted(set(want) & set(got)):
         a, b = want[key], got[key]
         label = key[0] + (f' (+{len(key) - 1})' if len(key) > 1 else '')
         if a['type'] != b['type']:
-            problems.append(f'{label}: {b["type"]} in plaats van {a["type"]}')
+            problems.append(f'{label}: {b["type"]} instead of {a["type"]}')
         if not check_outputs:
             continue
         if Counter(o['part'] for o in a['outputs']) != Counter(o['part'] for o in b['outputs']):
-            problems.append(f'{label}: onderdelen {[o["part"] for o in b["outputs"]]} in plaats van {[o["part"] for o in a["outputs"]]}')
+            problems.append(f'{label}: parts {[o["part"] for o in b["outputs"]]} instead of {[o["part"] for o in a["outputs"]]}')
         for x, y in zip(a['outputs'], b['outputs']):
             if not close(x['mm'], y['mm']):
-                problems.append(f'{label} {y["part"]}: {y["mm"]} mm in plaats van {x["mm"]} mm')
+                problems.append(f'{label} {y["part"]}: {y["mm"]} mm instead of {x["mm"]} mm')
             if b['type'] == 'vinyl' and y.get('label') is not None and abs(y['label']) >= LABEL_LIMIT:
-                problems.append(f'{label} {y["part"]}: label {y["label"]:+.1f} graden scheef')
+                problems.append(f'{label} {y["part"]}: label {y["label"]:+.1f} degrees skewed')
     return problems
 
 
 def report(release, problems):
     if problems:
-        print(f'FOUT  {release}:', flush=True)
+        print(f'FAIL  {release}:', flush=True)
         for p in problems:
             print('      - ' + p, flush=True)
     else:
-        print(f'GOED  {release}', flush=True)
+        print(f'OK    {release}', flush=True)
 
 
 def compare_run(run_root, golden):
     bad = 0
     for run in sorted(glob.glob(os.path.join(run_root, 'Scans *'))):
         if not os.path.exists(os.path.join(run, 'Studio-onderdelen.json')) or not os.path.exists(os.path.join(run, 'Studio-verwerking.json')):
-            print(f'FOUT  {os.path.basename(run)}: verwerking niet afgerond (geen resultaat)'); bad += 1; continue
+            print(f'FAIL  {os.path.basename(run)}: processing not finished (no result)'); bad += 1; continue
         release = release_of(run)
         if release not in golden or release.startswith('_'):
-            print(f'?     {release}: niet in de gouden set'); continue
+            print(f'?     {release}: not in the reference'); continue
         problems = compare_groups(golden[release], describe_run(run))
         report(release, problems); bad += bool(problems)
     return bad
@@ -166,14 +166,14 @@ def quick(golden, releases):
         for group in grouped:
             if len(group) < 2:
                 continue
-            state.clear(); sys.argv = ['scan_stitch.py', '/tmp/golden-x.png'] + group + ['--rechtop', '--snelle-tussenbestanden']
+            state.clear(); sys.argv = ['scan_stitch.py', '/tmp/reference-x.png'] + group + ['--rechtop', '--snelle-tussenbestanden']
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
                     ST.main()
             except Stop:
                 pass
             except Exception as error:          # bv. te weinig schijfruimte
-                print(f'      ({release}: {scan_id(group[0])} niet te meten: {error})'); continue
+                print(f'      ({release}: {scan_id(group[0])} could not be measured: {error})'); continue
             disc = state.get('disc', False)
             found.append({'scans': sorted(scan_id(p) for p in group), 'type': 'vinyl' if disc else 'hoes', 'outputs': []})
         # enkele scans: alleen de indeling telt
@@ -181,21 +181,21 @@ def quick(golden, releases):
         grouped_singles = [{'scans': [scan_id(g[0])], 'type': None, 'outputs': []} for g in grouped if len(g) == 1]
         problems = compare_groups(expected, found, check_outputs=False)
         want_single = {tuple(g['scans']) for g in singles}; got_single = {tuple(g['scans']) for g in grouped_singles}
-        problems += [f'losse scan ontbreekt/samengevoegd: {k[0]}' for k in sorted(want_single - got_single)]
+        problems += [f'single scan missing/merged: {k[0]}' for k in sorted(want_single - got_single)]
         # een losse scan die in de gouden set nergens voorkomt (lege scan, overgeslagen) telt niet
         in_golden = {s for g in golden[release] for s in g['scans']}
-        problems += [f'scan staat los maar hoort bij een groep: {k[0]}' for k in sorted(got_single - want_single) if k[0] in in_golden]
+        problems += [f'scan stands alone but belongs to a group: {k[0]}' for k in sorted(got_single - want_single) if k[0] in in_golden]
         report(release, problems); bad += bool(problems)
     return bad
 
 
 if __name__ == '__main__':
     mode = sys.argv[1] if len(sys.argv) > 1 else ''
-    if mode == 'vastleggen':
+    if mode == 'record':
         record(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else GOLDEN)
     elif mode == 'run':
         sys.exit(1 if compare_run(sys.argv[2], json.load(open(sys.argv[3] if len(sys.argv) > 3 else GOLDEN))) else 0)
-    elif mode == 'snel':
+    elif mode == 'quick':
         target = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2].endswith('.json') else GOLDEN
         golden = json.load(open(target))
         chosen = [a for a in sys.argv[2:] if not a.endswith('.json')] or sorted(r for r in golden if not r.startswith('_'))

@@ -39,7 +39,7 @@ import SwiftUI
         model.colourScope="photo";model.resetColourSelection()
         precondition(model.colourTargets.first?.part=="front","Een hoes wordt apart gekozen")
         precondition(model.inferredPart("Scan 12_hoes.png")=="unknown")
-        precondition(partLabel("unknown")=="Nog te bepalen")
+        precondition(partLabel("unknown")=="Unassigned")
         model.outputs=[];model.inputs=[MediaItem(url:source,part:"front")]
         model.receive(BridgeEvent(event:"outputs",files:[BridgeFile(path:"/tmp/Scan 12_hoes.png",source:source.path)]))
         precondition(model.outputs[0].part=="unknown","Een voorlopige bronrol is geen herkend resultaatonderdeel")

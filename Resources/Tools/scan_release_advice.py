@@ -2,7 +2,7 @@
 import concurrent.futures,json,re,subprocess,urllib.error,urllib.parse,urllib.request
 from pathlib import Path
 
-UA='Sleeve/0.4.22 (+https://github.com/reprise-labs/sleeve)'
+UA='Sleeve/0.4.23 (+https://github.com/reprise-labs/sleeve)'
 
 def normalized(value):return re.sub(r'[^a-z0-9]','',str(value).casefold())
 def split_words(value):
@@ -133,7 +133,7 @@ def extract_hints(documents):
 
 def recognize(rows,runner=None):
  helper=Path(__file__).with_name('sleeve_ocr')
- if not helper.is_file():raise ValueError('De tekstherkenner ontbreekt. Je kunt de zoekgegevens zelf invullen.')
+ if not helper.is_file():raise ValueError('The text recognizer is missing. You can fill in the search details yourself.')
  if runner is None:runner=lambda command:subprocess.run(command,capture_output=True,text=True,timeout=20,check=True).stdout
  # Barcode en catalogusnummer staan vaak op één deelscan van de achterkant.
  # Lees daarom zo nodig alle scans (~1 s per scan), maar stop bij de eerste
@@ -156,10 +156,10 @@ def api_get(url):
  try:
   with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':UA}),timeout=8) as response:return json.load(response)
  except urllib.error.HTTPError as error:
-  if error.code==429:raise RuntimeError('Discogs ontvangt nu te veel zoekopdrachten. Probeer het later opnieuw.') from None
-  if error.code in (401,403):raise RuntimeError('Discogs staat zoeken vanuit de app nu niet toe. Gebruik ‘Zoek op Discogs’ en plak de uitgavelink.') from None
-  raise RuntimeError('Discogs zoeken is tijdelijk niet beschikbaar.') from None
- except (OSError,ValueError):raise RuntimeError('Geen verbinding met Discogs. Je kunt de zoekgegevens bewaren en later opnieuw zoeken.') from None
+  if error.code==429:raise RuntimeError('Discogs is receiving too many searches right now. Try again later.') from None
+  if error.code in (401,403):raise RuntimeError('Discogs doesn’t allow searching from the app right now. Use ‘Search on Discogs’ and paste the release link.') from None
+  raise RuntimeError('Discogs search is temporarily unavailable.') from None
+ except (OSError,ValueError):raise RuntimeError('No connection to Discogs. You can keep the search details and search again later.') from None
 
 def search(hints,format_filter='',get=api_get):
  terms={k:str(hints.get(k,'')).strip()[:160] for k in ('artist','title','barcode','catno')}
@@ -176,7 +176,7 @@ def search(hints,format_filter='',get=api_get):
   # Logo's lezen vaak als één woord (AnoukUrbanSolitude): ook vrij zoeken, met woorden gesplitst.
   for free in (split_words(terms['artist']),split_words(' '.join(t for t in (terms['artist'],terms['title']) if t))):
    if free and dict(common,q=free) not in queries:queries.append(dict(common,q=free))
- if not queries and not terms['barcode']:return [],'Vul een artiest en titel, barcode of catalogusnummer in.'
+ if not queries and not terms['barcode']:return [],'Enter an artist and title, barcode or catalog number.'
  results={};problems=[]
  def run(query):
   try:
@@ -190,12 +190,12 @@ def search(hints,format_filter='',get=api_get):
  def evidence(row):
   reasons=[];score=0
   if terms['barcode'] and any(barcode_key(code)==barcode_key(terms['barcode']) for code in row.get('barcode',[])):
-   score+=100;reasons.append('Barcode komt overeen')
-  if terms['catno'] and normalized(terms['catno'])==normalized(row.get('catno','')):score+=60;reasons.append('Catalogusnummer komt overeen')
+   score+=100;reasons.append('Barcode matches')
+  if terms['catno'] and normalized(terms['catno'])==normalized(row.get('catno','')):score+=60;reasons.append('Catalog number matches')
   title=normalized(row.get('title',''))
-  if terms['artist'] and normalized(terms['artist']) in title:score+=15;reasons.append('Artiest komt overeen')
-  if terms['title'] and normalized(terms['title']) in title:score+=20;reasons.append('Titel komt overeen')
-  if hints.get('promo') and 'Promo' in row.get('format',[]):score+=10;reasons.append('Promo-uitgave, zoals op de scan')
+  if terms['artist'] and normalized(terms['artist']) in title:score+=15;reasons.append('Artist matches')
+  if terms['title'] and normalized(terms['title']) in title:score+=20;reasons.append('Title matches')
+  if hints.get('promo') and 'Promo' in row.get('format',[]):score+=10;reasons.append('Promo release, as on the scan')
   return score,reasons
  ranked=sorted(results.values(),key=lambda r:(-evidence(r)[0],r['id']))[:5]
  def convert(row):
@@ -207,23 +207,23 @@ def search(hints,format_filter='',get=api_get):
   reasons=evidence(row)[1]
   listed=normalized(' '.join(str(i.get('value','')) for i in detail.get('identifiers',[]))+' '+str(detail.get('notes','')))
   # Soms zonder landcode ingevoerd (Hold Me: "XA9-15-00001").
-  if any(normalized(code)[2:] in listed for code in isrcs):reasons=reasons+['ISRC komt overeen']
-  return {'id':row['id'],'title':str(row.get('title','')),'year':str(row.get('year','')),'country':str(row.get('country','')),'format':', '.join(map(str,row.get('format',[]))),'catno':str(row.get('catno','')),'variant':variant,'url':f"https://www.discogs.com/release/{row['id']}",'reasons':reasons or ['Gevonden met deze zoekgegevens']}
+  if any(normalized(code)[2:] in listed for code in isrcs):reasons=reasons+['ISRC matches']
+  return {'id':row['id'],'title':str(row.get('title','')),'year':str(row.get('year','')),'country':str(row.get('country','')),'format':', '.join(map(str,row.get('format',[]))),'catno':str(row.get('catno','')),'variant':variant,'url':f"https://www.discogs.com/release/{row['id']}",'reasons':reasons or ['Found with these search details']}
  with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:candidates=list(pool.map(convert,ranked))
- candidates.sort(key=lambda c:'ISRC komt overeen' not in c['reasons'])   # stabiel: verder volgorde van het bewijs
- message='Controleer formaat, kleur en land voordat je een uitgave kiest.' if candidates else (problems[0] if problems else 'Geen passende uitgaven gevonden. Controleer de herkende zoekgegevens.')
- if candidates and problems:message+=' Een deel van de zoekopdrachten lukte niet.'
+ candidates.sort(key=lambda c:'ISRC matches' not in c['reasons'])   # stabiel: verder volgorde van het bewijs
+ message='Check format, color and country before choosing a release.' if candidates else (problems[0] if problems else 'No matching releases found. Check the recognized search details.')
+ if candidates and problems:message+=' Some of the searches didn’t succeed.'
  return candidates,message
 
 def advice(req,rows,runner=None,get=api_get):
  hints=recognize(rows,runner) if req.get('recognize',True) else {k:req.get(k,'') for k in ('artist','title','barcode','catno')}
  candidates,message=search(hints,req.get('format',''),get)
- if req.get('recognize',True) and any(reason in c['reasons'] for c in candidates for reason in ('Barcode komt overeen','Catalogusnummer komt overeen','ISRC komt overeen')):
+ if req.get('recognize',True) and any(reason in c['reasons'] for c in candidates for reason in ('Barcode matches','Catalog number matches','ISRC matches')):
   hints['artist']='';hints['title']=''     # zekere treffer: geen gelezen tekstruis tonen
- barcode_hits=[c for c in candidates if 'Barcode komt overeen' in c['reasons'] and c['catno']]
+ barcode_hits=[c for c in candidates if 'Barcode matches' in c['reasons'] and c['catno']]
  if req.get('recognize',True) and barcode_hits and len({normalized(c['catno']) for c in barcode_hits})==1:
   hints['catno']=barcode_hits[0]['catno']  # catalogusnummer van de uitgave zelf, niet een misgelezen titel
- sure=[c for c in candidates if any(reason in c['reasons'] for reason in ('Barcode komt overeen','Catalogusnummer komt overeen','ISRC komt overeen'))]
+ sure=[c for c in candidates if any(reason in c['reasons'] for reason in ('Barcode matches','Catalog number matches','ISRC matches'))]
  if len({c['title'] for c in sure or candidates})==1 and candidates:
   artist,separator,title=(sure or candidates)[0]['title'].partition(' - ')
   if separator:hints['artist']=artist;hints['title']=title

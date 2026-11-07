@@ -1,3 +1,11 @@
+# 0.4.23 — Sleeve in English
+
+- The whole app is now in American English: screens, buttons, messages, progress and the final check, following the approved glossary (release, cover, record, part, Final Check, Process Scans, Adjust Color, Rename Files; parts Front, Back, Inside, Insert, Insert Left/Right, Side A–D, CD, Unassigned).
+- Internal signals between the processing steps are English too and changed on both sides at once (record:, cover:, orientation: unknown, done:, building full resolution:, fits best, name via Discogs failed, warning words, disk-space and incomplete-disc errors).
+- Saved keys stay unchanged, so existing projects and queues still open (work modes keep their stored value and get an English title).
+- File naming conventions (`_kleur`, part names in file names) and internal JSON names are unchanged.
+- The reference set (formerly "gouden set") is now `Tests/reference/reference.py` with English output.
+
 # 0.4.22 — Binnenkant insert_left/insert_right; release-zoeker voor losse titelwoorden
 
 - De twee helften van een uitgeklapte binnenkant heten `insert_left` en `insert_right` (in de app "Inlegvel links" en "Inlegvel rechts"). Is er zo'n binnenkant, dan is "inside" bezet en heten losse tekstvellen `insert` en `insert_2`.

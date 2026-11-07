@@ -462,7 +462,7 @@ def clean_cd_circle(im,cx,cy,r):
             points.append((X[i,k],Y[i,k]))
     points = np.asarray(points,np.float32)
     if len(points)<1000:
-        raise ValueError('Bedrukte cd-rand niet betrouwbaar gevonden; origineel behouden.')
+        raise ValueError('Printed CD edge not reliably found; original kept.')
     keep = np.ones(len(points),bool)
     for _ in range(6):
         ellipse = cv2.fitEllipse(points[keep])
@@ -472,7 +472,7 @@ def clean_cd_circle(im,cx,cy,r):
         error = np.abs(np.hypot(local[:,0]/(width/2),local[:,1]/(height/2))-1)*min(width,height)/2
         keep = error<max(1.5,3*np.median(error))
     if keep.mean()<.65 or max(width,height)/min(width,height)>1.04:
-        raise ValueError('Cd-rand wijkt te veel af van een cirkel; controle nodig.')
+        raise ValueError('CD edge deviates too much from a circle; check needed.')
     # Glyph centroids on circular copyright text provide an independent centre.
     yy,xx = np.indices(gray.shape); distance = np.hypot(xx-ex,yy-ey)
     ink = ((gray<110)&(distance>.84*er)&(distance<.99*er)).astype(np.uint8)
@@ -497,13 +497,13 @@ def clean_cd_circle(im,cx,cy,r):
             coverage = np.ptp(np.unwrap(np.sort(np.arctan2(pts[:,1]-model[1],pts[:,0]-model[0]))))
             if coverage>np.pi/2:
                 centre=model[:2]
-                print(f'cd-midden gecontroleerd op {len(pts)} letters langs de rand')
+                print(f'CD center checked on {len(pts)} letters along the edge')
     # Circle centred on the type, completely within the fitted printed surface.
     q = R@(centre-[px,py]); dirs = np.stack([np.cos(angles),np.sin(angles)],1)@R.T
     axes = np.array([width/2,height/2]); A=((dirs/axes)**2).sum(1); B=2*(dirs*q/(axes**2)).sum(1); C=((q/axes)**2).sum()-1
     reach = (-B+np.sqrt(B*B-4*A*C))/(2*A)
     radius = float(np.min(reach)-2)
-    print(f'bedrukte rand: middelpunt {centre[0]/scale:.1f}, {centre[1]/scale:.1f}; straal {radius/scale:.1f}')
+    print(f'printed edge: center {centre[0]/scale:.1f}, {centre[1]/scale:.1f}; radius {radius/scale:.1f}')
     return float(centre[0]/scale),float(centre[1]/scale),radius/scale
 
 
@@ -513,9 +513,9 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     with Image.open(src) as original:
         current_cut = original.info.get('sleeve_disc_cut',original.info.get('anouk_disc_cut')) in ('2','3')
     from scan_progress import progress
-    progress('Schijf op volle resolutie openen')
+    progress('Opening disc at full resolution')
     im, alpha = load_rgb(src)
-    progress('Buitenrand en middelpunt bepalen')
+    progress('Finding outer edge and center')
     if allow_incomplete and alpha is None: alpha = Image.new("L",im.size,255)
     # zoeken op een werkkopie (snel, weinig geheugen), knippen uit het origineel
     k = min(1.0, 4000 / max(im.size))
@@ -539,7 +539,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
                 cx, cy, R = clean_cd_circle(ws,cx,cy,R)
     cx, cy, R = cx / k, cy / k, R / k
     if min(cx-R, cy-R, im.width-(cx+R), im.height-(cy+R)) < -max(2, .002*R) and not allow_incomplete:
-        raise ValueError('De schijf valt buiten deze scan. Selecteer alle deelscans samen via Sleeve · Scans verwerken.')
+        raise ValueError('The disc extends beyond this scan. Select all partial scans together via Sleeve · Process Scans.')
     hole = hole if hole is not None else (HOLE_VINYL if vinyl else HOLE)
     n = int(round(2 * R)); x0, y0 = int(round(cx - R)), int(round(cy - R))
     box = (x0, y0, x0 + n, y0 + n)
@@ -549,7 +549,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     if size != n:
         sq = sq.resize((size, size), Image.LANCZOS)
     if auto:
-        progress('Tekst op het etiket recht draaien')
+        progress('Straightening the text on the label')
         skew_rejected = False
         small = sq.resize((1200, 1200), Image.LANCZOS) if size > 1200 else sq
         if vinyl:                                        # alleen het label lezen, groot genoeg
@@ -559,7 +559,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
             # labeltekst te klein en bleef een scheef label scheef.
             ta = disc_text_angle(lab_im) or 0.0
             if abs(((ta + 45) % 90) - 45) > MAX_LABEL_SKEW:
-                print(f'tekst: rechtzethoek {ta:+.1f} graden onwaarschijnlijk, alleen kwartslagen')
+                print(f'text: straightening angle {ta:+.1f} degrees unlikely, quarter turns only')
                 ta = 0.0; skew_rejected = True
             else:
                 ta += label_line_refine(lab_im.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)))
@@ -574,20 +574,20 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
         if q is not None and swept is None:
             ta = ta - q
             angle = ((ta + angle + 180) % 360) - 180
-            print(f'tekst rechtop gezet: {ta:+.1f} graden')
+            print(f'text set upright: {ta:+.1f} degrees')
         elif swept is not None:
             # Label met een misleidend ontwerp (schuine titel, strepen): de stand
             # waarin de meeste echte woorden leesbaar zijn, in stappen van 15 graden
             swept += label_line_refine(lab_im.rotate(swept, resample=Image.BICUBIC, fillcolor=(255, 255, 255)))
             angle = ((swept + angle + 180) % 360) - 180
-            print(f'tekst rechtop gezet via leesstand: {swept:+.1f} graden')
+            print(f'text set upright via reading sweep: {swept:+.1f} degrees')
         elif ta and not skew_rejected:
             # Leesrichting onbekend, scheefstand wel gemeten: die alvast rechtzetten;
             # de kwartslag volgt uit de Discogs-foto of de gebruiker (DEENA A op 600 dpi).
             angle = ((ta + angle + 180) % 360) - 180
-            print(f'tekst: geen duidelijke leesrichting, alleen scheefstand rechtgezet: {ta:+.1f} graden')
+            print(f'text: no clear reading direction, only skew corrected: {ta:+.1f} degrees')
         else:
-            print('tekst: geen duidelijke leesrichting gevonden, niet gedraaid')
+            print('text: no clear reading direction found, not rotated')
         if vinyl:
             # Laatste controle op de rechte tekstregels zelf (tracklijst). De meting
             # hierboven kijkt naar het hele label; een tekening misleidt die
@@ -595,7 +595,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
             rest = text_line_angle(lab_im.rotate(angle, resample=Image.BICUBIC, fillcolor=(255, 255, 255)) if angle else lab_im)
             if rest is not None and abs(rest) >= TEXT_LINE_MIN:
                 angle = ((angle + rest + 180) % 360) - 180
-                print(f'tekstregels nagemeten: nog {rest:+.1f} graden bijgesteld')
+                print(f'text lines re-measured: another {rest:+.1f} degrees adjusted')
     if angle:
         sq = sq.rotate(angle, resample=Image.BICUBIC, fillcolor=(255, 255, 255))
     m = np.zeros((size, size), np.uint8)                 # schijf met gat, zachte randen
@@ -603,7 +603,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     cv2.circle(m, (c16, c16), int(size / 2 * 16) - 8, 255, -1, cv2.LINE_AA, shift=4)
     cv2.circle(m, (c16, c16), int(size * hole / 2 * 16), 0, -1, cv2.LINE_AA, shift=4)
     if alpha is not None:
-        progress('Uitsnede op ontbrekende delen controleren')
+        progress('Checking crop for missing parts')
         al = alpha.crop(box)
         if size != n:
             al = al.resize((size, size), Image.LANCZOS)
@@ -615,7 +615,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
         interior = cv2.erode(expected.astype(np.uint8), np.ones((7,7), np.uint8)) > 0
         missing = interior & (aa < 128)
         if missing.sum() > 0.002 * max(1, interior.sum()) and not allow_incomplete:
-            raise ValueError(f'Onvolledige schijf: {100*missing.sum()/max(1,interior.sum()):.1f}% ontbreekt. Selecteer alle deelscans samen.')
+            raise ValueError(f'Incomplete disc: {100*missing.sum()/max(1,interior.sum()):.1f}% missing. Select all partial scans together.')
         m = np.minimum(m, aa)
         del aa,expected,interior,missing
         al.close();alpha.close()
@@ -625,7 +625,7 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     # Clear hidden pixels in place; avoid another full RGBA copy on 8 GB Macs.
     transparent = Image.fromarray(m).point([255]+[0]*255)
     out.paste((0,0,0,0),(0,0,size,size),transparent)
-    progress('Uitgesneden schijf opslaan')
+    progress('Saving cut-out disc')
     out.save(dst, compress_level=1, pnginfo=metadata)
     print(f'uitgeknipt: {size}x{size} px')
 
@@ -920,7 +920,7 @@ def crop_single_cover(im, dst, rect, straighten=True, extra=0.0):
     if fr is not None:
         mrg = min(ms)                                      # zelfde rand rondom
         crop = crop.crop((fl - mrg, ft - mrg, frr + mrg + 1, fb + mrg + 1))
-        print(f'kader gevonden: rand rondom {mrg} px')
+        print(f'frame found: border around {mrg} px')
     crop.save(dst)
     return a
 
@@ -982,25 +982,25 @@ def crop_cover(src, dst, straighten=True, extra=0.0):
 
 def main():
     from scan_memory import MemoryLease
-    with MemoryLease(48,phase='Beeld uitsnijden'):return main_with_memory()
+    with MemoryLease(48,phase='Cutting out image'):return main_with_memory()
 
 
 def main_with_memory():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('modus', choices=['cd', 'vinyl', 'cover', 'map'])
     p.add_argument('invoer'); p.add_argument('uitvoer')
-    p.add_argument('--angle', type=float, default=0, help='cd/vinyl: draaiing; hoes: extra bijdraai bovenop de automatische')
-    p.add_argument('--gat', type=float, help='gatdiameter als fractie van de schijf (bv. 0.217 voor 7" met groot gat)')
-    p.add_argument('--niet-rechtzetten', action='store_true', help='hoes niet automatisch rechtzetten')
-    p.add_argument('--angles', help='json met hoeken per bestand (modus map)')
-    p.add_argument('--onvolledig-toestaan',action='store_true',help='alleen voor een proef: ontbrekende delen transparant laten')
-    p.add_argument('--auto', action='store_true', help='cd/vinyl: rechte tekst automatisch horizontaal (--angle komt erbovenop, bv. 180)')
+    p.add_argument('--angle', type=float, default=0, help='cd/vinyl: rotation; cover: extra rotation on top of the automatic one')
+    p.add_argument('--gat', type=float, help='hole diameter as a fraction of the disc (e.g. 0.217 for a 7" with a large hole)')
+    p.add_argument('--niet-rechtzetten', action='store_true', help='don’t straighten the cover automatically')
+    p.add_argument('--angles', help='json with angles per file (folder mode)')
+    p.add_argument('--onvolledig-toestaan',action='store_true',help='test only: leave missing parts transparent')
+    p.add_argument('--auto', action='store_true', help='cd/vinyl: straight text automatically horizontal (--angle is added on top, e.g. 180)')
     a = p.parse_args()
     if a.modus in ('cd', 'vinyl'):
         cut_disc(a.invoer, a.uitvoer, a.angle, vinyl=(a.modus == 'vinyl'), hole=a.gat, auto=a.auto, allow_incomplete=a.onvolledig_toestaan)
     elif a.modus == 'cover':
         hoek = crop_cover(a.invoer, a.uitvoer, not a.niet_rechtzetten, a.angle)
-        if hoek: print(f'rechtgezet: {hoek:+.1f} graden')
+        if hoek: print(f'straightened: {hoek:+.1f} degrees')
     else:
         angles = json.load(open(a.angles)) if a.angles else {}
         os.makedirs(a.uitvoer, exist_ok=True)

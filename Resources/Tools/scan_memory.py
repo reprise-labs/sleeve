@@ -32,9 +32,9 @@ class MappedScanStore:
         needed=total+int(output_bytes)+GiB
         free=shutil.disk_usage(self.scratch).free
         if free < needed and not os.environ.get('SLEEVE_MEMORY_POOL'):
-            raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {needed/GB:.1f} GB nodig, {free/GB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
+            raise ValueError(f'Not enough free disk space for safe merging: about {needed/GB:.1f} GB needed, {free/GB:.1f} GB free. Free up space and try again.')
         if maximum*4 > physical_memory()*.35:
-            raise ValueError('Een afzonderlijke scan is te groot om op deze Mac veilig te openen. Gebruik een scan op lagere resolutie of een Mac met meer geheugen.')
+            raise ValueError('A single scan is too large to open safely on this Mac. Use a lower-resolution scan or a Mac with more memory.')
         self.required_bytes=needed
         self.space=ScratchLease(needed,self.scratch)
     def __enter__(self):
@@ -91,7 +91,7 @@ class MappedArrayStore:
     def __init__(self,expected_bytes,scratch=None):
         self.scratch=scratch or tempfile.gettempdir();self.arrays={};self.maps={}
         needed=int(expected_bytes)+GiB;free=shutil.disk_usage(self.scratch).free
-        if free<needed:raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {needed/GB:.1f} GB nodig, {free/GB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
+        if free<needed:raise ValueError(f'Not enough free disk space for safe merging: about {needed/GB:.1f} GB needed, {free/GB:.1f} GB free. Free up space and try again.')
         self.activity=ScratchActivity()
     def empty(self,key,shape,dtype=np.float32):
         self.discard(key)
@@ -182,7 +182,7 @@ class MemoryLease:
             if not self.held:
                 if not announced:
                     from scan_progress import progress
-                    progress('Wachten op beschikbaar werkgeheugen');announced=True
+                    progress('Waiting for available memory');announced=True
                 time.sleep(.05)
         if announced and self.phase:
             from scan_progress import progress
@@ -225,7 +225,7 @@ class MemoryLease:
             if self.weight<weight:
                 if not announced:
                     from scan_progress import progress
-                    progress('Wachten op beschikbaar werkgeheugen');announced=True
+                    progress('Waiting for available memory');announced=True
                 time.sleep(.05)
         if announced and phase:
             from scan_progress import progress
@@ -277,14 +277,14 @@ class ScratchLease:
                 if free-reserved>=self.needed:
                     self.write();self.active=True;break
                 if not others:
-                    raise ValueError(f'Te weinig vrije schijfruimte voor veilig samenvoegen: ongeveer {self.needed/GB:.1f} GB nodig, {free/GB:.1f} GB vrij. Maak ruimte vrij en probeer opnieuw.')
+                    raise ValueError(f'Not enough free disk space for safe merging: about {self.needed/GB:.1f} GB needed, {free/GB:.1f} GB free. Free up space and try again.')
             if not announced:
                 from scan_progress import progress
-                progress('Wachten op tijdelijke schijfruimte');announced=True
+                progress('Waiting for temporary disk space');announced=True
             time.sleep(.1)
         if announced:
             from scan_progress import progress
-            progress('Originele scans openen')
+            progress('Opening original scans')
         return self
     def committed(self,count):
         if not self.active:return

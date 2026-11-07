@@ -19,13 +19,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>UTExportedTypeDeclarations</key><array><dict><key>UTTypeIdentifier</key><string>com.repriselabs.sleeve-project</string><key>UTTypeDescription</key><string>Sleeve project</string><key>UTTypeConformsTo</key><array><string>com.apple.package</string></array><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>sleeveproject</string></array></dict></dict></array>
 <key>UTImportedTypeDeclarations</key><array><dict><key>UTTypeIdentifier</key><string>nl.anoukmusic.scan-project</string><key>UTTypeDescription</key><string>Legacy scan project</string><key>UTTypeConformsTo</key><array><string>com.apple.package</string></array><key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>anoukproject</string></array></dict></dict></array>
 <key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>Sleeve-project</string><key>CFBundleTypeRole</key><string>Editor</string><key>LSItemContentTypes</key><array><string>com.repriselabs.sleeve-project</string><string>nl.anoukmusic.scan-project</string></array><key>LSTypeIsPackage</key><true/></dict></array>
-<key>CFBundleVersion</key><string>27</string>
-<key>CFBundleShortVersionString</key><string>0.4.22</string>
+<key>CFBundleVersion</key><string>28</string>
+<key>CFBundleShortVersionString</key><string>0.4.23</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
-<key>NSHumanReadableCopyright</key><string>Sleeve · Lokale proefversie</string>
+<key>NSHumanReadableCopyright</key><string>Sleeve · Local test version</string>
 </dict></plist>
 PLIST
 /usr/bin/codesign --force --deep --sign - "$APP"

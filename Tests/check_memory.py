@@ -33,7 +33,7 @@ with patch('scan_memory.shutil.disk_usage',return_value=SimpleNamespace(free=20*
  assert not failed.maps and not failed.arrays
 with patch('scan_memory.shutil.disk_usage',return_value=SimpleNamespace(free=0)):
  try:MappedScanStore(paths,[0],loader,scratch=root);raise AssertionError('Expected space check')
- except ValueError as error:assert 'schijfruimte' in str(error)
+ except ValueError as error:assert 'disk space' in str(error)
 with patch('scan_memory.physical_memory',return_value=8*GiB):assert render_tile_size()==1024
 with patch('scan_memory.physical_memory',return_value=16*GiB):assert render_tile_size()==2048
 with MappedArrayStore(4096,scratch=root) as work:
@@ -50,6 +50,6 @@ with MappedArrayStore(4096,scratch=root) as work:
 assert not work.maps and not work.arrays
 with patch('scan_memory.shutil.disk_usage',return_value=SimpleNamespace(free=0)):
  try:MappedArrayStore(4096,scratch=root);raise AssertionError('Expected space check')
- except ValueError as error:assert 'schijfruimte' in str(error)
+ except ValueError as error:assert 'disk space' in str(error)
 checks={'work_buffers_preserve_pixels_and_cleanup':True,'source_pixels_exact' :True,'decode_once_per_source':True,'scratch_is_anonymous_and_closed':True,'failure_closes_scratch':True,'insufficient_space_rejected':True,'tile_size_matches_memory_budget':True}
 (root/'RESULTAAT.json').write_text(json.dumps(checks,indent=2));print(checks)
