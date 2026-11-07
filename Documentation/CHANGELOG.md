@@ -1,3 +1,8 @@
+# 0.4.14 — Labels met een misleidend ontwerp en minder vals alarm in de eindcontrole
+
+- Labelstand: is het label sterk scheef (de hoekmeting wordt als onwaarschijnlijk afgewezen) of is de leesrichting onduidelijk, dan draait Sleeve het label in stappen van 15 graden rond en kiest de stand met de meeste echte woorden (`reading_sweep`, `SWEEP_MARGIN`). Voor platen zonder Discogs-foto van het vinyl met een schuin logo of strepen (To Get Her Together stond ondersteboven en ~25 graden scheef).
+- Eindcontrole: een verschuiving telt alleen bij een duidelijke match (`QUALITY_RESPONSE` 0,3) en niet als de uitslag tegen de rand van het meetvak ligt. Dat gaf op labels met weinig contrast vals alarm (tot ~130 px).
+
 # 0.4.13 — Kantherkenning, eindcontrole op naden en fijnere labelstand
 
 - Kanten herkennen: ook leesfouten van "SIDE" tellen ("SDEA", "S1DE B"), een schuin label wordt nog eens 15 en 30 graden gedraaid gelezen, en een label met alleen een losse letter (A, B, C, D, zoals Deena & Jim) wordt herkend door losse tekens uit te knippen en vergroot te lezen. Alleen hoofdletters tellen (een omgekeerde 'a' is geen A).

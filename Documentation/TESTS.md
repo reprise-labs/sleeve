@@ -1,3 +1,9 @@
+## 0.4.14 — leesstand-zoektocht en strengere naadmeting
+
+- 0.4.13-eindtest (9 uitgaven, volle resolutie): alle zonder fouten; DEENA kant A/B/C/D en TGHT A/B correct ingedeeld; labels recht behalve TGHT (ondersteboven, ~25 graden); eindcontrole gaf vals alarm op platen (US, HNY, FBOW, FIRE, DEENA: tot 134 px).
+- Leesstand-zoektocht op beide TGHT-labels vanuit drie startstanden (0, 70, 200 graden): telkens recht en rechtop.
+- Strengere naadmeting (halve resolutie): HNY-achterkant 29 plekken (terecht), DEENA kant A 1 (onder de drempel), DEENA-tekstvel 0.
+
 ## 0.4.13 — kantherkenning, eindcontrole en labelstand
 
 - Indeling van alle scans van acht uitgaven (DEENA, TGHT, TA, US, GF, HNY, FBOW, FIRE): DEENA kant A 18–21, B 23–26, C 28–31; TGHT A 20–23, B 24–27; de overige zes precies gelijk aan de goede indeling van de 0.4.12-run. Kantletters: geen enkele foute letter op alle plaatscans.
