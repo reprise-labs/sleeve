@@ -7,6 +7,7 @@ from pathlib import Path
 import cv2,numpy as np
 from PIL import Image
 Image.MAX_IMAGE_PIXELS=None
+AUTO_DELTA=12.  # ΔE (Lab) tussen scan en Discogs-foto waarboven Sleeve zelf een kleurvoorstel maakt
 
 def swatch(image,reference=False):
  a=image.copy();a.thumbnail((1000,1000));rgb=np.asarray(a.convert('RGB'));h,w=rgb.shape[:2]
@@ -20,6 +21,49 @@ def swatch(image,reference=False):
   mask=chroma
  lab=cv2.cvtColor(rgb.astype(np.float32)/255,cv2.COLOR_RGB2LAB)
  return np.median(lab[mask],axis=0)
+
+def discogs_proposal(path,images):
+ """Zoek tussen de Discogs-foto's (BGR) die van deze plaat (het label past) en
+ vergelijk de plaatkleur. De foto wordt in de stand van de scan gelegd, zodat
+ swatch() dezelfde ring meet. Geeft None zonder bruikbare gekleurde foto."""
+ import scan_discogs as D
+ with Image.open(path) as im:raw=im.convert('RGBA');raw.thumbnail((1000,1000))
+ ours=D.on_white(cv2.cvtColor(np.asarray(raw),cv2.COLOR_RGBA2BGRA))
+ best=None
+ for count,index,M in D.matches(ours,images)[:4]:
+  aligned=cv2.warpAffine(images[index],cv2.invertAffineTransform(M),(ours.shape[1],ours.shape[0]),flags=cv2.INTER_AREA,borderValue=(0,0,0))
+  photo=Image.fromarray(cv2.cvtColor(aligned,cv2.COLOR_BGR2RGB))
+  try:target=swatch(photo,True)
+  except ValueError:continue
+  if best is None or count>best['matches']:best={'matches':count,'photo':index+1,'reference':photo,'target':target}
+ if best is None:return None
+ best['source']=swatch(raw);best['delta']=float(np.linalg.norm(best['target']-best['source']))
+ return best
+
+# Tintbereik (Lab-hoek in graden) per Discogs-kleurnaam. Neutrale kleuren
+# (zilver, zwart, clear …) en mengvormen (marbled, splatter) zijn bewust weggelaten:
+# Discogs-foto's daarvan zijn te wisselend belicht om op te vertrouwen.
+HUES={'red':(10,42),'orange':(43,75),'yellow':(76,105),'gold':(60,100),'green':(110,200),
+      'turquoise':(180,230),'blue':(220,300),'purple':(290,330),'magenta':(320,355),'pink':(330,30)}
+
+def fits(lab,name):
+ hue=np.degrees(np.arctan2(lab[2],lab[1]))%360;lo,hi=HUES[name]
+ return float(np.hypot(lab[1],lab[2]))>=8 and (lo<=hue<=hi if lo<hi else hue>=lo or hue<=hi)
+
+def vinyl_plan(paths,images,name):
+ """Welke plaatkanten wijken af van de Discogs-kleurnaam, en met welke foto
+ (waarvan de tint wél bij die naam past) kan Sleeve een voorstel maken?
+ Eén referentie voor de hele uitgave: beide kanten hebben dezelfde plaat."""
+ if name not in HUES:return {},None
+ proposals={path:discogs_proposal(path,images) for path in paths}
+ usable=[p for p in proposals.values() if p and fits(p['target'],name)]
+ if not usable:return {},None
+ chosen=max(usable,key=lambda p:p['matches'])
+ plan={}
+ for path,p in proposals.items():
+  with Image.open(path) as im:source=swatch(im.convert('RGBA'))
+  if not fits(source,name):plan[path]=source
+ return plan,chosen
 
 def recolor(src,reference,dst,strength=1.,progress=None):
  with Image.open(src) as im:raw=im.convert('RGBA')

@@ -17,6 +17,7 @@ PENDING_COMPLETION=None
 JOB_OUTPUTS={}
 JOB_WARNINGS=[]
 child=None
+OCR_CHILDREN=set()
 try:os.setpgid(0,0)
 except OSError:pass
 
@@ -31,9 +32,10 @@ def emit(event,**kwargs):
 
 def cancel(signum,frame):
  signal.signal(signal.SIGTERM,signal.SIG_IGN)
- if child is not None and child.poll() is None:
-  try:os.killpg(child.pid,signal.SIGTERM)
-  except ProcessLookupError:pass
+ for process in [child,*list(OCR_CHILDREN)]:
+  if process is not None and process.poll() is None:
+   try:os.killpg(process.pid,signal.SIGTERM)
+   except ProcessLookupError:pass
  if os.getpgrp()==os.getpid():
   try:os.killpg(os.getpgrp(),signal.SIGTERM)
   except ProcessLookupError:pass
@@ -195,7 +197,11 @@ def scan(req,rows,work):
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','inputs':rows,'outputs':files,'discogs':req.get('discogs',''),'one_release_per_batch':True},ensure_ascii=False,indent=2))
  if not files:raise ValueError('Er zijn geen verwerkte afbeeldingen gemaakt. Bekijk het logboek.')
  has_vinyl=any(re.search(r'_side[abcd](?:_\d+)?$',Path(file['path']).stem) for file in files)
- emit('complete',message=f'{len(files)} afbeeldingen verwerkt.'+(' Vinylkleur is nog niet aangepast.' if has_vinyl else ''),path=str(output))
+ made,name=auto_vinyl_colour(release_url(req['discogs']),files,work) if has_vinyl and req.get('discogs') and req.get('autoColour',True) else ([],'')
+ if made:note=f' De plaatkleur week af van Discogs ({name}): {len(made)} kleurvoorstel{"len" if len(made)!=1 else ""} (_kleur) gemaakt met een Discogs-foto; de originelen blijven behouden.'
+ elif has_vinyl and name in __import__('scan_colour').HUES:note=f' Vinylkleur komt overeen met Discogs ({name}).'
+ else:note=' Vinylkleur is nog niet aangepast.' if has_vinyl else ''
+ emit('complete',message=f'{len(files)} afbeeldingen verwerkt.'+note,path=str(output))
 
 def colour_destination(source):
  # Follow only explicit legacy colour provenance, never a raw scan source.
@@ -233,27 +239,67 @@ def colour(req,rows,work):
     if im.mode!='RGBA':raise ValueError('Gebruik hier uitgeknipte vinylplaten met transparantie. Verwerk eerst de scans.')
     probe=im.getchannel('A');probe.thumbnail((1400,1400))
     if CU.already_cut(probe) is None:raise ValueError('Een geselecteerd beeld is nog geen uitgeknipte plaat. Verwerk eerst de scans.')
- output=colour_destination(rows[0]['path']);emit('destination',path=str(output));files=[]
- for i,row in enumerate(rows):
-  src=Path(row['path']);output=colour_destination(src);stem=re.sub(r'(?:_kleur(?:_\d+)?)+$','',src.stem)+'_kleur';dst=output/(stem+'.png');suffix=2
-  while dst.exists():dst=output/(stem+'_'+str(suffix)+'.png');suffix+=1
-  emit('status',message=f'Nieuwe kleur voor {i+1} van {len(rows)}: {src.name}')
-  temporary=output/('.voorstel-'+uuid.uuid4().hex+'.png')
-  if scope=='vinyl':
-   with contextlib.redirect_stdout(io.StringIO()) as captured:C.recolor(str(src),str(ref),str(temporary),strength,progress=lambda fraction,phase:emit('progress',fraction=fraction,index=i+1,total=len(rows),phase=phase))
-   emit('log',message=captured.getvalue())
-  else:
-   run([TOOLS/'scan_discogs.py',src,ref,'--alleen-kleur','--uit',temporary])
-  os.replace(temporary,dst)
-  file={'path':str(dst),'source':str(src),'part':row.get('part','unknown'),'partial':False}
-  files.append(file);emit('outputs',files=[file])
+ output=colour_destination(rows[0]['path']);emit('destination',path=str(output))
+ files=[colour_copy(row,ref,strength,scope,i,len(rows)) for i,row in enumerate(rows)]
  if not files:raise ValueError('Er zijn geen kleurvoorstellen gemaakt. Kies ook een bronbeeld.')
+ colour_metadata(ref,strength,scope,rows,files)
+ emit('complete',message=f"{len(files)} nieuwe kleurkopie{'ën' if len(files)!=1 else ''} opgeslagen. Bekijk Nieuwe kleuren; de originelen blijven behouden.",path=str(output))
+
+def colour_copy(row,ref,strength,scope,i,total):
+ import scan_colour as C
+ src=Path(row['path']);output=colour_destination(src);stem=re.sub(r'(?:_kleur(?:_\d+)?)+$','',src.stem)+'_kleur';dst=output/(stem+'.png');suffix=2
+ while dst.exists():dst=output/(stem+'_'+str(suffix)+'.png');suffix+=1
+ emit('status',message=f'Nieuwe kleur voor {i+1} van {total}: {src.name}')
+ temporary=output/('.voorstel-'+uuid.uuid4().hex+'.png')
+ if scope=='vinyl':
+  with contextlib.redirect_stdout(io.StringIO()) as captured:C.recolor(str(src),str(ref),str(temporary),strength,progress=lambda fraction,phase:emit('progress',fraction=fraction,index=i+1,total=total,phase=phase))
+  emit('log',message=captured.getvalue())
+ else:
+  run([TOOLS/'scan_discogs.py',src,ref,'--alleen-kleur','--uit',temporary])
+ os.replace(temporary,dst)
+ file={'path':str(dst),'source':str(src),'part':row.get('part','unknown'),'partial':False}
+ emit('outputs',files=[file])
+ return file
+
+def colour_metadata(ref,strength,scope,rows,files,**extra):
  output=colour_destination(rows[0]['path'])
  metadata_folder=output/'.sleeve'/'colour'/uuid.uuid4().hex
  reference_folder=metadata_folder/'Referentie';reference_folder.mkdir(parents=True)
  shutil.copy2(ref,reference_folder/('Gebruikte-foto'+ref.suffix.lower()))
- (metadata_folder/'Studio-verwerking.json').write_text(json.dumps({'action':'colour','source_reference':str(ref),'strength':strength,'scope':scope,'inputs':rows,'outputs':files},ensure_ascii=False,indent=2))
- emit('complete',message=f"{len(files)} nieuwe kleurkopie{'ën' if len(files)!=1 else ''} opgeslagen. Bekijk Nieuwe kleuren; de originelen blijven behouden.",path=str(output))
+ (metadata_folder/'Studio-verwerking.json').write_text(json.dumps({'action':'colour','source_reference':str(ref),'strength':strength,'scope':scope,'inputs':rows,'outputs':files,**extra},ensure_ascii=False,indent=2))
+
+def discogs_release(url):
+ import scan_naam as N
+ match=re.search(r'/(release|master)/(\d+)',urllib.parse.urlparse(url).path)
+ release=N.get('https://api.discogs.com/'+('masters' if match[1]=='master' else 'releases')+'/'+match[2])
+ if match[1]=='master':release=N.get('https://api.discogs.com/releases/'+str(release['main_release']))
+ return release
+
+def auto_vinyl_colour(url,files,work):
+ """Wijkt de gescande plaatkleur af van de kleurnaam op Discogs (bv. oranje
+ vinyl dat de scanner rood maakt)? Dan een _kleur-voorstel naast het origineel,
+ met een Discogs-foto waarvan de tint wél bij die naam past."""
+ import scan_colour as C,scan_discogs as D,scan_naam as N
+ vinyl=[f for f in files if re.search(r'_side[abcd](?:_\d+)?$',Path(f['path']).stem)]
+ if not vinyl:return [],''
+ emit('status',message='Vinylkleur vergelijken met de kleur op Discogs…')
+ try:
+  formats=discogs_release(url).get('formats',[])
+  words=[(d or '').lower() for f in formats for d in (f.get('descriptions') or [])]+[w.lower() for f in formats for w in re.split(r'[\s,/]+',f.get('text') or '')]
+  if any(word in words for word in ('marbled','splatter','swirl','multicolor','multicoloured')):return [],''
+  name=next((k for k in N.KLEUREN if k in words),'')
+  if name not in C.HUES:return [],name
+  _,images=D.release_images(url)
+  plan,chosen=C.vinyl_plan([f['path'] for f in vinyl],images,name)
+ except (Exception,SystemExit) as error:
+  emit('warning',message=f'Vinylkleur niet met Discogs vergeleken ({error}).');return [],''
+ if not plan:return [],name
+ folder=work/'references';folder.mkdir(exist_ok=True)
+ ref=folder/f'Discogs-foto {chosen["photo"]}.png';chosen['reference'].save(ref)
+ rows=[f for f in vinyl if f['path'] in plan]
+ made=[colour_copy(row,ref,1.0,'vinyl',i,len(rows)) for i,row in enumerate(rows)]
+ colour_metadata(ref,1.0,'vinyl',rows,made,automatic={'discogs_colour':name,'discogs_photo':chosen['photo']})
+ return made,name
 
 def names_preview(req,rows):
  import scan_naam as N
@@ -392,15 +438,17 @@ def main():
  if action=='releaseAdvice':
   import scan_release_advice as A
   def recognize_command(command):
-   global child
-   child=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+   # Wordt vanuit twee threads tegelijk aangeroepen: elk een eigen proces,
+   # niet de gedeelde 'child' (die werd door de andere thread overschreven).
+   process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+   OCR_CHILDREN.add(process)
    try:
-    stdout,_=child.communicate(timeout=20)
-    if child.returncode:raise ValueError('Tekstherkenning niet gelukt')
+    stdout,_=process.communicate(timeout=20)
+    if process.returncode:raise ValueError('Tekstherkenning niet gelukt')
     return stdout
    except subprocess.TimeoutExpired:
-    os.killpg(child.pid,signal.SIGKILL);child.communicate();raise
-   finally:child=None
+    os.killpg(process.pid,signal.SIGKILL);process.communicate();raise
+   finally:OCR_CHILDREN.discard(process)
   emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Releasevoorstellen opgehaald.');return
  if action=='references':reference_photos(req,work);emit('complete',message='Referentiefoto’s geladen. Kies de juiste foto.');return
  rows=inputs(req)

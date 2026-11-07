@@ -290,6 +290,33 @@ def same_cover(first, second):
     return M is not None and inliers.sum() >= 60 and inliers.mean() > .6 and inliers.sum() > .15*min(len(features[0][0]),len(features[1][0]))
 
 
+def mark_repeated_fronts(results,detected_cover_parts,twijfel,component_records):
+    """Meer dan één hoes past op de Discogs-voorkant. De grootste is de hoes;
+    een duidelijk kleiner exemplaar (bv. de buitenkant van een binnenhoes) wordt
+    'insert'. Beide gevallen altijd ter controle voorleggen, nooit stil '_2'."""
+    fronts=[(path,bron) for path,soort,bron in results if soort=='hoes' and detected_cover_parts.get(path)=='front']
+    if len(fronts)<2:
+        return
+    sizes={}
+    for path,bron in fronts:
+        with Image.open(path) as im:
+            longest=max(im.size)
+        sizes[path]=longest/(dpi_of(bron) or 300.0)*25.4      # mm; zelfde scanner = zelfde dpi
+    keep=max(sizes,key=sizes.get)
+    for path,_ in fronts:
+        if path==keep:
+            continue
+        if sizes[path]<0.985*sizes[keep]:
+            detected_cover_parts[path]='insert'
+            log(f'Kleinere voorkant ({sizes[path]:.0f} mm tegen {sizes[keep]:.0f} mm), als insert benoemd; controleer: {os.path.basename(path)}')
+        else:
+            log('Voorkant twee keer gescand; beide bewaard, controleer: '+os.path.basename(path))
+        twijfel.add(path)
+        for record in component_records:
+            if record['name']==os.path.basename(path):
+                record['needs_review']=True
+
+
 def dpi_of(path):
     try:
         with Image.open(path) as im:
@@ -651,6 +678,8 @@ return text returned of r''')
         return
 
     progress('Onderdelen herkennen voor de bestandsnamen',scope='finishing',completed=len(results))
+    mark_repeated_fronts(results,detected_cover_parts,twijfel,component_records)
+    save_components()
     # namen
     import scan_naam
     # hoezen: minste tekst eerst (= voorkant), dan de rest

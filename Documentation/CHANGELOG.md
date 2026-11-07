@@ -1,3 +1,18 @@
+# 0.4.12 — Rechte labels, schone naden, barcodes en automatische vinylkleur
+
+- Plaatlabels recht: de scheefstand wordt op het label zelf gemeten (1600 px) in plaats van op de hele plaat verkleind tot 1200 px. Een gemeten scheefstand boven 12 graden wordt als meetfout genegeerd (`MAX_LABEL_SKEW`).
+- "Hoes en plaat juist draaien" bij platen: wijkt de Discogs-foto minder dan 6 graden af (`MAX_PHOTO_SKEW`), dan alleen de kwartslag (de foto staat zelf scheef). Wijkt hij meer af, dan volgt Sleeve de foto exact (labels waarop de tekstmeting misleidt, zoals FIRE en Graduated Fool). Een exacte draaiing van een plaat werd voorheen niet uitgevoerd; opgelost.
+- Naden: welke deelscan per plek wordt gebruikt, bepaalt de scherpste scan (met minder gewicht bij de scanrand). Een naadzoeker (graph cut, `SEAM_SIDE` 1200 px) mag de grens alleen binnen een strook van 40 px verleggen (`SEAM_CORRIDOR`), zodat die tussen woorden loopt. Alleen de heel grove toon (`TONE_SIGMA`) wordt tussen deelscans gemengd. Geen dubbele letters (Hotel New York), geen wazige scanranden (Urban Solitude) en geen blokken op goud vinyl (Together Alone).
+- Releasevoorstellen: zo nodig worden alle scans gelezen, tot de eerste bruikbare barcode. Zoeken gaat barcode → catalogusnummer en tekst; logo's die als één woord gelezen worden, worden gesplitst (AnoukUrbanSolitude → Anouk Urban Solitude). Catalogusnummers uit drukwerkregels gaan voor grote losse tekst (TOGETHER ondersteboven → JIH13901); bij een barcode-treffer wordt het catalogusnummer van de uitgave getoond. Elke tekstherkenning heeft een eigen proces (de gedeelde procesvariabele gaf geen voorstellen).
+- Herhaalde voorkant: de grootste is de voorkant; een duidelijk kleiner exemplaar (buitenkant binnenhoes) heet `insert` en wordt ter controle voorgelegd.
+- Automatische vinylkleur: wijkt de gescande plaatkleur af van de kleurnaam op Discogs, dan maakt Sleeve een `_kleur`-voorstel met een Discogs-foto waarvan de tint wél bij die naam past (FIRE: rood → oranje). Originelen blijven behouden; zilver, zwart, clear, marbled en splatter niet automatisch.
+
+# 0.4.11 — Geen rode of grijze gloed meer op samengevoegde hoezen
+
+- Samenvoegen van deelscans: de lichtcorrectie per deelscan gebruikt nu één gedeeld lichtverloop voor alle kleurkanalen, plus per kanaal alleen een vaste kleurzweem. Voorheen kreeg elk kanaal een eigen verloop dat vanuit de overlap over de hele scan werd doorgetrokken; dat gaf op wit papier een rode, roze of grijze gloed die niet op de scans stond.
+- Het lichtverloop per deelscan is begrensd op ongeveer 6% over de hele breedte/hoogte (`MAX_SLOPE`), de vaste kleurzweem per kanaal op ongeveer 4% (`MAX_CAST`). Voorheen liep de correctie per kanaal tot ±15%.
+- Alleen `scan_stitch.py` is gewijzigd. Losse scans, `--geen-kleur`, Discogs-kleur en -stand, uitsnijden en uitvoerresolutie zijn ongewijzigd.
+
 # 0.4.10 — Hoezen met witte randen en losse hoekscans
 
 - Hoesranden: een grote gesloten rechthoek kan een aantoonbaar afwijkende combinatie van scanner- en afbeeldingslijnen vervangen. Eerdere overeenkomende uitsneden blijven behouden.

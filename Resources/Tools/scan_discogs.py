@@ -22,6 +22,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 UA = 'Sleeve/0.3.1'
+MAX_PHOTO_SKEW = 6.0   # graden: kleinere afwijking van een Discogs-foto is scheef gefotografeerd
 
 
 def get(url):
@@ -190,17 +191,24 @@ def apply_reference(a,source_mode,metadata):
             print('kleur: te weinig gekleurd vlak om te vergelijken, niet aangepast')
     # stand
     if not a.alleen_kleur:
-        rot = ang if round_ else 90 * round(ang / 90)
+        # Plaat: het label is al op zijn eigen tekst rechtgezet. Een Discogs-foto
+        # staat zelf vaak een paar graden scheef (Urban Solitude: -1,9 tot +3,5),
+        # dan alleen de kwartslag overnemen. Wijkt de foto veel af, dan was de
+        # labeltekst bewust schuin ontworpen (FIRE: +35 graden): volg dan de foto.
+        rot = 90 * round(ang / 90)
+        if round_ and abs(ang - rot) > MAX_PHOTO_SKEW:
+            rot = ang
         if abs(rot) >= 0.2:
             changed=True
-            if not round_:
+            if rot % 90 == 0 and (not round_ or out.shape[0] == out.shape[1]):
                 # Exact quarter turns need no interpolation, padding or lost edge pixels.
                 out = np.ascontiguousarray(np.rot90(out, -int(round(rot / 90))))
             else:
                 h, w = out.shape[:2]
                 R = cv2.getRotationMatrix2D((w / 2, h / 2), -rot, 1.0)
                 out = cv2.warpAffine(out, R, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
-            print(f'stand: {rot:+.1f} graden gedraaid ({"plaat, exact" if round_ else "hoes, per 90"})')
+            how='exact als de Discogs-foto' if rot % 90 else 'per kwartslag'
+            print(f'stand: {rot:+.1f} graden gedraaid ({"plaat" if round_ else "hoes"}, {how}; Discogs-foto stond {ang:+.1f})')
     destination=a.uit or a.scan
     if not changed and source_mode=='RGBA' and os.path.splitext(destination)[1].lower()==os.path.splitext(a.scan)[1].lower():
         if os.path.abspath(destination)!=os.path.abspath(a.scan):
