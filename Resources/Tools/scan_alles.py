@@ -696,6 +696,10 @@ return text returned of r''')
                 if line.startswith('SLEEVE_QUALITY '):
                     import json
                     quality=ST.quality_messages(json.loads(line[len('SLEEVE_QUALITY '):]))
+            if 'plaat:' in r.stdout:
+                # Op platen verstoren groeven en de draaiing tussen deelscans de
+                # naadmeting (vals alarm); het label komt meestal uit één scan.
+                quality=[]
             # samenvoegen herkent de vorm al; samengevoegd = altijd een lp-formaat
             soort = 'vinyl' if 'plaat:' in r.stdout else 'hoes'
         else:
@@ -743,6 +747,10 @@ return text returned of r''')
             import re
             match=re.search(r'SLEEVE_REFERENCE_IDENTITY (\d+)',r.stdout) if r.returncode==0 else None
             matched_primary=soort=='hoes' and match is not None and int(match[1]) in primary_positions
+            if soort=='hoes' and match is not None and '--alleen-kleur' not in cmd:
+                # Zeker passende Discogs-foto heeft de stand gezet: de leesrichting
+                # is dan bekend, ook als er geen leesbare tekst op de hoes staat.
+                twijfel.discard(dst)
             if soort=='vinyl' and r.returncode==0 and 'past best' in r.stdout:label_check='discogs'
         if soort=='vinyl' and label_check!='discogs':
             # Zonder passende Discogs-foto van het vinyl is de stand alleen op de

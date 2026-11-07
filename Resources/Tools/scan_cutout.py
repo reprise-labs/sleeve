@@ -42,7 +42,7 @@ HOLE = 0.138        # cd/dvd: gatdiameter / schijfdiameter, zoals op de site
 HOLE_VINYL = 0.026  # lp/7": klein asgat, zoals op de site (7" met groot gat: --gat 0.217)
 SWEEP_MARGIN = 1.2     # leesstand-zoektocht: de winnaar moet 20% meer echte woorden halen dan de rest
 LABEL_REFINE_MIN = 1.5 # graden: kleinere bijstellingen zijn ruis van het labelontwerp (gemeten tot 1,3)
-LABEL_REFINE = 4.0     # graden: fijnbijstelling op de tekstregels na de grove meting
+LABEL_REFINE = 8.0     # graden: fijnbijstelling op de tekstregels na de grove meting (en na de leesstand-zoektocht in stappen van 15)
 MAX_LABEL_SKEW = 12.0  # graden: grotere fijne scheefstand van een label is eerder een meetfout
 SIZE = None       # None = volle resolutie (de site-versie maakt een andere Quick Action)
 
