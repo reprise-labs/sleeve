@@ -1,3 +1,24 @@
+## 0.4.12 — labels, naden, barcodes, voorkant en vinylkleur
+
+- Labels: Urban Solitude A/B en Graduated Fool A/B (uitvoer 0.4.11, verkleind tot 3000 px) stonden +1,9 / −3,5 / +0,6 / +2,2 graden scheef; de nieuwe meting corrigeert dat tot 0,0 graden (onafhankelijke projectiemeting), visueel gecontroleerd. Volledige `scan_cutout`-run op één plaat: 0.4.11 draaide 0,0 graden, 0.4.12 −1,9 graden.
+- Naden: Hotel New York-achterkant (Scan 4–7, halve resolutie). De bronscans liggen lokaal tot 5–19 px uit elkaar (hoes niet vlak). 0.4.11 gaf dubbele/vage letters in de copyrighttekst; 0.4.12 geeft scherpe letters met de naad tussen woorden. Samenvoegtijd 41 s → 67 s op halve resolutie. WEN-front (3500 px) en Urban Solitude-kant A ook samengevoegd: neutraal papierwit, geen zichtbare naden.
+- Barcodes: Urban Solitude, 16 scans: barcode 0602455508959 (alleen op scan 14) en MOVLP1573 gevonden in ~5 s; precies één Discogs-uitgave (27551973). Alleen met de oude tekst-hints (AnoukUrbanSolitud / nSolitude) nu 4 juiste uitgaven in plaats van 0.
+- Voorkant: Together Alone front (308 mm) en front_2 (296 mm, artwork 3,3% kleiner) → front_2 wordt `insert` en ter controle gemarkeerd.
+- Vinylkleur: getest op de vinylkanten van 6 uitgaven tegen Discogs. Alleen Set This Thing On Fire (oranje, gescand als rood) krijgt een voorstel, met Discogs-foto 7, dezelfde die handmatig gekozen was; resultaat visueel gelijk aan de handmatige kleurkopie. Goud, groen, geel, zilver en rood ongemoeid.
+- Releasevoorstellen via de app-koppeling (studio_bridge): Together Alone (19 scans) barcode 0602547578068, 2 voorstellen met de gouden uitgave 8388109 bovenaan, ~4 s; Urban Solitude 1 voorstel (Moss Green). Zonder barcode en met fout catalogusnummer JIH13901: nog steeds 5 juiste Together Alone-voorstellen.
+- Catalogusnummer uit alleen de gelezen tekst: Together Alone MOVLP1572 (was JIH13901), Urban Solitude MOVLP1573, Hotel New York MOVLP1575.
+- Volledige keten (samenvoegen → uitknippen → Discogs-stand) op Urban Solitude A en B en Together Alone B (3500 px / origineel): labels 0,0 graden scheef. In de afgebroken app-run stonden ze +2,0 en −3,5 graden scheef door de Discogs-stand (−1,7 / +3,4 graden). Together Alone B: goud weer egaal; Hotel New York-tekst blijft scherp.
+- Discogs-stand na de labelfix: Discogs-foto's wijken af bij Urban Solitude −1,9 tot +3,5, Together Alone −1,3 tot 0,0 (labels blijven 0,0 graden), FIRE A/B +36,4 / +37,2 met drie foto's eens (label nu zoals ontworpen, gelijk aan Discogs). Volledige FIRE-run via de app-koppeling: hoes, achterkant en twee automatische _kleur-voorstellen (rood → oranje) goed; labels toen nog 36 graden verkeerd, daarna met deze regel gecorrigeerd.
+- Wachtrij van 6 uitgaven via de app-koppeling (eerste 0.4.12-build): TA en FBOW goed; US-back wazige woorden (scanrand gekozen terwijl scan 13 scherp was), HNY-back naad door tekst, FIRE-labels niet gedraaid (fout in Discogs-stand), GF kant A: label in Scan 9–11 wijkt af van Scan 12 (twee verschillende labels in de bronscans).
+- Na de corridor-fix (verkleind): US-back scherp, HNY-back naden tussen woorden zonder dubbele letters; controles TA-goud, WEN-front en FBOW-front ongewijzigd goed. FIRE-labels na Discogs-stand 0,0 graden afwijking. FIRE-back niet verkleind te testen (8 deelscans passen op 35% niet betrouwbaar).
+- Niet uitgevoerd: volledige app-run op volle resolutie, de volledige regressieset en de native app-controles.
+
+## 0.4.11 — kleurgloed bij samengevoegde hoezen
+
+- WEN front (Scan 1–4) en back (Scan 5–8): in de 0.4.10-uitvoer gemeten papierwit bovenaan back ongeveer RGB 244/218/217 (roze) en front deels ~207 (grijs) en ~254 (overbelicht), terwijl de bronscans overal neutraal papier hebben (~235/235/234). Oorzaak: per kanaal sterk verschillende lichtcorrectie (hellingen tot 0,6 in log-ruimte; bij de back rood 0,07 tegenover groen 0,39).
+- Controle op verkleinde kopieën (langste zijde 3500 px) van dezelfde scans: met 0.4.10 dezelfde gloed; zonder kleurcorrectie neutraal; met 0.4.11 neutraal papierwit (~245) zonder zichtbare naden, visueel gecontroleerd.
+- Niet uitgevoerd: volledige-resolutierender van WEN met 0.4.11, andere uitgaven (FIRE, FBOW, GF) en de volledige regressieset.
+
 ## 0.4.10 — witte hoesranden, gedeelde logo’s en losse hoekscans
 
 - WEN: acht oorspronkelijke hoesdeelscans opnieuw op volledige resolutie verwerkt tot front (14671 × 14749) en back (14671 × 14769), met de juiste namen. Beide bestanden leesbaar; verkleinde resultaten visueel gecontroleerd op de hoesranden en behoud van tekst/witte rand.

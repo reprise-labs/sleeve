@@ -2,9 +2,15 @@
 import concurrent.futures,json,re,subprocess,urllib.error,urllib.parse,urllib.request
 from pathlib import Path
 
-UA='Sleeve/0.4.2 (+https://github.com/reprise-labs/sleeve)'
+UA='Sleeve/0.4.12 (+https://github.com/reprise-labs/sleeve)'
 
 def normalized(value):return re.sub(r'[^a-z0-9]','',str(value).casefold())
+def split_words(value):
+ # AnoukUrbanSolitude -> Anouk Urban Solitude; dubbele woorden één keer.
+ words=re.sub(r'(?<=[a-z])(?=[A-Z])',' ',str(value)).split();seen=[]
+ for word in words:
+  if word.casefold() not in [w.casefold() for w in seen]:seen.append(word)
+ return ' '.join(seen)[:160]
 def valid_barcode(value):
  value=re.sub(r'[\s-]','',str(value))
  if not value.isdigit() or len(value) not in (8,12,13,14) or len(set(value))==1:return ''
@@ -53,25 +59,41 @@ def extract_hints(documents):
  clean=[s for s in clean if len(s)<=100 and not re.match(r'^\d{1,2}[.)]\s',s)][:16]
  artist=clean[0] if clean else ''
  title=next((s for s in clean[1:] if normalized(s)!=normalized(artist)),'')
- catalogs=[]
+ # Een catalogusnummer staat in het kleine drukwerk ("Made in the EU … MOVLP1572").
+ # Grote losse tekst die erop lijkt is vaak een titel of logo, verkeerd om gelezen
+ # (TOGETHER ondersteboven -> JIH13901): drukwerkregels eerst, dan kleinste tekst.
+ context=re.compile(r'made|music|universal|rights|reserved|licen|manufactur|distribut|netherlands|\beu\b|records|vinyl|℗|©',re.I)
+ found=[]
  for row in ordered:
   text=row['text']
   for expression in [r'\b[A-Z]{2,6}[ .-]?\d{3,9}(?:[-./]\d{1,3})?\b',r'\b\d{2,4}[ .-]\d{3,5}[ .-]\d{1,2}\b']:
    for candidate in re.findall(expression,text):
-    if not valid_barcode(candidate) and candidate not in catalogs:catalogs.append(candidate)
+    if not valid_barcode(candidate):found.append((context.search(text) is None,float(row.get('height',0)),candidate))
+ catalogs=[]
+ for _,_,candidate in sorted(found,key=lambda f:f[:2]):
+  if candidate not in catalogs:catalogs.append(candidate)
  return {'artist':artist,'title':title,'barcode':barcodes[0] if barcodes else '', 'catno':catalogs[0] if catalogs else '', 'text':clean,'barcodes':barcodes[:4]}
 
 def recognize(rows,runner=None):
  helper=Path(__file__).with_name('sleeve_ocr')
  if not helper.is_file():raise ValueError('De tekstherkenner ontbreekt. Je kunt de zoekgegevens zelf invullen.')
  if runner is None:runner=lambda command:subprocess.run(command,capture_output=True,text=True,timeout=20,check=True).stdout
+ # Barcode en catalogusnummer staan vaak op één deelscan van de achterkant.
+ # Lees daarom zo nodig alle scans (~1 s per scan), maar stop bij de eerste
+ # bruikbare barcode. Artiest en titel komen zoals voorheen uit de steekproef.
+ sampled=sample_rows(rows)
+ order=sampled+[r for r in rows if not r.get('reference') and r not in sampled]
  documents=[]
- for row in sample_rows(rows):
-  try:
-   document=json.loads(runner([str(helper),row['path'],'--identify']));documents.append(document)
-   if any(valid_barcode(value) for value in document.get('barcodes',[])):break
-  except (ValueError,OSError,subprocess.SubprocessError):continue
- return extract_hints(documents)
+ for row in order:
+  try:document=json.loads(runner([str(helper),row['path'],'--identify']))
+  except (ValueError,OSError,subprocess.SubprocessError):document=None
+  documents.append(document)
+  if document and any(valid_barcode(value) for value in document.get('barcodes',[])):break
+ hints=extract_hints([d for d in documents[:len(sampled)] if d])
+ everything=extract_hints([d for d in documents if d])
+ hints['barcodes']=everything['barcodes'];hints['barcode']=everything['barcode']
+ if not hints['catno']:hints['catno']=everything['catno']
+ return hints
 
 def api_get(url):
  try:
@@ -87,19 +109,26 @@ def search(hints,format_filter='',get=api_get):
  terms['barcode']=valid_barcode(terms['barcode'])
  common={'type':'release','per_page':20}
  if format_filter in ('Vinyl','CD'):common['format']=format_filter
+ # Eerst de barcode; levert die niets op (of is er geen), dan catalogusnummer
+ # én tekst samen: een verkeerd gelezen catalogusnummer mag de tekst niet wegdrukken.
  queries=[]
- if terms['barcode']:queries.append(dict(common,barcode=terms['barcode']))
- if terms['catno'] and not terms['barcode']:queries.append(dict(common,catno=terms['catno']))
- if not terms['barcode'] and (terms['artist'] or terms['title']):
+ if terms['catno']:queries.append(dict(common,catno=terms['catno']))
+ if terms['artist'] or terms['title']:
   queries.append(dict(common,**({'artist':terms['artist']} if terms['artist'] else {}),**({'release_title':terms['title']} if terms['title'] else {})))
- if not queries:return [],'Vul een artiest en titel, barcode of catalogusnummer in.'
+  # Logo's lezen vaak als één woord (AnoukUrbanSolitude): ook vrij zoeken, met woorden gesplitst.
+  for free in (split_words(terms['artist']),split_words(' '.join(t for t in (terms['artist'],terms['title']) if t))):
+   if free and dict(common,q=free) not in queries:queries.append(dict(common,q=free))
+ if not queries and not terms['barcode']:return [],'Vul een artiest en titel, barcode of catalogusnummer in.'
  results={};problems=[]
- for query in queries[:3]:
+ def run(query):
   try:
    for row in get('https://api.discogs.com/database/search?'+urllib.parse.urlencode(query)).get('results',[]):
     rid=row.get('id')
     if isinstance(rid,int) and rid>0:results[rid]=row
   except RuntimeError as error:problems.append(str(error))
+ if terms['barcode']:run(dict(common,barcode=terms['barcode']))
+ if not results:
+  for query in queries[:3]:run(query)
  def evidence(row):
   reasons=[];score=0
   if terms['barcode'] and any(barcode_key(code)==barcode_key(terms['barcode']) for code in row.get('barcode',[])):
@@ -124,9 +153,12 @@ def search(hints,format_filter='',get=api_get):
 
 def advice(req,rows,runner=None,get=api_get):
  hints=recognize(rows,runner) if req.get('recognize',True) else {k:req.get(k,'') for k in ('artist','title','barcode','catno')}
- if req.get('recognize',True) and (hints.get('barcode') or hints.get('catno')):
-  hints['artist']='';hints['title']=''
  candidates,message=search(hints,req.get('format',''),get)
+ if req.get('recognize',True) and any('Barcode komt overeen' in c['reasons'] or 'Catalogusnummer komt overeen' in c['reasons'] for c in candidates):
+  hints['artist']='';hints['title']=''     # zekere treffer: geen gelezen tekstruis tonen
+ barcode_hits=[c for c in candidates if 'Barcode komt overeen' in c['reasons'] and c['catno']]
+ if req.get('recognize',True) and barcode_hits and len({normalized(c['catno']) for c in barcode_hits})==1:
+  hints['catno']=barcode_hits[0]['catno']  # catalogusnummer van de uitgave zelf, niet een misgelezen titel
  if candidates and len({c['title'] for c in candidates})==1:
   artist,separator,title=candidates[0]['title'].partition(' - ')
   if separator:hints['artist']=artist;hints['title']=title

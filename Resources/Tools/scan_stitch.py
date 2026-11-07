@@ -38,6 +38,13 @@ DETAIL_SIGMA = 6       # px: fijner dan dit = detail (uit één scan), grover = 
 FEATHER = 700          # px: zo ver van de scanrand weegt een pixel pas volledig mee
                        # (randen van de glasplaat zijn donkerder: lamp + schaduw)
 EDGE = 150             # px van de rand die niet meetelt bij het kleurmeten
+SEAM_CORRIDOR = 40     # px (rekenschaal): zo ver mag een naad van de scherpste-scan-grens afwijken
+SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
+WINNER_SMOOTH = 8     # px (rekenschaal): keuzekaart per deelscan samenhangend maken
+TONE_SIGMA = 30        # px (rekenschaal): alleen deze heel grove toon wordt tussen deelscans gemengd;
+                       # alles fijner (ook letters) komt uit de gekozen deelscan
+MAX_SLOPE = 0.06      # lichtverloop per deelscan: max ~6% over de hele breedte/hoogte
+MAX_CAST = 0.04        # vaste kleurzweem per kanaal: max ~4%
 
 
 def open_srgb(path, factor=1.0):
@@ -253,6 +260,31 @@ def place(n, feats):
     return H, ref, W, missing
 
 
+def seam_regions(img, masks, ks, height, width):
+    """Per plek één deelscan, met naden waar de scans het meest op elkaar lijken
+    (wit papier, tussen regels) in plaats van dwars door tekst. Graph cut op
+    ~SEAM_SIDE px. Geeft per pixel het scannummer (255 = geen keuze) of None."""
+    f = min(1.0, SEAM_SIDE / max(height, width))
+    w, h = max(1, round(width * f)), max(1, round(height * f))
+    try:
+        images, small = [], []
+        for k in ks:
+            images.append(cv2.UMat(cv2.resize(img[k][0:height], (w, h), interpolation=cv2.INTER_AREA).astype(np.float32)))
+            small.append(cv2.UMat(cv2.resize(masks[k].astype(np.uint8) * 255, (w, h), interpolation=cv2.INTER_NEAREST)))
+        found = cv2.detail_GraphCutSeamFinder('COST_COLOR_GRAD').find(images, [(0, 0)] * len(ks), small)
+    except cv2.error as error:
+        print(f'naden: graph cut niet gelukt ({error.code}); samenhangende keuze gebruikt', flush=True)
+        return None
+    choice = np.full((h, w), 255, np.uint8)
+    for n, m in enumerate(found):
+        m = m.get() if hasattr(m, 'get') else np.asarray(m)
+        choice[(m > 0) & (choice == 255)] = n
+    choice = cv2.resize(choice, (width, height), interpolation=cv2.INTER_NEAREST)
+    for n, k in enumerate(ks):
+        choice[(choice == n) & ~masks[k]] = 255              # nooit buiten de eigen scan
+    return choice
+
+
 def feather_weight(mask):
     """Gewicht dat vanaf de rand van het geldige deel zacht oploopt."""
     d = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
@@ -289,15 +321,23 @@ def gain_correct(im, mask, comp, cmask, step=16, allocator=None, release=None, f
     yy, xx = np.nonzero(ok)
     X = np.stack([np.ones_like(xx), xx / (w / step), yy / (h / step)], 1).astype(np.float64)
     fx=np.arange(w,dtype=np.float32)[None,:]
+    # Eén gedeeld lichtverloop voor alle kanalen, per kanaal alleen een vaste
+    # zweem. Het vlak wordt in de (smalle) overlap gemeten maar over de hele
+    # scan doorgetrokken: losse hellingen per kanaal gaven daar rode/grijze
+    # gloed op wit papier. De helling is begrensd, gemeten rond de overlap.
+    r = np.log(B[ok] / A[ok])
+    lum = r.mean(axis=1)
+    sel = np.ones(len(lum), bool)
+    for _ in range(3):                                  # uitschieters eruit
+        coef, *_ = np.linalg.lstsq(X[sel], lum[sel], rcond=None)
+        res = lum - X @ coef
+        sel = np.abs(res) < max(2.5 * np.std(res[sel]), 0.01)
+    coef[1:] = np.clip(coef[1:], -MAX_SLOPE, MAX_SLOPE)
+    coef[0] = np.median(lum[sel] - X[sel, 1:] @ coef[1:])
     coefficients=[]
     for c in range(3):
-        r = np.log(B[ok, c] / A[ok, c])
-        sel = np.ones(len(r), bool)
-        for _ in range(3):                              # uitschieters eruit
-            coef, *_ = np.linalg.lstsq(X[sel], r[sel], rcond=None)
-            res = r - X @ coef
-            sel = np.abs(res) < max(2.5 * np.std(res[sel]), 0.01)
-        coefficients.append(coef)
+        cast = np.clip(np.median(r[sel, c] - lum[sel]), -MAX_CAST, MAX_CAST)
+        coefficients.append(np.array([coef[0] + cast, coef[1], coef[2]]))
     if fit_only:return GainPlane(coefficients,(h,w))
     out=allocator("corrected",im.shape) if allocator else np.empty_like(im)
     gm=allocator("gain",im.shape) if allocator else np.empty_like(im)
@@ -505,7 +545,7 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
             cx, cy, r = shape[1]
             cxo, cyo = (O @ [cx, cy, 1])[:2] * s; ro = r * s
         inverse_O=np.linalg.inv(O)
-        sig = DETAIL_SIGMA * s; pad = int(3 * sig) + 8
+        sig = TONE_SIGMA * s; pad = int(3 * sig) + 8
         tile=render_tile_size()
         print(f'geheugenbegrensd: bronbeelden via tijdelijke schijfblokken, uitvoerblokken {tile} px',flush=True)
         progress('Beeld opbouwen',0,1)
@@ -823,12 +863,33 @@ def main_with_resources(resources,lease=None):
         best[y0:y1]=winner
         progress('Details tussen deelscans vergelijken',y1,height)
     value=winner=g=sh=score=better=None
+    # Eén deelscan per plek: maak de keuzekaart samenhangend en neem ook de
+    # grove laag vooral uit die scan. Overal mengen gaf dubbele, vage letters
+    # waar een hoes niet vlak lag en de deelscans een paar pixels verschilden.
+    progress('Naden tussen deelscans kiezen')
+    value=np.full((height,width),-1.0,np.float32);coherent=np.zeros((height,width),np.uint8)
+    for n,k in enumerate(ks):
+        share=cv2.GaussianBlur(((best==n)&masks[k]).astype(np.float32),(0,0),WINNER_SMOOTH)
+        share[~masks[k]]=-1.0
+        better=share>value;value[better]=share[better];coherent[better]=n
+    best[:]=coherent
+    if len(ks)>1:
+        # Welke deelscan per plek: de scherpste (zoals 0.4.11). De naadzoeker
+        # mag alleen de grens verleggen, binnen een smalle strook, zodat die
+        # tussen woorden en regels loopt. Zo kiest hij nooit een wazige rand of
+        # een deelscan die op die plek niet goed op de andere ligt.
+        corridor=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(2*SEAM_CORRIDOR+1,2*SEAM_CORRIDOR+1))
+        allowed={k:(cv2.dilate((best==n).astype(np.uint8),corridor)>0)&masks[k] for n,k in enumerate(ks)}
+        seams=seam_regions(img,allowed,ks,height,width)
+        allowed=None
+        if seams is not None:best[:]=np.where(seams<255,seams,best)
+    value=coherent=share=better=None
     def lowpass(x,m):
-        mb=cv2.GaussianBlur(m,(0,0),DETAIL_SIGMA)
-        return cv2.GaussianBlur(x*m[...,None],(0,0),DETAIL_SIGMA)/np.maximum(mb,1e-6)[...,None]
+        mb=cv2.GaussianBlur(m,(0,0),TONE_SIGMA)
+        return cv2.GaussianBlur(x*m[...,None],(0,0),TONE_SIGMA)/np.maximum(mb,1e-6)[...,None]
     # Accumulate one band across all sources, then write the byte output directly.
     # Per-pixel source order and float32 arithmetic match the mapped-buffer path.
-    pad=int(4*DETAIL_SIGMA)+2
+    pad=int(4*TONE_SIGMA)+2
     out=np.zeros((height,width,4),np.uint8);anymask=np.zeros((height,width),bool)
     progress('Overgangen tussen deelscans afwerken',0,len(ks)*height)
     for y0 in range(0,height,256):

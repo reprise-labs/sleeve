@@ -40,7 +40,8 @@ Image.MAX_IMAGE_PIXELS = None
 
 HOLE = 0.138        # cd/dvd: gatdiameter / schijfdiameter, zoals op de site
 HOLE_VINYL = 0.026  # lp/7": klein asgat, zoals op de site (7" met groot gat: --gat 0.217)
-SIZE = None        # None = volle resolutie (de site-versie maakt een andere Quick Action)
+MAX_LABEL_SKEW = 12.0  # graden: grotere fijne scheefstand van een label is eerder een meetfout
+SIZE = None       # None = volle resolutie (de site-versie maakt een andere Quick Action)
 
 
 def content_mask(im, thr=30):
@@ -456,12 +457,18 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
     if auto:
         progress('Tekst op het etiket recht draaien')
         small = sq.resize((1200, 1200), Image.LANCZOS) if size > 1200 else sq
-        ta = disc_text_angle(small, vinyl) or 0.0
         if vinyl:                                        # alleen het label lezen, groot genoeg
             lb = int(size * 0.18); c0 = size // 2
             lab_im = sq.crop((c0 - lb, c0 - lb, c0 + lb, c0 + lb)).resize((1600, 1600), Image.LANCZOS)
+            # Hoek op het label zelf meten: op de hele plaat (1200 px) is de
+            # labeltekst te klein en bleef een scheef label scheef.
+            ta = disc_text_angle(lab_im) or 0.0
+            if abs(((ta + 45) % 90) - 45) > MAX_LABEL_SKEW:
+                print(f'tekst: rechtzethoek {ta:+.1f} graden onwaarschijnlijk, alleen kwartslagen')
+                ta = 0.0
             t1 = lab_im.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)) if ta else lab_im
         else:
+            ta = disc_text_angle(small, vinyl) or 0.0
             t1 = small.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)) if ta else small
         q = reading_quadrant(t1)                         # rechtop, op z'n kant of ondersteboven?
         if q is not None:
