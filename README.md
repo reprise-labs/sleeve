@@ -1,205 +1,206 @@
 # Sleeve
 
-Een macOS-app voor scans van je muziekcollectie: cd's en platen uitsnijden,
-deelscans samenvoegen, later kleurvoorstellen maken en bestandsnamen overnemen
-van een Discogs-uitgave. Met wachtrij, projecten en eindcontrole.
+A macOS app for scans of your music collection: crop CDs and records, stitch partial
+scans together, suggest colour corrections later on and take file names from a Discogs
+release. With a queue, projects and a final review.
 
 ![Sleeve](Artwork/Sleeve.png)
 
-## Testversie 0.4.8
+## Test version 0.4.8
 
-Nieuw in deze testversie: de schijfruimteregeling blijft tijdelijke uitvoerbuffers
-volgen tijdens het opslaan, zodat andere onderdelen op vrijkomende ruimte kunnen
-wachten. Na een fout verschijnt de foutmelding voordat een eindcontrole wordt
-geopend. De beeldberekening en uitvoerresolutie zijn ongewijzigd.
-Metingen en kwaliteitscontroles staan in [TESTS.md](Documentation/TESTS.md);
-wijzigingen staan in [CHANGELOG.md](Documentation/CHANGELOG.md).
-Verder beschikbaar: Discogs-releasevoorstellen en een aparte kleurstap
-voor hoezen en platen. Ook beschikbaar: ronde uitsneden zelf bijstellen, één
-onderdeel opnieuw verwerken en de geheugenfix voor grote FIRE-scans.
-Deze versie is een proefversie; download het volledige app-pakket bij Releases.
+New in this test version: disk-space management keeps tracking temporary output buffers
+while saving, so other parts can wait for space to free up. After an error, the error
+message appears before a final review is opened. Image processing and output resolution
+are unchanged.
+Measurements and quality checks are in [TESTS.md](Documentation/TESTS.md);
+changes are in [CHANGELOG.md](Documentation/CHANGELOG.md).
+Also available: Discogs release suggestions and a separate colour step for sleeves and
+records. Also available: adjusting round crops yourself, reprocessing a single part, and
+the memory fix for large FIRE scans.
+This version is a preview; download the full app package from Releases.
 
-Apple Silicon, macOS 14 of nieuwer. De app is lokaal ondertekend en nog niet
-bij Apple genotariseerd. Deze proefversie heeft een eenmalige installatie van
-Python-beeldonderdelen nodig; die zijn nog niet in het appbestand gebundeld.
-De interface is Nederlands. De werking is getest op één Mac; een schone,
-andere Mac is nog niet getest.
+Apple Silicon, macOS 14 or later. The app is signed locally and not yet notarized by
+Apple. This preview needs a one-time installation of Python image components; they are not
+yet bundled in the app. The interface is in Dutch; menu and button names below are given
+as they appear in the app. It has been tested on one Mac; a clean, different Mac has not
+been tested yet.
 
-## Installeren
+## Installation
 
-Download het volledige app-pakket via [Releases](https://github.com/reprise-labs/sleeve/releases).
+Download the full app package from [Releases](https://github.com/reprise-labs/sleeve/releases).
 
-1. Pak het volledige downloadpakket uit en verplaats `Sleeve.app` naar je Apps-map.
-2. Voer `Installeer beeldonderdelen.command` uit vanuit het uitgepakte pakket.
-   Bewaar de meegeleverde `scripts`-map en `requirements.txt` ernaast.
-   Dit maakt een aparte Python-omgeving onder
+1. Unzip the full download package and move `Sleeve.app` to your Applications folder.
+2. Run `Installeer beeldonderdelen.command` from the unzipped package.
+   Keep the included `scripts` folder and `requirements.txt` next to it.
+   This creates a separate Python environment under
    `~/Library/Application Support/com.repriselabs.Sleeve/Runtime`.
-3. Open Sleeve. Als de installatie geen geschikte Python vindt, installeer dan
-   Python 3.11 via [python.org](https://www.python.org/downloads/macos/),
-   of met Homebrew: `brew install python@3.11`. Voer de installatie daarna opnieuw uit.
+3. Open Sleeve. If the installer can't find a suitable Python, install
+   Python 3.11 from [python.org](https://www.python.org/downloads/macos/),
+   or with Homebrew: `brew install python@3.11`. Then run the installer again.
 
-Op de oorspronkelijke ontwikkel-Mac kan de bestaande Python-installatie ook
-worden gebruikt. Voor andere Macs is de aparte omgeving de bedoelde route.
-De installer heeft internet nodig om NumPy, Pillow en OpenCV te downloaden.
+On the original development Mac the existing Python installation can be used as well.
+For other Macs, the separate environment is the intended route.
+The installer needs internet access to download NumPy, Pillow and OpenCV.
 
-## Gebruik
+## Usage
 
-- **Scans verwerken:** selecteer één uitgave uit één bronmap. Verwerk cd en vinyl
-  apart. Gemengde cd/vinyl-invoer is niet getest. Markeer etiketclose-ups als
-  referentie. Elke verwerking krijgt een nieuwe submap.
-- **Discogs:** namen en stand zijn apart te kiezen. Controleer de juiste uitgave.
-  Gebruik voor vinylkleur bewust een foto van de volledige plaat via Kleur aanpassen.
-- **Kleur aanpassen:** ook later opnieuw mogelijk. De vinylmethode beschermt het
-  etiket en transparantie. De kleur is een voorstel, geen exacte meting.
-- **Namen aanpassen:** controleer het voorstel. Sleeve maakt zelfstandige kopieën.
-- **Wachtrij:** stel een taak in, zet hem klaar en voeg desgewenst andere taken toe.
-  De lijst verwerkt taken na elkaar met hun eigen instellingen. Een fout of
-  onderbreking pauzeert de lijst. Er wordt na heropenen niets vanzelf herhaald.
-- **Projecten:** bewaar als `.sleeveproject` en open later via het Project-menu.
-  Eerdere `.anoukproject`-bestanden kunnen ook worden geopend. Referentiefoto's,
-  instellingen, geschiedenis en beoordelingen worden bewaard. Bron- en
-  resultaatbeelden blijven gekoppeld aan hun locatie: laat die mappen staan.
-- **Eindcontrole:** leesbaarheid en ronde uitsneden worden gemeten. Beoordeel
-  volledigheid, bestandsnamen en kleur zelf. Die drie punten worden nooit
-  automatisch goedgekeurd. Gewijzigde bestanden verliezen hun eerdere goedkeuring.
+- **Processing scans (Scans verwerken):** select one release from one source folder.
+  Process CD and vinyl separately; mixed CD/vinyl input has not been tested. Mark label
+  close-ups as reference. Every run gets a new subfolder.
+- **Discogs:** names and orientation can be chosen separately. Check that it's the right
+  release. For vinyl colour, deliberately use a photo of the full record via
+  Kleur aanpassen.
+- **Adjusting colour (Kleur aanpassen):** can also be redone later. The vinyl method
+  protects the label and transparency. The colour is a suggestion, not an exact
+  measurement.
+- **Renaming (Namen aanpassen):** check the suggestion. Sleeve creates independent copies.
+- **Queue:** set up a job, mark it ready and add other jobs if you like. The list
+  processes jobs one after another, each with its own settings. An error or interruption
+  pauses the list. Nothing is repeated automatically after reopening.
+- **Projects:** save as `.sleeveproject` and reopen later via the Project menu.
+  Older `.anoukproject` files can be opened too. Reference photos, settings, history and
+  reviews are saved. Source and result images stay linked to their location: leave those
+  folders where they are.
+- **Final review:** legibility and round crops are measured. Judge completeness, file
+  names and colour yourself. Those three points are never approved automatically.
+  Changed files lose their earlier approval.
 
-De voortgang meet beschikbare werkermeldingen binnen een stap. Voor stappen
-zonder meetbare voortgang verschijnt een lopende indicator, geen verzonnen totaal.
+Progress reflects the worker messages available within a step. For steps without
+measurable progress an activity indicator appears, not a made-up total.
 
-## Privacy en verbindingen
+## Privacy and connections
 
-Beeldverwerking gebeurt lokaal, zonder AI-API. Voor Discogs worden openbare
-gegevens en referentiefoto's opgehaald; scans worden niet geüpload. Een firewall
-zoals Little Snitch kan voor een nieuwe appversie opnieuw toestemming vragen
-voor `api.discogs.com` en `i.discogs.com`.
+Image processing happens locally, without an AI API. For Discogs, public data and
+reference photos are fetched; scans are never uploaded. A firewall such as Little Snitch
+may ask for permission again for a new app version, for `api.discogs.com` and
+`i.discogs.com`.
 
-De meegeleverde voorbeeldplaten zijn synthetisch. Persoonlijke scans,
-testprojecten en lokale instellingen maken geen deel uit van deze repository.
+The included sample records are synthetic. Personal scans, test projects and local
+settings are not part of this repository.
 
-## Bouwen
+## Building
 
-Xcode Command Line Tools en een geschikte Apple Silicon Mac zijn nodig:
+Xcode Command Line Tools and a suitable Apple Silicon Mac are required:
 
 ```sh
 zsh build.sh
 ```
 
-De OCR-helper wordt tijdens het bouwen gecompileerd, zodat de app daarvoor
-geen bestanden in zijn eigen ondertekende pakket hoeft te wijzigen.
+The OCR helper is compiled during the build, so the app doesn't have to modify files
+inside its own signed bundle.
 
-## Testen
+## Testing
 
 ```sh
 zsh scripts/check.sh
 ```
 
-De controles maken tijdelijke bestanden en testen beeldvorm, beschadigde
-bestanden, etiket/transparantie, voortgang, stoppen, projecten en wachtrij.
-Grote echte albumscans en de native vensters zijn lokaal aanvullend getest;
-synthetische checks bewijzen niet dat elke mogelijke scan correct wordt verwerkt.
+The checks create temporary files and test image shape, damaged files,
+label/transparency, progress, stopping, projects and the queue. Large real album scans
+and the native windows have additionally been tested locally; synthetic checks don't
+prove that every possible scan is processed correctly.
 
 ## Reprise Labs
 
-Sleeve is een apart project naast [Reprise](https://github.com/reprise-labs/reprise).
-De twee apps hebben eigen versies en downloads. Deze repository wijzigt Reprise niet.
+Sleeve is a separate project alongside [Reprise](https://github.com/reprise-labs/reprise).
+The two apps have their own versions and downloads. This repository doesn't change Reprise.
 
-## Nieuw: uitsnede bijstellen
+## New: adjusting a crop
 
-Selecteer een geladen cd- of vinylbeeld en kies **Ronde uitsnede bijstellen…**.
-Sleep de cirkel of gebruik de schuiven; de plus/min-knoppen verplaatsen het
-middelpunt of de diameter per pixel. **Toon uitgeknipt voorbeeld** laat het
-resultaat direct zien. Een cirkel buiten de bron kan niet worden bewaard.
+Select a loaded CD or vinyl image and choose **Ronde uitsnede bijstellen…** (adjust round
+crop). Drag the circle or use the sliders; the plus/minus buttons move the centre or the
+diameter one pixel at a time. **Toon uitgeknipt voorbeeld** (show cropped preview) shows
+the result straight away. A circle outside the source can't be saved.
 
-Kies **Kies oorspronkelijke scan…** als een eerdere uitsnede al te veel heeft
-verwijderd. De nieuwe uitsnede blijft een echte cirkel, zonder uitrekken van
-het beeld. Alleen de buitenrand verandert: het middengat en eventuele gaten
-blijven zoals in de bron. Pixels binnen de cirkel, DPI en ICC-profiel blijven
-behouden. De buitenste rand krijgt een zachte overgang van één pixel.
+Choose **Kies oorspronkelijke scan…** (choose original scan) if an earlier crop already
+removed too much. The new crop stays a true circle, without stretching the image. Only
+the outer edge changes: the centre hole and any other holes stay as in the source. Pixels
+inside the circle, DPI and ICC profile are preserved. The outermost edge gets a soft
+one-pixel transition.
 
-**Bewaar nieuwe uitsnede** maakt een nieuwe PNG en vervangt alleen het gekozen
-resultaat in het project. De bron en de vorige poging blijven op schijf staan.
-De nieuwe versie vraagt opnieuw een eindcontrole.
+**Bewaar nieuwe uitsnede** (save new crop) creates a new PNG and replaces only the chosen
+result in the project. The source and the previous attempt stay on disk. The new version
+needs a final review again.
 
-## Nieuw: één onderdeel opnieuw verwerken
+## New: reprocessing a single part
 
-Selecteer een resultaat en kies **Dit onderdeel opnieuw verwerken…**, of kies
-**Onderdeel opnieuw…** in de eindcontrole. Controleer de aangevinkte bronbeelden;
-als niet bekend is welke scans bij het onderdeel horen, kies je ze zelf.
-Gebruik één bronmap. De selectie wordt als één onderdeel verwerkt, bijvoorbeeld
-alleen kant B. Er moet precies één nieuw resultaat ontstaan; anders blijft de
-vorige versie actief. Bij een fout of annulering blijven de andere resultaten
-én hun beoordelingen behouden.
+Select a result and choose **Dit onderdeel opnieuw verwerken…** (reprocess this part), or
+choose **Onderdeel opnieuw…** in the final review. Check the ticked source images; if it
+isn't known which scans belong to the part, choose them yourself. Use one source folder.
+The selection is processed as one part, for example just side B. Exactly one new result
+must come out; otherwise the previous version stays active. On an error or cancellation
+the other results and their reviews are kept.
 
-De oorspronkelijke Discogs-instellingen worden uit de bewerkingsgeschiedenis
-gebruikt als die beschikbaar is. Vinylkleur pas je daarna zo nodig apart toe.
-De gebruikte bronkeuze wordt bewaard voor een volgende poging.
+The original Discogs settings are taken from the edit history when available. Adjust
+vinyl colour separately afterwards if needed. The chosen sources are saved for a next
+attempt.
 
-Bij een correctie of herhaling toont de bestaande voor/na-schuif **de vorige
-poging tegenover de nieuwe poging**. Via **Eerdere bewerkingen** kun je een
-oudere stand terugzien. Projecten bewaren deze geschiedenis en verwijzingen;
-laat dus ook de mappen met vorige versies staan.
-
-
-## Nieuw in 0.4.2: eerst verwerken, daarna kleur kiezen
-
-Bij Scans verwerken gebruikt Discogs alleen nog bestandsnamen en draairichting.
-Een opgeslagen oud vinkje voor hoeskleur schakelt geen kleurcorrectie meer in.
-Voor een hoes kies je later Kleur aanpassen → Hoes / ander beeld · passende foto.
-Voor vinyl blijft de aparte methode met behoud van het etiket beschikbaar.
-Bekijk en vergelijk het voorstel voordat je het verder gebruikt.
-
-## Nieuw in 0.4.2: mogelijke Discogs-uitgaven
-
-Na het laden van scans zonder uitgavelink leest Sleeve lokaal tekst en barcodes
-uit maximaal zes verkleinde beelden. Zodra een bruikbare barcode gevonden is,
-stopt het verder lezen. Alleen zoektermen gaan naar Discogs, geen afbeeldingen.
-Bekijk releasevoorstellen toont maximaal vijf mogelijke uitgaven, met formaat,
-jaar, land, catalogusnummer en eventuele variant/kleur. Een gedeelde barcode
-kan meerdere persingen opleveren. Pas Gebruik deze uitgave vult de link in.
-De zoekgegevens zijn aanpasbaar; zoeken kan worden gestopt en hervat.
-Een bestaande uitgavelink wordt niet automatisch vervangen. Je kunt ook zelf
-op Discogs zoeken en een link plakken. De herkenning kan onvolledige of
-verkeerd gelezen tekst opleveren en bevestigt de exacte persing niet.
+For a correction or retry, the existing before/after slider shows **the previous attempt
+against the new attempt**. Via **Eerdere bewerkingen** (earlier edits) you can look back
+at an older state. Projects keep this history and its references, so leave the folders
+with previous versions in place as well.
 
 
-## Onderdelen en verschillend bijgesneden deelscans
+## New in 0.4.2: process first, choose colour afterwards
 
-Scans met dezelfde dpi behouden bij het groeperen dezelfde fysieke schaal,
-ook als één deel kleiner is bijgesneden. Onbekende voorlopige resultaten heten
-Nog te bepalen. Een afgebroken naamgevingsstap maakt niet alle beelden Voorkant.
-Bekende onderdelen en hun bronbeelden worden bij elk resultaat bijgehouden.
-Voorkant en achterkant kunnen met de passende Discogs-hoesfoto en barcode
-worden voorgesteld; controleer de namen altijd in de eindcontrole.
+When processing scans, Discogs is now only used for file names and orientation.
+A saved old checkbox for sleeve colour no longer turns on colour correction.
+For a sleeve, choose Kleur aanpassen → Hoes / ander beeld · passende foto later on.
+For vinyl, the separate method that preserves the label remains available.
+Look at and compare the suggestion before using it further.
+
+## New in 0.4.2: possible Discogs releases
+
+After loading scans without a release link, Sleeve reads text and barcodes locally from
+at most six downscaled images. As soon as a usable barcode is found, it stops reading.
+Only search terms go to Discogs, never images.
+Bekijk releasevoorstellen (view release suggestions) shows at most five possible
+releases, with format, year, country, catalogue number and any variant/colour. A shared
+barcode can match several pressings. Only Gebruik deze uitgave (use this release) fills in
+the link. The search data can be edited; searching can be stopped and resumed.
+An existing release link is never replaced automatically. You can also search Discogs
+yourself and paste a link. Recognition can produce incomplete or misread text and doesn't
+confirm the exact pressing.
 
 
-## Nieuw in 0.4.3: duidelijke voortgang
+## Parts and partial scans cropped differently
 
-Een groot voortgangsvak toont het huidige onderdeel, het aantal verwerkte
-onderdelen, de actuele stap, de totale tijd en de tijd van de huidige stap.
-Ook voorbereiden, scans vergelijken, belichting tussen deelscans afstemmen en
-het afwerken van overgangen geven voortgang door. Balken en percentages zijn
-gebaseerd op getelde beelden, vergelijkingen of verwerkte beeldstroken.
-Bij opslaan, tekstherkenning en Discogs vergelijken wordt geen percentage
-geraden: je ziet een activiteitbalk en de naam en duur van die stap.
-Een fasepercentage is geen percentage van de gehele opdracht of een tijdschatting.
+Scans with the same DPI keep the same physical scale when grouped, even if one part was
+cropped smaller. Unknown provisional results are called Nog te bepalen (to be
+determined). An interrupted naming step doesn't turn every image into Voorkant (front).
+Known parts and their source images are tracked for every result.
+Front and back can be suggested using the matching Discogs sleeve photo and barcode;
+always check the names in the final review.
 
 
-## Nieuw in 0.4.4: duidelijke kleurstap en meerdere vinylkanten
+## New in 0.4.3: clear progress
 
-1. Open Kleur aanpassen en voeg de afgewerkte beelden toe.
-2. Kies Vinylplaten: vink kant A en B aan. Hoezen worden apart gehouden.
-3. Haal Discogs-foto’s op en klik op de volledige plaat met de gewenste kleur.
-4. Klik Maak nieuwe kleur voor 2 vinylkanten.
+A large progress panel shows the current part, the number of parts processed, the
+current step, the total time and the time of the current step.
+Preparing, comparing scans, matching exposure between partial scans and finishing the
+seams also report progress. Bars and percentages are based on counted images,
+comparisons or processed image strips.
+For saving, text recognition and Discogs comparison no percentage is guessed: you see an
+activity bar and the name and duration of that step.
+A phase percentage is not a percentage of the whole job, nor a time estimate.
 
-Beide nieuwe kleurkopieën worden meteen opgeslagen en samen getoond.
-Er is geen aparte knop Overnemen nodig. De knoppen Origineel, Vergelijken en
-Nieuwe kleur maken duidelijk wat je bekijkt. De nieuwe kleur is standaard
-volledig zichtbaar; de vergelijkingsschuif loopt van origineel naar nieuwe kleur.
-De eindcontrole opent pas als je die zelf kiest. Via Toon dit kleurbestand in
-Finder vind je precies het geselecteerde bestand.
 
-Een eerdere kleurkopie van A blijft in beeld als je later alleen B opnieuw
-verwerkt. Bij de stap Namen aanpassen blijven de hoezen en beide kleurkopieën
-samen beschikbaar. Je aangevinkte beelden worden in projecten bewaard.
-Voor een hoes kies je Hoes en één passende hoesreferentie. Bij wisselen tussen
-hoes en vinyl moet je opnieuw een passende referentiefoto kiezen.
+## New in 0.4.4: a clear colour step and multiple vinyl sides
+
+1. Open Kleur aanpassen and add the finished images.
+2. Choose Vinylplaten: tick sides A and B. Sleeves are kept separate.
+3. Fetch the Discogs photos and click the full record with the desired colour.
+4. Click Maak nieuwe kleur voor 2 vinylkanten (make new colour for 2 vinyl sides).
+
+Both new colour copies are saved straight away and shown together.
+No separate Apply button is needed. The Origineel, Vergelijken and Nieuwe kleur buttons
+make clear what you're looking at. The new colour is fully visible by default; the
+comparison slider runs from original to new colour.
+The final review only opens when you choose it. Via Toon dit kleurbestand in Finder
+(show this colour file in Finder) you find exactly the selected file.
+
+An earlier colour copy of A stays in view if you later reprocess only B. In the Namen
+aanpassen step the sleeves and both colour copies stay available together. Your ticked
+images are saved in projects.
+For a sleeve, choose Hoes (sleeve) and one matching sleeve reference. When switching
+between sleeve and vinyl you need to choose a matching reference photo again.
