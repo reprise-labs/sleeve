@@ -36,3 +36,10 @@ for top,left in [(100,90),(100,300),(400,90),(400,500),(700,300),(860,120),(860,
 left,top,w,h=S.find_square(sheet_x,sheet_y,(5000,5000))[2]
 assert left<350 and top<350 and w>4300 and abs(w-h)<60,(left,top,w,h)
 print('Text outside a printed inner frame widens the crop to the faint paper edge.')
+# The wider crop must not change the cover/record decision: the support stays
+# that of the strong square (a faint paper edge once turned lyric sheets into records).
+widened=S.find_square(sheet_x,sheet_y,(5000,5000))[3]
+keep=S.INK_OUTSIDE;S.INK_OUTSIDE=1.0
+original=S.find_square(sheet_x,sheet_y,(5000,5000))[3];S.INK_OUTSIDE=keep
+assert abs(widened-original)<1e-9,(widened,original)
+print('Cover/record support is unchanged by the wider crop.')

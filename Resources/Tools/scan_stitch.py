@@ -663,6 +663,7 @@ def find_square(Gx, Gy, size, sc=0.2):
         # the closed boundary disagrees materially in position or dimensions.
         discrepancy=max(abs(candidate[i]-best[i]) for i in range(2,6))/max(candidate[4:6])
         if discrepancy>.025:best=candidate;closed_choice=True
+    judged = best
     if ink.sum() >= INK_MIN_AREA * w * h and outside(best) > INK_OUTSIDE:
         # Wit vel op het witte deksel, of een gedrukte balk/lijn: de papierrand is
         # zwak en een kader binnen de hoes scoort hoger (Deena & Jim tekstvel: 27%
@@ -671,7 +672,9 @@ def find_square(Gx, Gy, size, sc=0.2):
         wider = edge_box(Gx, Gy, ink, best[1], c)
         if wider is not None and outside(wider) <= INK_OUTSIDE:
             print(f'hoes: kader liet {outside(best):.0%} van de tekst weg; ruimer kader op de papierrand gekozen', flush=True)
-            best = wider; closed_choice = False
+            # De steun (hoes of plaat?) blijft die van het sterke vierkant: een zwakke
+            # papierrand mag een tekstvel niet tot plaat maken (Deena & Jim).
+            judged = best; best = wider; closed_choice = False
     _, ang, x0, y0, Sx, Sy = best
     # vierkant terug naar het canvas (volle resolutie)
     R = cv2.getRotationMatrix2D(c, ang, 1.0); Ri = cv2.invertAffineTransform(R)
@@ -682,10 +685,17 @@ def find_square(Gx, Gy, size, sc=0.2):
     m = cv2.erode(m, np.ones((9, 9), np.uint8))           # schaduwrandje van de hoes eraf
     inset = max(5, int((.010 if closed_choice else .006) * max(Sx,Sy) / sc))
     box = (int(x0 / sc) + inset, int(y0 / sc) + inset, int(Sx / sc) - 2*inset, int(Sy / sc) - 2*inset)
-    G = np.hypot(Gx, Gy); per = []
-    for (xa, ya), (xb, yb) in zip(cor * sc, np.roll(cor * sc, -1, axis=0)):
-        t = np.linspace(0, 1, 200)[:, None]; per.append(np.hstack([xa + t * (xb - xa), ya + t * (yb - ya)]))
-    return m > 0, float(ang), box, ring_support(G, np.vstack(per)), closed_choice
+    G = np.hypot(Gx, Gy)
+    def perimeter(candidate):
+        _, a, px, py, pw, ph = candidate
+        Rc = cv2.invertAffineTransform(cv2.getRotationMatrix2D(c, a, 1.0))
+        corners = np.float32([[px, py], [px + pw, py], [px + pw, py + ph], [px, py + ph]]) @ Rc[:, :2].T + Rc[:, 2]
+        per = []
+        for (xa, ya), (xb, yb) in zip(corners, np.roll(corners, -1, axis=0)):
+            t = np.linspace(0, 1, 200)[:, None]; per.append(np.hstack([xa + t * (xb - xa), ya + t * (yb - ya)]))
+        return np.vstack(per)
+    support = ring_support(G, perimeter(judged))      # zoals voorheen: steun van het sterke vierkant
+    return m > 0, float(ang), box, support, closed_choice
 
 
 def flatten_paper(out, inside, sc=0.125):

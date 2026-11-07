@@ -1,3 +1,7 @@
+# 0.4.19 — Tekstvellen niet meer als plaat
+
+- 0.4.18 gaf het ruimere hoeskader de randsteun van de zwakke papierrand. Daarmee won de cirkelzoeker en werden de Deena & Jim-tekstvellen als plaat uitgesneden. Hoes of plaat wordt nu weer beslist op de steun van het sterke vierkant (zoals in 0.4.17); het ruimere kader bepaalt alleen de uitsnede.
+
 # 0.4.18 — Samengevoegde hoezen en vellen niet meer te krap bijgesneden
 
 - Hoeskader: Sleeve zoekt het vierkant dat het best op de randen past. Bij een wit vel op het witte deksel is de papierrand zwak, en kon een gedrukte lijn met een tekstregel een kleiner "vierkant" vormen: Deena & Jim tekstvel verloor links, rechts en boven tekst (27% van het drukwerk viel erbuiten), Hotel New York-voorkant de ANOUK-balk bovenaan. Nu: valt er duidelijk drukwerk (randen in beide richtingen; lijnen en scannerstrepen tellen niet) buiten het kader (`INK_OUTSIDE`), dan neemt Sleeve per zijde de eerste duidelijke rand buiten het drukwerk, en vult de korte zijde aan tot een vierkant.

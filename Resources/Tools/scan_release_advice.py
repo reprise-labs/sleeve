@@ -2,7 +2,7 @@
 import concurrent.futures,json,re,subprocess,urllib.error,urllib.parse,urllib.request
 from pathlib import Path
 
-UA='Sleeve/0.4.18 (+https://github.com/reprise-labs/sleeve)'
+UA='Sleeve/0.4.19 (+https://github.com/reprise-labs/sleeve)'
 
 def normalized(value):return re.sub(r'[^a-z0-9]','',str(value).casefold())
 def split_words(value):

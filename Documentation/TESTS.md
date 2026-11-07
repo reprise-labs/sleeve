@@ -1,3 +1,7 @@
+## 0.4.19 — hoes of plaat
+
+- DEENA-tekstvellen 10–13 en 14–17 (600 dpi) samengevoegd: hoes, 6955 px (~29 cm), compleet met credits en marge; plaatkant A (18–21): plaat. Controle toegevoegd in `check_cover_boundary.py`. Volledige projectcontroles geslaagd.
+
 ## 0.4.18 — hoeskader
 
 - Kader van alle samengevoegde hoezen en vellen van de 9 uitgaven, oud tegen nieuw: alleen veranderd waar drukwerk buiten het oude kader viel — DEENA-tekstvellen (2693 → 3568 px, op de papierrand) en HNY-voorkant (3247×3207 → 3716×3716, ANOUK-balk binnen). FIRE-achterkant, GF-voorkant, FBOW-achterkant en de overige hoezen gelijk.
