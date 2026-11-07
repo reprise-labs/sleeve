@@ -43,6 +43,8 @@ QUALITY_MIN_SPOTS = 3  # pas vanaf zoveel plekken een melding (één plek is vaa
 QUALITY_RESPONSE = 0.3 # minimale betrouwbaarheid van de verschuivingsmeting
 QUALITY_SHIFT = 4.0   # px (uitvoer): zoveel verschuiving op een naad door tekst wordt gemeld
 SEAM_CORRIDOR = 40    # px (rekenschaal): zo ver mag een naad van de scherpste-scan-grens afwijken
+REFINE_MAX_ERROR = 4.0 # px (rekenschaal): paren die volgens de boom verder afwijken, tellen niet mee bij het bijstellen
+REFINE_SLACK = 0.5     # px: bijstellen mag geen enkel paar meer dan dit verslechteren
 SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
 WINNER_SMOOTH = 8     # px (rekenschaal): keuzekaart per deelscan samenhangend maken
 TONE_SIGMA = 30        # px (rekenschaal): alleen deze heel grove toon wordt tussen deelscans gemengd;
@@ -228,6 +230,68 @@ def scanner_stretch(pairs):
     return float(best), score(1.0), score(best)
 
 
+def pair_errors(H, links):
+    """Gemiddelde passingsfout (px) per paar onder de plaatsing H."""
+    out = {}
+    for (i, j), (src, dst) in links.items():
+        a = np.c_[dst, np.ones(len(dst))] @ H[i][:2].T
+        b = np.c_[src, np.ones(len(src))] @ H[j][:2].T
+        out[(i, j)] = float(np.hypot(*(a - b).T).mean())
+    return out
+
+
+def refine_placement(H, ref, pairs, D):
+    """De boom plaatst elk deel via één ander deel; bij vier kwartslag-delen
+    stapelen kleine fouten zich op tot een naad waar letters ~6 px verspringen
+    (Deena & Jim tekstvel: buren 0,6-1,2 px, het niet-gekoppelde paar 2,1 px).
+    Daarom alle overlappende paren tegelijk: per deel draaiing, schaal en
+    verschuiving (lineair, kleinste kwadraten), het referentiedeel staat vast.
+    Alleen overnemen als geen enkel paar slechter wordt dan het slechtste was."""
+    keys = sorted(k for k in H if k != ref)
+    if not keys:
+        return H
+    links = {}
+    for (i, j), (src, dst) in pairs.items():
+        if i < j and i in H and j in H:
+            q_src, q_dst = src * D, dst * D
+            M, inl = cv2.estimateAffinePartial2D(q_src, q_dst, method=cv2.RANSAC, ransacReprojThreshold=2.0, maxIters=5000, confidence=0.999)
+            if M is not None and inl.sum() >= 15:
+                k = inl.ravel() > 0
+                links[(i, j)] = (q_src[k], q_dst[k])
+    # Een paar dat volgens de boom ver afwijkt, is eerder een valse koppeling
+    # (herhaald patroon) dan een echte overlap: niet laten meetrekken.
+    first = pair_errors(H, links)
+    links = {key: value for key, value in links.items() if first[key] <= REFINE_MAX_ERROR}
+    if len(links) < len(keys) + 1:
+        return H                       # geen lus: de boom is al de enige oplossing
+    col = {k: 4 * n for n, k in enumerate(keys)}
+    rows, rhs = [], []
+    def terms(k, p, sign, row_x, row_y, fixed):
+        if k == ref:
+            fixed[0] += sign * (H[ref][0, :2] @ p + H[ref][0, 2]); fixed[1] += sign * (H[ref][1, :2] @ p + H[ref][1, 2])
+            return
+        c = col[k]; x, y = p
+        row_x[c:c + 4] += sign * np.array([x, -y, 1, 0]); row_y[c:c + 4] += sign * np.array([y, x, 0, 1])
+    for (i, j), (src, dst) in links.items():
+        for p_dst, p_src in zip(dst, src):
+            row_x = np.zeros(4 * len(keys)); row_y = np.zeros(4 * len(keys)); fixed = [0.0, 0.0]
+            terms(i, p_dst, 1, row_x, row_y, fixed); terms(j, p_src, -1, row_x, row_y, fixed)
+            rows += [row_x, row_y]; rhs += [-fixed[0], -fixed[1]]
+    sol = np.linalg.lstsq(np.asarray(rows), np.asarray(rhs), rcond=None)[0]
+    refined = dict(H)
+    for k in keys:
+        a, b, tx, ty = sol[col[k]:col[k] + 4]
+        if not 0.97 < np.hypot(a, b) < 1.03:
+            return H
+        refined[k] = np.array([[a, -b, tx], [b, a, ty], [0, 0, 1.0]])
+    before, after = pair_errors(H, links), pair_errors(refined, links)
+    if max(after.values()) > max(before.values()) or any(after[key] > before[key] + REFINE_SLACK for key in links):
+        return H
+    if max(before.values()) - max(after.values()) >= 0.25:
+        print(f'plaatsing over alle overlappen bijgesteld: slechtste paar {max(before.values()):.2f} -> {max(after.values()):.2f} px', flush=True)
+    return refined
+
+
 def place(n, feats):
     """Paarsgewijs uitlijnen en via een opspannende boom (meeste inliers) plaatsen."""
     pairs = {}
@@ -256,6 +320,7 @@ def place(n, feats):
             break
         i, j, _ = best
         H[j] = H[i] @ T[(i, j)]; frontier.append(j)
+    H = refine_placement(H, ref, pairs, D)
     Ds = np.diag([1.0, sy, 1.0])                       # eerst de scannerrek eruit
     H = {k: v @ Ds for k, v in H.items()}
     if abs(sy - 1) >= 0.0005:

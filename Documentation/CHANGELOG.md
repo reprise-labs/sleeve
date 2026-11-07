@@ -1,3 +1,8 @@
+# 0.4.17 — Grote vellen in kwartslag-delen als één geheel
+
+- Groeperen: een tekstvel of inlay dat groter is dan de scanner, scan je in vier delen en draai je steeds een kwartslag. Die delen werden niet samengevoegd. Bij het vergelijken telt nu de scannerrek mee (y/x ~0,9975, draait mee met de kwartslag; bij fijne tekst zakte de gelijkenis daardoor onder de grens), en vier delen gaan samen als álle paren een kwartslag verschillen, ook al overlappen de diagonale delen maar smal (`MERGE_WEAKEST`, `MERGE_STRONGEST`). Beide alleen bij kwartslagen (`QUARTER_TOL`): kant A en B van een plaat liggen in een willekeurige hoek en scoren anders even hoog (Graduated Fool). Deena & Jim: tekstvellen 10–13 en 14–17; To Get Her Together: inlay 9–12 en 13–16.
+- Samenvoegen: elk deel werd via één ander deel geplaatst (opspannende boom); bij vier delen stapelden kleine fouten zich op één naad op (letters ~6 px verschoven). Nu worden alle delen daarna tegelijk bijgesteld over alle overlappen (kleinste kwadraten, `refine_placement`). Alleen als geen paar slechter wordt (`REFINE_SLACK`); paren die volgens de boom ver afwijken, tellen niet mee (`REFINE_MAX_ERROR`).
+
 # 0.4.16 — Release-zoeker voor promo's en labels bij onbekende leesrichting
 
 - Releasevoorstellen: als titel telt nu de tekst die op meerdere delen staat (hoes, achterkant, cd), zonder speelduur ("New Day 3.37" → "New Day"). Copyright-, credit-, UPC- en ISRC-regels tellen niet mee, ook als © als "@" gelezen wordt. Voorheen zocht New Day op "@ 2015 Goldilox, under the exclusive license…", de copyrightregel langs de cd-rand.

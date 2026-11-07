@@ -61,6 +61,19 @@ scores[6,5]=scores[5,6]=.86
 assert any(g==['6'] for g in A.cluster_paths(paths,scores)), 'Ambiguous corner must remain separate'
 scores[6,5]=scores[5,6]=np.nan;scores[6,0]=scores[0,6]=-1
 assert any(g==['6'] for g in A.cluster_paths(paths,scores)), 'Explicit conflict must veto attachment'
+# Four quarter-turned parts of one sheet (TGHT 13-16): neighbours overlap well,
+# diagonal pairs only in a narrow middle strip. Merge only when every pair is a
+# quarter turn; two record sides with the same label design lie at random angles.
+values={(0,1):.76,(2,3):.75,(0,2):.53,(1,3):.55,(0,3):.70,(1,2):.70}
+scores=np.full((4,4),np.nan)
+for (i,j),v in values.items():scores[i,j]=scores[j,i]=v
+paths=[str(i) for i in range(4)];quarter=np.ones((4,4),bool)
+assert A.cluster_paths(paths,scores,None,quarter)==[['0','1','2','3']]
+quarter[0,2]=quarter[2,0]=False
+assert len(A.cluster_paths(paths,scores,None,quarter))==2, 'Record sides at random angles stay apart'
+assert len(A.cluster_paths(paths,scores))==2
+assert A.quarter_turn(np.array([[0.,-1,5],[1,0,3]])) and not A.quarter_turn(cv2.getRotationMatrix2D((0,0),17,1))
+print('Quarter-turned sheet parts merge; record sides at random angles stay separate.')
 # A repeated logo cannot identify an entire cover as the front.
 first=rng.integers(0,256,(700,700,3),dtype=np.uint8);second=rng.integers(0,256,(700,700,3),dtype=np.uint8)
 first=cv2.GaussianBlur(first,(0,0),1);second=cv2.GaussianBlur(second,(0,0),1)

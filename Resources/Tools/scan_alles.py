@@ -30,6 +30,8 @@ import scan_cutout as CU          # noqa: E402
 from scan_memory import MemoryLease,physical_memory,GiB
 
 MERGE_SCORE = 0.65        # gemiddelde gelijkenis waarboven twee groepen scans samengaan
+MERGE_WEAKEST = 0.50      # ...of: alle paren passen, geen onder deze waarde
+MERGE_STRONGEST = 0.70    #    en minstens één paar boven deze waarde
 KANTEN = ['front', 'back', 'inside', 'insert', 'inlay', 'sidea', 'sideb', 'sidec', 'sided', 'cd', 'cd1', 'cd2', 'sticker']
 LAST = os.path.expanduser('~/.sleeve_laatste_discogs')
 
@@ -180,6 +182,34 @@ def side_markers(text):
     return found
 
 
+MAX_STRETCH = 0.015       # groeperen: hoogstens 1,5% verschil in rek tussen x en y
+
+
+QUARTER_TOL = 2.0         # graden: zo dicht bij een kwartslag telt als 'gedraaid tussen deelscans'
+
+
+def quarter_turn(M):
+    angle = np.degrees(np.arctan2(M[1, 0], M[0, 0]))
+    return abs(((angle + 45) % 90) - 45) < QUARTER_TOL
+
+
+def stretch_fit(src, dst, inliers, M):
+    """Scannerrek meenemen bij het vergelijken. Een flatbed rekt de ene as iets
+    meer dan de andere (y/x ~0,9975); na een kwartslag draait die rek mee, en
+    lopen twee deelscans over de breedte een paar pixels uit elkaar. Bij fijne
+    tekst (tekstvellen) zakte de gelijkenis daardoor onder de grens. Alleen op
+    de punten die al rigide pasten; geen afschuiving, nauwelijks rek."""
+    k = inliers.ravel() > 0
+    F, _ = cv2.estimateAffine2D(src[k], dst[k], method=cv2.LMEDS)
+    if F is None:
+        return M
+    sx, sy = np.hypot(F[0, 0], F[1, 0]), np.hypot(F[0, 1], F[1, 1])
+    shear = abs(F[0, 0] * F[0, 1] + F[1, 0] * F[1, 1]) / (sx * sy)
+    if abs(sx / sy - 1) < MAX_STRETCH and shear < MAX_STRETCH and 0.97 < sx < 1.03:
+        return F
+    return M
+
+
 def groups(paths):
     with tempfile.TemporaryFile(prefix='sleeve-group-previews-') as scratch:
         return group_with_previews(paths,scratch)
@@ -261,7 +291,7 @@ def group_with_previews(paths,scratch):
         gf = g.astype(np.float32)
         feats.append((np.float32([k.pt for k in kp]), des, gf - cv2.GaussianBlur(gf, (0, 0), 3), valid > 0))
         progress("Herkenningspunten zoeken",index+1,len(paths),scope="preparation")
-    n = len(paths); S = np.full((n, n), np.nan)
+    n = len(paths); S = np.full((n, n), np.nan); Q = np.zeros((n, n), bool)
     comparisons=0;comparison_total=n*(n-1)//2
     for i in range(n):
         for j in range(i + 1, n):
@@ -276,6 +306,12 @@ def group_with_previews(paths,scratch):
             M, inl = cv2.estimateAffinePartial2D(src, dst, method=cv2.RANSAC, ransacReprojThreshold=2.0)
             if M is None or inl.sum() < 40 or not 0.97 < np.hypot(M[0,0], M[1,0]) < 1.03:
                 continue
+            if quarter_turn(M):
+                # Alleen bij een kwartslag (zo worden grote vellen in delen gescand).
+                # Kant A en B van een plaat liggen in een willekeurige hoek: die
+                # blijven zoals voorheen (hetzelfde labelontwerp scoort hoog).
+                M = stretch_fit(src, dst, inl, M)
+                Q[i, j] = Q[j, i] = True
             hi = feats[i][2]; sh = (hi.shape[1], hi.shape[0])
             hj = cv2.warpAffine(feats[j][2], M, sh)
             vj = cv2.warpAffine(feats[j][3].astype(np.uint8), M, sh) > 0
@@ -303,10 +339,10 @@ def group_with_previews(paths,scratch):
                 conflict = len(patches) >= 5 and (np.asarray(patches)<.10).mean() > .20
                 S[i, j] = S[j, i] = -1.0 if conflict else np.corrcoef(hi[mh], hj[mh])[0, 1]
     progress("Scans met elkaar vergelijken",comparisons,comparison_total,scope="preparation")
-    return cluster_paths(paths,S,sides)
+    return cluster_paths(paths,S,sides,Q)
 
 
-def cluster_paths(paths,S,sides=None):
+def cluster_paths(paths,S,sides=None,quarter=None):
     n=len(paths)
     cl = [[i] for i in range(n)]
     # Scans met dezelfde gelezen kantletter beginnen samen (als ze op elkaar
@@ -337,6 +373,14 @@ def cluster_paths(paths,S,sides=None):
                 if not vals:
                     continue
                 score = float(np.mean(vals)) if len(vals) * 2 >= len(cl[x]) * len(cl[y]) and min(vals) >= 0.0 else 0.0
+                # Vier kwartslag-delen van één vel: buren overlappen ruim, de
+                # diagonale paren alleen in een smalle middenstrook (lager). Passen
+                # álle paren en is er minstens één sterke, dan toch samen.
+                # Alleen als alle paren een kwartslag verschillen: kant A en B van
+                # een plaat scoren ook zo (Graduated Fool: 0,58-0,77), maar liggen
+                # in een willekeurige hoek.
+                if quarter is not None and all(quarter[i, j] for i in cl[x] for j in cl[y]) and len(vals) == len(cl[x]) * len(cl[y]) and min(vals) >= MERGE_WEAKEST and max(vals) >= MERGE_STRONGEST:
+                    score = max(score, MERGE_SCORE)
                 if score >= MERGE_SCORE and (best is None or score > best[0]):
                     best = (score, x, y)
         if best is None:

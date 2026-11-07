@@ -1,3 +1,10 @@
+## 0.4.17 — kwartslag-delen groeperen en samen plaatsen
+
+- Indeling van alle scans van de 9 vinyluitgaven, oud tegen nieuw: alleen DEENA-tekstvellen (10–13, 14–17) en TGHT-inlay (9–12, 13–16) veranderd; de rest gelijk aan 0.4.14. Een eerdere variant zonder kwartslag-eis voegde GF kant A en B samen (A/B 0,58–0,77); verworpen.
+- Plaatsing van alle 50 samengevoegde onderdelen, slechtste paar voor/na: vrijwel overal beter of gelijk, o.a. US-front 2,3 → 0,9 px, GF-front 2,8 → 1,0, HNY-achterkant 3,5 → 1,4, FBOW-achterkant 3,2 → 1,1, FIRE-front 5,4 → 3,6, DEENA-tekstvel 3,4 → 0,9.
+- DEENA-tekstvellen (600 dpi) volledig verwerkt: naadplekken in de eindcontrole 38 en 49 → 1 en 1 (onder de meldgrens). TGHT-inlay: twee complete vellen.
+- Nieuw: `check_placement.py`, en een kwartslag-geval in `check_grouping.py`. Volledige projectcontroles geslaagd.
+
 ## 0.4.16 — promo's, ISRC en labels zonder leesrichting
 
 - Release-zoeker op 9 cd-promo's (Feet On The Ground 2×, Places To Go, You & I, Dominique, Hold Me, New Day, Pretending As Always, Together Alone), echte OCR en Discogs: 7 met de juiste uitgave bovenaan (was 0). Feet On The Ground, Dominique en Hold Me met "ISRC komt overeen"; New Day via promo-voorrang (Discogs heeft daar geen ISRC). Places To Go (gespiegeld logo) en You & I (losse letters) niet.
