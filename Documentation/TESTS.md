@@ -1,3 +1,9 @@
+## 0.4.15 — labels tot 8 graden bijstellen, minder meldingen
+
+- 0.4.14-eindtest (9 uitgaven, volle resolutie): alle zonder fouten. Labels recht en rechtop, ook TGHT en FIRE (−0,8 / +0,7 graden), behalve DEENA kant B (6,1 graden) en TGHT kant A (4,2): buiten de oude grens van 4 graden. Vinylkleur: TA goud, US groen, HNY geel en FBOW rood komen overeen met Discogs; bij FIRE twee oranje `_kleur`-voorstellen.
+- Valse naadmeldingen op platen (GF, HNY, FBOW, FIRE, US) en onterecht "nakijken" op voorkanten die op Discogs passen (GF, HNY, FBOW) zijn de aanleiding voor de twee meldingswijzigingen.
+- Volledige projectcontroles (`scripts/check.sh`) geslaagd. De Swift-wachtrijtest loopt vast als tegelijk een zware verwerking draait; op een rustige Mac slaagt hij.
+
 ## 0.4.14 — leesstand-zoektocht en strengere naadmeting
 
 - 0.4.13-eindtest (9 uitgaven, volle resolutie): alle zonder fouten; DEENA kant A/B/C/D en TGHT A/B correct ingedeeld; labels recht behalve TGHT (ondersteboven, ~25 graden); eindcontrole gaf vals alarm op platen (US, HNY, FBOW, FIRE, DEENA: tot 134 px).

@@ -1,3 +1,9 @@
+# 0.4.15 — Rechtere labels en minder onterechte meldingen
+
+- Labelstand: de fijnbijstelling op de tekstregels mag tot 8 graden (`LABEL_REFINE`, was 4). Na de leesstand-zoektocht in stappen van 15 graden kan de rest tot 7,5 graden zijn (Deena & Jim kant B stond 6,1 graden scheef, To Get Her Together kant A 4,2).
+- Eindcontrole: geen naadmelding meer bij platen. Groeven en de draaiing tussen deelscans gaven daar vals alarm; het label komt meestal uit één scan.
+- Eindcontrole: een samengevoegde voorkant zonder leesbare tekst kreeg "nakijken", ook als een zeker passende Discogs-foto de stand daarna al had gezet (Graduated Fool, Hotel New York, For Bitter or Worse). Die vlag vervalt nu; zonder passende Discogs-foto blijft hij staan.
+
 # 0.4.14 — Labels met een misleidend ontwerp en minder vals alarm in de eindcontrole
 
 - Labelstand: is het label sterk scheef (de hoekmeting wordt als onwaarschijnlijk afgewezen) of is de leesrichting onduidelijk, dan draait Sleeve het label in stappen van 15 graden rond en kiest de stand met de meeste echte woorden (`reading_sweep`, `SWEEP_MARGIN`). Voor platen zonder Discogs-foto van het vinyl met een schuin logo of strepen (To Get Her Together stond ondersteboven en ~25 graden scheef).
