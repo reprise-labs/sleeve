@@ -2,7 +2,7 @@
 import concurrent.futures,json,re,subprocess,urllib.error,urllib.parse,urllib.request
 from pathlib import Path
 
-UA='Sleeve/0.4.21 (+https://github.com/reprise-labs/sleeve)'
+UA='Sleeve/0.4.22 (+https://github.com/reprise-labs/sleeve)'
 
 def normalized(value):return re.sub(r'[^a-z0-9]','',str(value).casefold())
 def split_words(value):
@@ -31,6 +31,8 @@ def sample_rows(rows,limit=6):
   if usable[i] not in selected:selected.append(usable[i])
  return selected[:limit]
 
+BIG_TEXT=0.08     # deel van de beeldhoogte: grote tekst (titel/artiest op de hoes)
+TRACK=re.compile(r'^(?:\d{1,2}[.)]?\s+)?(.+?)\s*\d{1,2}[.:,]{1,2}\d{2}\s*$')
 DURATION=re.compile(r'\s*\d{1,2}[.:,]{1,2}\d{2}\s*$')   # "New Day 3.37" -> "New Day"
 # ISRC van de opname (promo's): "ISRC: NL-XA9-15-00002". Discogs zoekt er niet op,
 # maar zet hem vaak bij de uitgave; dan bevestigt hij een kandidaat.
@@ -38,7 +40,7 @@ ISRC=re.compile(r'IS[RA]C\W*([A-Z]{2})\W?([A-Z0-9]{3})\W?(\d{2})\W?(\d{5})')
 CREDITS=re.compile(r'^\s*(?:[@©℗]|\([cp]\))|\bis[ra]c\b|\bupc\b|\bean\b|^ed\.?:|licen[cs]|promotional use|not for sale|\b(?:written|produced|mixed|published|engineered|recorded|mastered|arranged|programming|vocals|lyrics|music) by\b',re.I)
 
 def extract_hints(documents):
- lines={};barcodes=[];seen_in={};isrcs=[]
+ lines={};barcodes=[];seen_in={};isrcs=[];phrases=[];timed=[]
  for document in documents:
   for value in document.get('barcodes',[]):
    code=valid_barcode(value)
@@ -58,6 +60,18 @@ def extract_hints(documents):
    junk=len(re.findall(r"\S*(?:[A-Za-z]\d|\d[A-Za-z]|[<>|\[\]{}\\])\S*",text))
    return words*30-junk*15+sum(min(35,len(r['text']))*float(r.get('confidence',0)) for r in rows)
   best=max(rotations.values(),key=reading_score)
+  # Grote losse woorden op één deel samen lezen: "PLACES" + "TOGO", "You" + "&I".
+  run=[]
+  for row in best+[None]:
+   if row is not None and float(row.get('height',0))>=BIG_TEXT and (not run or .8<=float(row['height'])/float(run[-1]['height'])<=1.25):
+    run.append(row);continue
+   if len(run)>1:phrases.append(' '.join(r['text'] for r in run))
+   run=[row] if row is not None and float(row.get('height',0))>=BIG_TEXT else []
+  # Trackregel met speelduur ("Places To Go 3..47", "You &13..54"): op een single de titel.
+  for row in best:
+   text=re.sub(r'&\s*[1l|](?=\d[.:,])','& I ',row['text'])   # "You &13..54" = "You & I 3:54"
+   m=TRACK.match(text)
+   if m and sum(c.isalpha() for c in m[1])>=3:timed.append(m[1].strip())
   for row in best:
    text=row['text'];code=valid_barcode(text)
    if code and code not in barcodes:barcodes.append(code)
@@ -83,6 +97,25 @@ def extract_hints(documents):
  # Een titel staat meestal op meerdere delen (hoes, achterkant, cd); een
  # copyright- of creditregel niet. Herhaalde tekst gaat dus voor, dan grootte.
  title=max(options,key=lambda s:(repeats(s)>=2,repeats(s)),default='') if options else ''
+ # Titel uit de trackregel als die past bij de grote tekst op de hoes (1 en I mogen
+ # verwisseld zijn): "PLACES TOGO" ~ "Places To Go 3..47" -> "Places To Go".
+ loose=lambda s:normalized(s).replace('1','i').replace('l','i')
+ big=phrases+[r['text'] for r in ordered if float(r.get('height',0))>=BIG_TEXT]
+ for track in timed:
+  if any(loose(track)==loose(b) for b in big):
+   title=re.sub(r'\s*&\s*',' & ',track).strip();break
+ # Artiest bij twijfel (niet herhaald): de naam die het vaakst terugkomt, in grote
+ # tekst of in de credits ("by Anouk Teeuwe", "Eerste single van Anouk").
+ promo=any(re.search(r'promotional|promo only|not for sale',k) for k in lines)
+ if promo and (repeats(artist)<2 or (normalized(artist) and normalized(artist) in normalized(title))):   # 'You' van 'You & I'
+  everything=[k for k in lines]
+  names=[r['text'] for r in ordered if float(r.get('height',0))>=BIG_TEXT and re.fullmatch(r'[A-Za-z][A-Za-z .&-]{3,30}',r['text'])]
+  names+=re.findall(r'\bby\s+([A-Z][a-z]{3,})',' '.join(lines[k]['text'] for k in lines))
+  whole=lambda n,e:re.search(r'\b'+re.escape(n.casefold())+r'\b',e) is not None
+  scored=[(sum(whole(n,e) for e in everything),n) for n in names if normalized(n) and normalized(n) not in normalized(title) and n.casefold() not in ('music','universal','records','vinyl')]
+  if scored:
+   count,name=max(scored,key=lambda s:s[0])
+   if count>=2 and normalized(name) not in normalized(artist):artist=name
  # Een catalogusnummer staat in het kleine drukwerk ("Made in the EU … MOVLP1572").
  # Grote losse tekst die erop lijkt is vaak een titel of logo, verkeerd om gelezen
  # (TOGETHER ondersteboven -> JIH13901): drukwerkregels eerst, dan kleinste tekst.
@@ -96,7 +129,7 @@ def extract_hints(documents):
  catalogs=[]
  for _,_,candidate in sorted(found,key=lambda f:f[:2]):
   if candidate not in catalogs:catalogs.append(candidate)
- return {'artist':artist,'title':title,'barcode':barcodes[0] if barcodes else '', 'catno':catalogs[0] if catalogs else '', 'text':clean,'barcodes':barcodes[:4],'isrc':isrcs[:4],'promo':any(re.search(r'promotional|promo only|not for sale',k) for k in lines)}
+ return {'artist':artist,'title':title,'barcode':barcodes[0] if barcodes else '', 'catno':catalogs[0] if catalogs else '', 'text':clean,'barcodes':barcodes[:4],'isrc':isrcs[:4],'promo':promo}
 
 def recognize(rows,runner=None):
  helper=Path(__file__).with_name('sleeve_ocr')

@@ -34,7 +34,7 @@ MERGE_WEAKEST = 0.50      # ...of: alle paren passen, geen onder deze waarde
 MERGE_STRONGEST = 0.70    #    en minstens één paar boven deze waarde
 MIN_INLIERS = 40          # passende punten voor een paar deelscans
 MIN_INLIERS_QUARTER = 25  # ... als ze precies een kwartslag (of recht) t.o.v. elkaar liggen
-KANTEN = ['front', 'back', 'inside', 'insert', 'inlay', 'sidea', 'sideb', 'sidec', 'sided', 'cd', 'cd1', 'cd2', 'sticker']
+KANTEN = ['front', 'back', 'inside', 'insert', 'insert_left', 'insert_right', 'inlay', 'sidea', 'sideb', 'sidec', 'sided', 'cd', 'cd1', 'cd2', 'sticker']
 LAST = os.path.expanduser('~/.sleeve_laatste_discogs')
 
 
@@ -432,8 +432,8 @@ SPREAD_RANGE = (1.85, 2.15)   # lange/korte zijde van een uitgeklapte binnenkant
 
 def split_spreads(results,detected_cover_parts,twijfel,component_records):
     """Uitgeklapte binnenkant (twee panelen, 2:1) als twee vierkanten opslaan,
-    precies op de vouw gesplitst, zonder tussenstuk. Beide heten 'inside'
-    (inside en inside_2). Staat de stand niet vast, dan beide ter controle."""
+    precies op de vouw gesplitst, zonder tussenstuk: insert_left en
+    insert_right (André). Staat de stand niet vast, dan beide ter controle."""
     out=[]
     for path,soort,bron in results:
         if soort!='hoes':
@@ -454,8 +454,8 @@ def split_spreads(results,detected_cover_parts,twijfel,component_records):
         part=detected_cover_parts.pop(path,None)
         doubt=path in twijfel;twijfel.discard(path)
         os.remove(path)
-        for name in names:
-            detected_cover_parts[name]=part if part not in (None,'front','back') else 'inside'
+        for name,side in zip(names,('insert_left','insert_right')):
+            detected_cover_parts[name]=side
             if doubt or w<h:twijfel.add(name)          # staand: links/rechts nog niet zeker
             out.append((name,soort,bron))
             if record is not None:
@@ -891,7 +891,9 @@ return text returned of r''')
             hz.sort(key=lambda r: text_amount(r[0]))
         results = hz + [r for r in results if r[1] != 'hoes']
     cover_reps = []
-    used_cover_parts=set(detected_cover_parts.values())|{part for part in confirmed_parts.values() if part in ('front','back','inside','insert','inlay','sticker')}
+    used_cover_parts=set(detected_cover_parts.values())|{part for part in confirmed_parts.values() if part in ('front','back','inside','insert','insert_left','insert_right','inlay','sticker')}
+    if used_cover_parts&{'insert_left','insert_right'}:
+        used_cover_parts.add('inside')    # de uitgeklapte binnenkant ís de binnenzijde; losse vellen blijven insert
     teller = {'hoes': 0, 'vinyl': 0, 'cd': 0}
     gebruikt = set()
     for result_index,(dst, soort, bron) in enumerate(results):

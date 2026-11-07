@@ -1,3 +1,9 @@
+## 0.4.22 — namen en release-zoeker
+
+- DEENA (600 dpi) met 0.4.22 vergeleken met de referentie (Tests/golden): eerst één onbedoeld verschil gevonden (tekstvel heette inside) en hersteld; daarna alleen het bedoelde verschil (insert_left/insert_right). Referentie bijgewerkt.
+- Release-zoeker met echte OCR en Discogs op 9 promo's: alle 9 de juiste uitgave bovenaan (Together Alone: het album; de promo-single nog uitzoeken). Hints op de 9 vinyluitgaven ongewijzigd.
+- Nieuwe controle in `check_release_advice.py`. Volledige projectcontroles geslaagd.
+
 ## 0.4.21 — tekstregels
 
 - Op alle 17 labels van de 0.4.19-run: alleen HNY kant A wordt bijgesteld (−1,48 graden); de rest blijft onder 1 graad en ongemoeid. HNY kant A opnieuw verwerkt: restafwijking 0,00 graden.

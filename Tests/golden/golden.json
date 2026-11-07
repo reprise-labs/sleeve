@@ -142,14 +142,14 @@
    "type": "hoes",
    "outputs": [
     {
-     "part": "inside",
+     "part": "insert_left",
      "mm": [
       312.8,
       302.4
      ]
     },
     {
-     "part": "inside",
+     "part": "insert_right",
      "mm": [
       312.8,
       302.4

@@ -56,5 +56,5 @@ with tempfile.TemporaryDirectory() as folder:
     records=[{'name':'deel_hoes.png','part':'unknown','scans':['a','b']}];parts={};doubt=set()
     out=A.split_spreads([(spread,'hoes','a'),('plaat.png','vinyl','b')],parts,doubt,records)
     assert [Image.open(p).size for p,_,_ in out[:2]]==[(200,200),(200,200)] and out[2][1]=='vinyl'
-    assert all(parts[p]=='inside' for p,_,_ in out[:2]) and len(records)==2 and not os.path.exists(spread)
+    assert [parts[p] for p,_,_ in out[:2]]==['insert_left','insert_right'] and len(records)==2 and not os.path.exists(spread)
 print('A 2:1 inside is found and split into two square panels.')

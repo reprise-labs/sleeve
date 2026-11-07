@@ -1,3 +1,8 @@
+# 0.4.22 — Binnenkant insert_left/insert_right; release-zoeker voor losse titelwoorden
+
+- De twee helften van een uitgeklapte binnenkant heten `insert_left` en `insert_right` (in de app "Inlegvel links" en "Inlegvel rechts"). Is er zo'n binnenkant, dan is "inside" bezet en heten losse tekstvellen `insert` en `insert_2`.
+- Releasevoorstellen: grote losse woorden op de voorkant worden samen gelezen ("PLACES" + "TOGO"), de titel komt uit de trackregel met speelduur als die daarbij past ("Places To Go 3..47", "You &13..54" = "You & I"), en bij promo's met twijfel over de artiest telt de naam uit de credits ("Written by Anouk Teeuwe"). Places To Go en You & I vinden nu de juiste promo; alle 9 promo's in scans_2026 kloppen.
+
 # 0.4.21 — Labelhoek: de rechte tekstregels hebben het laatste woord
 
 - Na het rechtzetten (en na het volgen van een Discogs-foto) meet Sleeve de rechte tekstregels op het label zelf: letters worden tot regels samengevoegd, alleen lange, rechte, gevulde regels tellen (geen tekeningen of ronde randtekst), minstens drie moeten het eens zijn. Wijken ze nog 1,2 graden of meer af (`TEXT_LINE_MIN`), dan wordt dat bijgesteld. Hotel New York kant A stond 1,5 graden scheef: de Discogs-foto die Sleeve volgde, stond zelf scheef.

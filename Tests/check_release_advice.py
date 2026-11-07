@@ -46,6 +46,14 @@ def promo_get(url):
  return {'identifiers':[{'type':'ISRC','value':'XA9-15-00002'}]} if url.endswith('/3') else {}
 found,_=A.search(h,'',promo_get)
 assert found[0]['id']==3 and 'ISRC komt overeen' in found[0]['reasons'] and 'ISRC komt overeen' not in found[1]['reasons']
+# Big words on the front read as separate lines ("PLACES" "TOGO", "You" "&I"); the
+# track line with its duration gives the real title; the artist comes from the credits.
+places=[{'lines':[line('PLACES',.18),line('TOGO',.18),line('nou',.11)]},
+        {'lines':[line('ANOUK',.14),line('Places To Go 3..47',.03),line('lyrics by Anouk Teeuwe',.02),line("Eerste single van Anouk's nieuwe album",.02),line('For promotional use only - NOT FOR SALE',.02)]}]
+h=A.extract_hints(places);assert (h['artist'],h['title'])==('ANOUK','Places To Go'),h
+you=[{'lines':[line('You',.30),line('&I',.29)]},
+     {'lines':[line('You &13..54',.03),line('Written by Anouk Teeuwe and N. Van De Wall',.02),line('Produced by Anouk Teeuwe',.02),line('For promotional use only - NOT FOR SALE',.02)]}]
+h=A.extract_hints(you);assert (h['artist'],h['title'])==('Anouk','You & I'),h
 def offline(url):raise RuntimeError('Geen verbinding met Discogs.')
 failed=A.advice(req,[],get=offline);assert not failed['candidates'] and 'Geen verbinding' in failed['message']
 # A usable barcode stops recognition without decoding the rest of the batch.
@@ -71,5 +79,5 @@ with tempfile.TemporaryDirectory(dir=work) as folder:
   try:B.scan({'output':str(output),'discogs':'https://www.discogs.com/release/33664818','useNames':False,'useStand':False,'useColour':True},[{'path':str(sample),'part':'sidea'}],staging)
   except Captured:pass
  assert captured and '--discogs-kleur' not in captured
-checks={'barcode_checksum_and_upc_ean_equivalence':True,'distinct_pressings_need_user_choice':True,'orange_variant_shown':True,'no_upload_of_images_or_raw_text':True,'offline_and_no_text_handled':True,'format_filter_and_bounded_sampling':True,'legacy_scan_colour_disabled':True,'promo_title_isrc':True}
+checks={'barcode_checksum_and_upc_ean_equivalence':True,'distinct_pressings_need_user_choice':True,'orange_variant_shown':True,'no_upload_of_images_or_raw_text':True,'offline_and_no_text_handled':True,'format_filter_and_bounded_sampling':True,'legacy_scan_colour_disabled':True,'promo_title_isrc':True,'split_title_and_credit_artist':True}
 (work/'RESULTAAT.json').write_text(json.dumps(checks,indent=2));print(checks)

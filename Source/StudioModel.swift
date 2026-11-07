@@ -9,9 +9,9 @@ func durationText(_ interval:TimeInterval)->String {
     return hours>0 ? String(format:"%d:%02d:%02d",hours,(seconds/60)%60,seconds%60) : String(format:"%d:%02d",seconds/60,seconds%60)
 }
 let supportedExtensions: Set<String> = ["png","jpg","jpeg","tif","tiff","bmp","webp"]
-let partChoices = ["unknown","front","back","inside","insert","inlay","sidea","sideb","sidec","sided","cd","cd1","cd2","sticker"]
+let partChoices = ["unknown","front","back","inside","insert","insert_left","insert_right","inlay","sidea","sideb","sidec","sided","cd","cd1","cd2","sticker"]
 func partLabel(_ value: String) -> String {
-    ["unknown":"Nog te bepalen","front":"Voorkant","back":"Achterkant","inside":"Binnenzijde","insert":"Inlegvel","inlay":"Inlay","sidea":"Kant A","sideb":"Kant B","sidec":"Kant C","sided":"Kant D","cd":"Cd","cd1":"Cd 1","cd2":"Cd 2","sticker":"Sticker"][value] ?? value
+    ["unknown":"Nog te bepalen","front":"Voorkant","back":"Achterkant","inside":"Binnenzijde","insert":"Inlegvel","insert_left":"Inlegvel links","insert_right":"Inlegvel rechts","inlay":"Inlay","sidea":"Kant A","sideb":"Kant B","sidec":"Kant C","sided":"Kant D","cd":"Cd","cd1":"Cd 1","cd2":"Cd 2","sticker":"Sticker"][value] ?? value
 }
 enum WorkMode: String, CaseIterable, Identifiable, Codable {
     case scans = "Scans verwerken", colour = "Kleur aanpassen", names = "Namen aanpassen"

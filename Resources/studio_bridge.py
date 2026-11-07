@@ -9,7 +9,7 @@ except ImportError:
  print(json.dumps({'event':'error','message':'De beeldonderdelen ontbreken. Sluit Sleeve en voer eerst Installeer beeldonderdelen.command uit het downloadpakket uit.'}),flush=True)
  raise SystemExit(1)
 sys.path.insert(0,str(TOOLS))
-PARTS={'front','back','inside','insert','inlay','sidea','sideb','sidec','sided','cd','cd1','cd2','sticker'}
+PARTS={'front','back','inside','insert','insert_left','insert_right','inlay','sidea','sideb','sidec','sided','cd','cd1','cd2','sticker'}
 EXTS={'.png','.jpg','.jpeg','.tif','.tiff','.bmp','.webp'}
 EVENT_STREAM=sys.stdout
 CHECKING_AFTER_PROCESS=False
