@@ -43,6 +43,8 @@ HOLE_VINYL = 0.026  # lp/7": klein asgat, zoals op de site (7" met groot gat: --
 SWEEP_MARGIN = 1.2     # leesstand-zoektocht: de winnaar moet 20% meer echte woorden halen dan de rest
 LABEL_REFINE_MIN = 1.5 # graden: kleinere bijstellingen zijn ruis van het labelontwerp (gemeten tot 1,3)
 LABEL_REFINE = 8.0     # graden: fijnbijstelling op de tekstregels na de grove meting (en na de leesstand-zoektocht in stappen van 15)
+TEXT_LINE_MIN = 1.2    # graden: zoveel moeten de rechte tekstregels nog afwijken voor een laatste bijstelling
+TEXT_LINE_MAX = 8.0    # graden: grotere hoek van een 'regel' is geen tekstregel maar ontwerp
 MAX_LABEL_SKEW = 12.0  # graden: grotere fijne scheefstand van een label is eerder een meetfout
 SIZE = None       # None = volle resolutie (de site-versie maakt een andere Quick Action)
 
@@ -201,6 +203,40 @@ def load_rgb(src):
     rgba = raw; alpha = rgba.getchannel('A')
     im = Image.new('RGB', rgba.size, (255, 255, 255)); im.paste(rgba, mask=alpha)
     return im, alpha
+
+
+def text_line_angle(label, n=1600):
+    """Draaiing (graden, voor Image.rotate) die de rechte tekstregels op het
+    label horizontaal legt, of None. Letters worden tot regels samengevoegd;
+    alleen lange, rechte, gevulde regels tellen (geen tekeningen, geen ronde
+    randtekst), en minstens drie moeten het eens zijn."""
+    import cv2
+    g = np.asarray(label.convert('L').resize((n, n))).astype(np.float32)
+    yy, xx = np.ogrid[:n, :n]; d = np.hypot(xx - n / 2, yy - n / 2) / (n / 2)
+    ring = (d < .78) & (d > .12)
+    ink = ((np.abs(g - np.median(g[ring])) > 60) & ring).astype(np.uint8)
+    closed = cv2.morphologyEx(ink, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (int(.02 * n), 3)))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(closed, 8)
+    found = []
+    for k in range(1, count):
+        area = stats[k, cv2.CC_STAT_AREA]
+        if area < .0004 * n * n:
+            continue
+        pts = np.column_stack(np.nonzero(labels == k))[:, ::-1].astype(np.float32)
+        _, (w, h), a = cv2.minAreaRect(pts)
+        if w < h:
+            w, h = h, w; a += 90
+        a = ((a + 90) % 180) - 90
+        if w < .08 * n or w / max(h, 1) < 4 or area / (w * h) < .35 or abs(a) > TEXT_LINE_MAX:
+            continue
+        found.append((a, w))
+    if len(found) < 3:
+        return None
+    a = np.array([f[0] for f in found]); w = np.array([f[1] for f in found])
+    keep = np.abs(a - np.median(a)) < .7
+    if keep.sum() < 3 or keep.mean() < .6:
+        return None
+    return float(np.average(a[keep], weights=w[keep]))
 
 
 def label_line_refine(label):
@@ -552,6 +588,14 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
             print(f'tekst: geen duidelijke leesrichting, alleen scheefstand rechtgezet: {ta:+.1f} graden')
         else:
             print('tekst: geen duidelijke leesrichting gevonden, niet gedraaid')
+        if vinyl:
+            # Laatste controle op de rechte tekstregels zelf (tracklijst). De meting
+            # hierboven kijkt naar het hele label; een tekening misleidt die
+            # (Hotel New York kant A bleef 1,5 graden scheef).
+            rest = text_line_angle(lab_im.rotate(angle, resample=Image.BICUBIC, fillcolor=(255, 255, 255)) if angle else lab_im)
+            if rest is not None and abs(rest) >= TEXT_LINE_MIN:
+                angle = ((angle + rest + 180) % 360) - 180
+                print(f'tekstregels nagemeten: nog {rest:+.1f} graden bijgesteld')
     if angle:
         sq = sq.rotate(angle, resample=Image.BICUBIC, fillcolor=(255, 255, 255))
     m = np.zeros((size, size), np.uint8)                 # schijf met gat, zachte randen

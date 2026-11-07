@@ -1,3 +1,7 @@
+# 0.4.21 — Labelhoek: de rechte tekstregels hebben het laatste woord
+
+- Na het rechtzetten (en na het volgen van een Discogs-foto) meet Sleeve de rechte tekstregels op het label zelf: letters worden tot regels samengevoegd, alleen lange, rechte, gevulde regels tellen (geen tekeningen of ronde randtekst), minstens drie moeten het eens zijn. Wijken ze nog 1,2 graden of meer af (`TEXT_LINE_MIN`), dan wordt dat bijgesteld. Hotel New York kant A stond 1,5 graden scheef: de Discogs-foto die Sleeve volgde, stond zelf scheef.
+
 # 0.4.20 — Uitgeklapte binnenkant als twee vierkanten; doorzichtig vinyl als plaat
 
 - Uitgeklapte binnenkant (twee panelen naast elkaar, in delen gescand): de scans worden één groep, ook als de uiteinden elkaar niet raken (meerdere sterke kwartslag-overlappen; bij een exacte kwartslag volstaan 25 passende punten, `MIN_INLIERS_QUARTER`). Het samengevoegde vlak (≥1,7:1) krijgt een kader van 2:1, en Sleeve slaat dat op als twee vierkanten, precies op de vouw gesplitst (`inside`, `inside_2`). Deena & Jim: kamer en bed, rechtop.

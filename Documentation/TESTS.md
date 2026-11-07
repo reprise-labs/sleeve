@@ -1,3 +1,8 @@
+## 0.4.21 — tekstregels
+
+- Op alle 17 labels van de 0.4.19-run: alleen HNY kant A wordt bijgesteld (−1,48 graden); de rest blijft onder 1 graad en ongemoeid. HNY kant A opnieuw verwerkt: restafwijking 0,00 graden.
+- Nieuwe controle in `check_sides.py`. Volledige projectcontroles geslaagd.
+
 ## 0.4.20 — binnenkant en asgat
 
 - Indeling alle 9 uitgaven: alleen DEENA-binnenkant 37–42 (nu één groep) gewijzigd. DEENA 37–42 volledig verwerkt: inside (kamer) en inside_2 (bed), 7388×7143, rechtop via Discogs.

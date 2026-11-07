@@ -205,7 +205,20 @@ def apply_reference(a,source_mode,metadata):
                 out = np.ascontiguousarray(np.rot90(out, -int(round(rot / 90))))
             else:
                 h, w = out.shape[:2]
-                R = cv2.getRotationMatrix2D((w / 2, h / 2), -rot, 1.0)
+                turn = -rot
+                if round_:
+                    # De Discogs-foto staat zelf vaak iets scheef (Hotel New York kant A:
+                    # 1,5 graden). Na het volgen van de foto de rechte tekstregels op het
+                    # label nameten en dat restje alsnog rechtzetten (één keer draaien).
+                    from scan_cutout import text_line_angle, TEXT_LINE_MIN
+                    trial = cv2.warpAffine(out, cv2.getRotationMatrix2D((w / 2, h / 2), turn, 1.0), (w, h), flags=cv2.INTER_LINEAR)
+                    s = min(h, w); lb = int(s * .18)
+                    label = Image.fromarray(np.ascontiguousarray(trial[h // 2 - lb:h // 2 + lb, w // 2 - lb:w // 2 + lb, :3][..., ::-1]))
+                    rest = text_line_angle(label)
+                    if rest is not None and abs(rest) >= TEXT_LINE_MIN:
+                        turn += rest
+                        print(f'tekstregels nagemeten na de Discogs-foto: nog {rest:+.1f} graden bijgesteld')
+                R = cv2.getRotationMatrix2D((w / 2, h / 2), turn, 1.0)
                 out = cv2.warpAffine(out, R, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
             how='exact als de Discogs-foto' if rot % 90 else 'per kwartslag'
             print(f'stand: {rot:+.1f} graden gedraaid ({"plaat" if round_ else "hoes"}, {how}; Discogs-foto stond {ang:+.1f})')
