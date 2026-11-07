@@ -38,7 +38,10 @@ DETAIL_SIGMA = 6       # px: fijner dan dit = detail (uit één scan), grover = 
 FEATHER = 700          # px: zo ver van de scanrand weegt een pixel pas volledig mee
                        # (randen van de glasplaat zijn donkerder: lamp + schaduw)
 EDGE = 150             # px van de rand die niet meetelt bij het kleurmeten
-SEAM_CORRIDOR = 40     # px (rekenschaal): zo ver mag een naad van de scherpste-scan-grens afwijken
+QUALITY_WINDOW = 48    # px (rekenschaal): vakjes waarin de eindcontrole naden en scherpte meet
+QUALITY_MIN_SPOTS = 3  # pas vanaf zoveel plekken een melding (één plek is vaak structuur, geen tekst)
+QUALITY_SHIFT = 4.0   # px (uitvoer): zoveel verschuiving op een naad door tekst wordt gemeld
+SEAM_CORRIDOR = 40    # px (rekenschaal): zo ver mag een naad van de scherpste-scan-grens afwijken
 SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
 WINNER_SMOOTH = 8     # px (rekenschaal): keuzekaart per deelscan samenhangend maken
 TONE_SIGMA = 30        # px (rekenschaal): alleen deze heel grove toon wordt tussen deelscans gemengd;
@@ -258,6 +261,64 @@ def place(n, feats):
         print(f'scannerrek gecorrigeerd: y/x = {sy:.4f} (passing {r0:.2f} -> {r1:.2f} px)')
     missing = [k for k in range(n) if k not in H]
     return H, ref, W, missing
+
+
+def stitch_quality(img, masks, ks, best, height, width, scale):
+    """Eindcontrole van het samenvoegen, op rekenschaal. Telt plekken waar
+    (1) een naad door tekst loopt en de twee deelscans daar zichtbaar
+    verschoven liggen (hoes lag niet plat), en (2) de gebruikte deelscan in
+    tekst veel minder scherp is dan een andere deelscan van die plek.
+    scale: uitvoerpixels per rekenpixel, voor de gemelde verschuiving."""
+    grays, sharp = [], []
+    for k in ks:
+        g = cv2.cvtColor(np.clip(img[k][0:height], 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY).astype(np.float32)
+        grays.append(g)
+        sharp.append(cv2.GaussianBlur(cv2.Laplacian(g, cv2.CV_32F) ** 2, (0, 0), 2) * masks[k])
+    peak = np.max(sharp, axis=0)
+    covered = np.any([masks[k] for k in ks], axis=0)
+    report = {'seam_text_shift': 0, 'seam_text_max_px': 0.0, 'blurry_text': 0}
+    if not covered.any():
+        return report
+    ink = peak > 25 * max(float(np.median(peak[covered])), 1.0)
+    chosen = np.zeros((height, width), np.float32)
+    for n in range(len(ks)):
+        chosen[best == n] = sharp[n][best == n]
+    seam = np.zeros((height, width), bool)
+    seam[:, 1:] |= best[:, 1:] != best[:, :-1]
+    seam[1:, :] |= best[1:, :] != best[:-1, :]
+    seam &= covered
+    half = QUALITY_WINDOW // 2
+    window = cv2.createHanningWindow((QUALITY_WINDOW, QUALITY_WINDOW), cv2.CV_32F)
+    for y in range(half, height - half, half):
+        for x in range(half, width - half, half):
+            sl = np.s_[y - half:y + half, x - half:x + half]
+            if ink[sl].mean() < 0.03:
+                continue
+            if (chosen[sl][ink[sl]].mean() < 0.5 * peak[sl][ink[sl]].mean()):
+                report['blurry_text'] += 1
+            if not seam[sl].any():
+                continue
+            labels, counts = np.unique(best[sl], return_counts=True)
+            pair = [int(v) for v in labels[np.argsort(-counts)][:2] if v < len(ks)]
+            if len(pair) < 2 or min(masks[ks[v]][sl].mean() for v in pair) < 0.95:
+                continue
+            (dx, dy), response = cv2.phaseCorrelate(grays[pair[0]][sl], grays[pair[1]][sl], window)
+            shift = float(np.hypot(dx, dy)) * scale
+            if response > 0.1 and shift >= QUALITY_SHIFT:
+                report['seam_text_shift'] += 1
+                report['seam_text_max_px'] = round(max(report['seam_text_max_px'], shift), 1)
+    return report
+
+
+def quality_messages(report):
+    """Meldingen voor de eindcontrole in de app (leeg = niets gevonden)."""
+    # Eén losse treffer is meestal structuur (goud vinyl, foto) en geen tekst.
+    # 'blurry_text' staat alleen in het logboek: die meting gaf nog vals alarm.
+    messages = []
+    if report.get('seam_text_shift', 0) >= QUALITY_MIN_SPOTS:
+        messages.append(f"Op {report['seam_text_shift']} plekken loopt een naad door tekst met tot ~{report['seam_text_max_px']:.0f} px verschuiving; "
+                        'de hoes lag in een deelscan waarschijnlijk niet plat. Controleer de tekst of scan dat deel opnieuw.')
+    return messages
 
 
 def seam_regions(img, masks, ks, height, width):
@@ -883,6 +944,8 @@ def main_with_resources(resources,lease=None):
         seams=seam_regions(img,allowed,ks,height,width)
         allowed=None
         if seams is not None:best[:]=np.where(seams<255,seams,best)
+        quality=stitch_quality(img,masks,ks,best,height,width,1.0/f)
+        print('SLEEVE_QUALITY '+__import__('json').dumps(quality),flush=True)
     value=coherent=share=better=None
     def lowpass(x,m):
         mb=cv2.GaussianBlur(m,(0,0),TONE_SIGMA)

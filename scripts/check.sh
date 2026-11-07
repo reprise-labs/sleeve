@@ -7,6 +7,7 @@ RUNTIME_PY="$HOME/Library/Application Support/com.repriselabs.Sleeve/Runtime/bin
 if [[ ! -x "$RUNTIME_PY" ]]; then RUNTIME_PY=/usr/bin/python3; fi
 export PYTHONDONTWRITEBYTECODE=1
 "$RUNTIME_PY" Tests/check_names.py
+"$RUNTIME_PY" Tests/check_sides.py
 for check in bridge audits progress cancel circle_edit memory scratch scratch_work release_advice grouping cover_boundary speed previews blend fields handoff preview_cache preview_cancel workers parallel_images; do
  "$RUNTIME_PY" "Tests/check_${check}.py" "$CHECK_DIR/$check"
 done

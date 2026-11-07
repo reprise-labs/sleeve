@@ -1,3 +1,10 @@
+# 0.4.13 — Kantherkenning, eindcontrole op naden en fijnere labelstand
+
+- Kanten herkennen: ook leesfouten van "SIDE" tellen ("SDEA", "S1DE B"), een schuin label wordt nog eens 15 en 30 graden gedraaid gelezen, en een label met alleen een losse letter (A, B, C, D, zoals Deena & Jim) wordt herkend door losse tekens uit te knippen en vergroot te lezen. Alleen hoofdletters tellen (een omgekeerde 'a' is geen A).
+- Groeperen: scans met dezelfde gelezen kantletter die via overlap verbonden zijn, beginnen samen; een scan zonder leesbare letter komt daarna bij de juiste kant. Daarmee geen kant A en B in één onderdeel meer (Deena & Jim: A, B en C apart; TGHT: Scan 22 bij kant A).
+- Labelstand: na de grove meting een fijnbijstelling op de tekstregels van ±1,5 tot 4 graden (`LABEL_REFINE`); kleiner is ruis van het ontwerp. Vooral voor platen zonder Discogs-foto van het vinyl (Wen d'r maar aan kant B stond 2,7 graden scheef).
+- Eindcontrole: tijdens het samenvoegen telt Sleeve plekken waar een naad door tekst loopt met zichtbaar verschoven deelscans (hoes niet plat). Vanaf 3 plekken staat er een melding bij dat bestand in de eindcontrole. Bij platen zonder passende Discogs-foto van het vinyl meldt de eindcontrole dat de labelstand alleen op de tekst is bepaald.
+
 # 0.4.12 — Rechte labels, schone naden, barcodes en automatische vinylkleur
 
 - Plaatlabels recht: de scheefstand wordt op het label zelf gemeten (1600 px) in plaats van op de hele plaat verkleind tot 1200 px. Een gemeten scheefstand boven 12 graden wordt als meetfout genegeerd (`MAX_LABEL_SKEW`).

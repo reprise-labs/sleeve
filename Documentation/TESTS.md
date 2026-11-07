@@ -1,3 +1,11 @@
+## 0.4.13 — kantherkenning, eindcontrole en labelstand
+
+- Indeling van alle scans van acht uitgaven (DEENA, TGHT, TA, US, GF, HNY, FBOW, FIRE): DEENA kant A 18–21, B 23–26, C 28–31; TGHT A 20–23, B 24–27; de overige zes precies gelijk aan de goede indeling van de 0.4.12-run. Kantletters: geen enkele foute letter op alle plaatscans.
+- Een eerdere aanpak (labels pixel voor pixel vergelijken) is verworpen: bij Graduated Fool verschilden scans van dezelfde kant meer dan DEENA A tegen B.
+- Eindcontrole op verkleinde scans: Hotel New York-achterkant 35 plekken (tot ~15 px), Urban Solitude, WEN, FBOW 0 plekken, Together Alone-plaat 1 plek (onder de drempel van 3).
+- Labelfijnbijstelling: WEN kant B +2,7 graden; op 16 al rechte labels van zes uitgaven nul (alle onder 1,5 graden).
+- Volledige projectcontroles (`scripts/check.sh`) geslaagd, met nieuwe `check_sides.py`.
+
 ## 0.4.12 — labels, naden, barcodes, voorkant en vinylkleur
 
 - Labels: Urban Solitude A/B en Graduated Fool A/B (uitvoer 0.4.11, verkleind tot 3000 px) stonden +1,9 / −3,5 / +0,6 / +2,2 graden scheef; de nieuwe meting corrigeert dat tot 0,0 graden (onafhankelijke projectiemeting), visueel gecontroleerd. Volledige `scan_cutout`-run op één plaat: 0.4.11 draaide 0,0 graden, 0.4.12 −1,9 graden.
