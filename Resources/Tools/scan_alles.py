@@ -29,6 +29,7 @@ import scan_stitch as ST          # noqa: E402
 import scan_cutout as CU          # noqa: E402
 from scan_memory import MemoryLease,physical_memory,GiB
 
+MERGE_SCORE = 0.65        # gemiddelde gelijkenis waarboven twee groepen scans samengaan
 KANTEN = ['front', 'back', 'inside', 'insert', 'inlay', 'sidea', 'sideb', 'sidec', 'sided', 'cd', 'cd1', 'cd2', 'sticker']
 LAST = os.path.expanduser('~/.sleeve_laatste_discogs')
 
@@ -57,17 +58,13 @@ def disc_side(path, preview=None, original=None):
     _disc_side_results[key]=result
     return result
 
-def disc_side_from_preview(path, im, original=None):
-    """Read an explicit side marker on the centre label, never infer from artwork."""
-    import re
+def label_circle(im):
+    """Het middenlabel van een plaat op een voorbeeld: (x, y, r) of None."""
     gray = cv2.GaussianBlur(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), (3, 3), 0)
     m = min(gray.shape)
     circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1, minDist=m*.1,
                               param1=60, param2=35, minRadius=int(m*.09), maxRadius=int(m*.27))
     if circles is None:
-        return None
-    exe = CU.ocr_tool()
-    if not exe:
         return None
     x, y, r = circles[0][0]
     # Red vinyl and a dark label can have the same luminance. Keep chromatic
@@ -79,6 +76,19 @@ def disc_side_from_preview(path, im, original=None):
     valid = (xx>=0)&(yy>=0)&(xx<gray.shape[1])&(yy<gray.shape[0])
     if valid.mean()<.9 or (edge[yy[valid],xx[valid]]>0).mean()<.65:
         return None
+    return float(x), float(y), float(r)
+
+
+def disc_side_from_preview(path, im, original=None):
+    """Read an explicit side marker on the centre label, never infer from artwork."""
+    import re
+    circle = label_circle(im)
+    if circle is None:
+        return None
+    exe = CU.ocr_tool()
+    if not exe:
+        return None
+    x, y, r = circle
     with (Image.open(path) if original is None else contextlib.nullcontext(original)) as original:
         original.thumbnail((2800,2800))
         ratio = original.width / im.shape[1]
@@ -100,7 +110,58 @@ def disc_side_from_preview(path, im, original=None):
         from PIL import ImageOps
         contrast=ImageOps.autocontrast(label.convert('L'),cutoff=2)
         found=recognize(contrast.point(lambda value:255 if value>140 else 0))
+    for extra in (15,-15,30,-30):
+        # Tekstherkenning leest alleen in kwartslagen; een label dat daar schuin
+        # tussen ligt (TGHT: grote schuine titel misleidt de hoekmeting) mist "SIDE A".
+        if found:
+            break
+        found=recognize(label.rotate(extra, resample=Image.BICUBIC, fillcolor='white'))
+    if not found:
+        found=lone_side_letter(label,exe)
     return next(iter(found)) if len(found) == 1 else None
+
+
+def lone_side_letter(label, exe):
+    """Een label met alleen een losse letter als kant (A, B, C, D), zoals Deena &
+    Jim. Tekstherkenning zoekt woorden en slaat zo'n letter over. Zoek daarom
+    geïsoleerde tekens van letterformaat, zet ze rechtop volgens de leesrichting
+    van de rest van het label, vergroot ze en lees alleen die stand."""
+    q = CU.reading_quadrant(label)                     # None: leesrichting onbekend, alle standen
+    upright = label.transpose({90: Image.ROTATE_270, 180: Image.ROTATE_180, 270: Image.ROTATE_90}[q]) if q else label
+    rgb = np.asarray(upright.convert('RGB'))
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    n = gray.shape[0]
+    ink = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 51, 15)
+    yy, xx = np.ogrid[:n, :n]
+    d = np.hypot(xx - n / 2, yy - n / 2) / (n / 2)
+    ink[(d > .85) | (d < .15)] = 0                    # randtekst en asgat niet
+    count, _, stats, _ = cv2.connectedComponentsWithStats(ink, 8)
+    letters = set()
+    for c in range(1, count):
+        x, y, w, h, area = stats[c]
+        if not (.04 * n < h < .14 * n and .02 * n < w < .14 * n and area > .15 * w * h):
+            continue
+        x0, y0, x1, y1 = max(0, x - h), max(0, y - h), min(n, x + w + h), min(n, y + 2 * h)
+        if (ink[y0:y1, x0:x1] > 0).sum() - area > .25 * area:
+            continue                                   # niet los: hoort bij een woord
+        pad = int(.6 * h)
+        glyph = Image.fromarray(rgb[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad])
+        glyph = glyph.resize((max(1, round(glyph.width * 240 / glyph.height)), 240), Image.LANCZOS)
+        with tempfile.NamedTemporaryFile(suffix='.png') as f:
+            glyph.save(f.name)
+            try:
+                text = subprocess.run([exe, f.name], capture_output=True, text=True, timeout=25).stdout
+            except subprocess.TimeoutExpired:
+                continue
+        for line in text.splitlines():
+            parts = line.split('\t', 2)
+            if len(parts) != 3 or (q is not None and parts[0] != '0'):
+                continue
+            mark = parts[2].strip()
+            # alleen hoofdletters (een omgekeerde 'a' is geen A); C ook als 'c'
+            if mark in ('A', 'B', 'C', 'D', 'c'):
+                letters.add(mark.upper())
+    return letters
 
 
 def side_markers(text):
@@ -113,7 +174,8 @@ def side_markers(text):
             continue
         dash_mark = re.fullmatch(r'\s*[-–—]\s*([ABCD])\s*[-–—]\s*',parts[2].upper())
         if dash_mark: found.add(dash_mark.group(1))
-        for mark in re.findall(r'\b(?:SIDE|KANT)\s*[:.-]?\s*(ONE|TWO|THREE|FOUR|[ABCD1234])\b', parts[2].upper()):
+        # ook gangbare leesfouten van SIDE: "SDEA", "S1DE A", "SlDE B"
+        for mark in re.findall(r'\b(?:S[I1L|]?DE|KANT)\s*[:.-]?\s*(ONE|TWO|THREE|FOUR|[ABCD1234])\b', parts[2].upper()):
             found.add(markers.get(mark, mark))
     return found
 
@@ -241,12 +303,32 @@ def group_with_previews(paths,scratch):
                 conflict = len(patches) >= 5 and (np.asarray(patches)<.10).mean() > .20
                 S[i, j] = S[j, i] = -1.0 if conflict else np.corrcoef(hi[mh], hj[mh])[0, 1]
     progress("Scans met elkaar vergelijken",comparisons,comparison_total,scope="preparation")
-    return cluster_paths(paths,S)
+    return cluster_paths(paths,S,sides)
 
 
-def cluster_paths(paths,S):
+def cluster_paths(paths,S,sides=None):
     n=len(paths)
     cl = [[i] for i in range(n)]
+    # Scans met dezelfde gelezen kantletter beginnen samen (als ze op elkaar
+    # passen), zodat een scan zonder leesbare letter daarna bij de juiste kant
+    # komt in plaats van bij de eerste de beste gelijkende scan.
+    for letter in sorted({side for side in (sides or []) if side}):
+        members=[i for i in range(n) if sides[i]==letter]
+        if len(members)<2 or any(S[i,j]<0 for i in members for j in members if i<j and np.isfinite(S[i,j])):
+            continue
+        # alleen scans die via overlap met elkaar verbonden zijn (zelfde letter
+        # kan ook in drukwerk staan, bv. een tracklijst op de achterkant)
+        parts=[[members[0]]];rest=members[1:]
+        while rest:
+            linked=[j for j in rest if any(np.isfinite(S[i,j]) and S[i,j]>=MERGE_SCORE for i in parts[-1])]
+            if linked:
+                parts[-1]+=linked;rest=[j for j in rest if j not in linked]
+            else:
+                parts.append([rest.pop(0)])
+        for part in parts:
+            seed=[c for c in cl if c[0] in part]
+            for c in seed[1:]:
+                seed[0]+=c;cl.remove(c)
     while True:
         best = None
         for x in range(len(cl)):
@@ -255,7 +337,7 @@ def cluster_paths(paths,S):
                 if not vals:
                     continue
                 score = float(np.mean(vals)) if len(vals) * 2 >= len(cl[x]) * len(cl[y]) and min(vals) >= 0.0 else 0.0
-                if score >= 0.65 and (best is None or score > best[0]):
+                if score >= MERGE_SCORE and (best is None or score > best[0]):
                     best = (score, x, y)
         if best is None:
             break
@@ -594,7 +676,7 @@ return text returned of r''')
                 continue
         print(f'[{n}/{len(gs)}] ' + ', '.join(os.path.basename(x) for x in g), flush=True)
         progress('Deelscans voorbereiden',detail=f'{len(g)} deelscans voor dit onderdeel',completed=len(results))
-        src = g[0];matched_primary=False
+        src = g[0];matched_primary=False;quality=[];label_check=''
         dst = os.path.join(tmp, f'deel{n}.png')
         if len(g) > 1:
             src = os.path.join(tmp, f'deel{n}_samengevoegd.png')
@@ -611,6 +693,9 @@ return text returned of r''')
                     if os.path.abspath(candidate)!=os.path.abspath(src+'.tif'):
                         raise ValueError('Invalid intermediate output')
                     src=candidate
+                if line.startswith('SLEEVE_QUALITY '):
+                    import json
+                    quality=ST.quality_messages(json.loads(line[len('SLEEVE_QUALITY '):]))
             # samenvoegen herkent de vorm al; samengevoegd = altijd een lp-formaat
             soort = 'vinyl' if 'plaat:' in r.stdout else 'hoes'
         else:
@@ -658,6 +743,11 @@ return text returned of r''')
             import re
             match=re.search(r'SLEEVE_REFERENCE_IDENTITY (\d+)',r.stdout) if r.returncode==0 else None
             matched_primary=soort=='hoes' and match is not None and int(match[1]) in primary_positions
+            if soort=='vinyl' and r.returncode==0 and 'past best' in r.stdout:label_check='discogs'
+        if soort=='vinyl' and label_check!='discogs':
+            # Zonder passende Discogs-foto van het vinyl is de stand alleen op de
+            # labeltekst bepaald; bij schuin ontworpen labels kan die ernaast zitten.
+            quality.append('Labelstand alleen op de labeltekst bepaald (geen passende Discogs-foto van het vinyl). Controleer of het label recht staat.')
         # meteen veiligstellen in 'verwerkt' (voorlopige naam); hernoemen gebeurt straks
         veilig = os.path.join(out, f'{os.path.splitext(os.path.basename(g[0]))[0]}_{soort}.png'); m = 2
         while os.path.exists(veilig):
@@ -667,7 +757,7 @@ return text returned of r''')
             twijfel.discard(dst); twijfel.add(veilig)
         results.append((veilig, soort, g[0]))
         if matched_primary:detected_cover_parts[veilig]='front'
-        component_records.append({'name':os.path.basename(veilig),'part':confirmed_parts.get(os.path.abspath(g[0]),detected_cover_parts.get(veilig,'unknown')),'type':soort,'matched_primary':matched_primary,'needs_review':veilig in twijfel,'source':os.path.realpath(g[0]),'scans':[os.path.realpath(p) for p in g]})
+        component_records.append({'name':os.path.basename(veilig),'part':confirmed_parts.get(os.path.abspath(g[0]),detected_cover_parts.get(veilig,'unknown')),'type':soort,'matched_primary':matched_primary,'needs_review':veilig in twijfel,'source':os.path.realpath(g[0]),'scans':[os.path.realpath(p) for p in g],'quality':quality})
         save_components()
         progress('Onderdeel verwerkt',completed=len(results))
 

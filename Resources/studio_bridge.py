@@ -342,6 +342,19 @@ def names_apply(req,rows):
  (output/'Naamwijzigingen.json').write_text(json.dumps(proposals,ensure_ascii=False,indent=2))
  emit('complete',message=f'{len(files)} kopieën met nieuwe namen bewaard.',path=str(output))
 
+def component_quality(path):
+ """Meldingen uit het samenvoegen (naad door verschoven tekst, labelstand
+ niet met Discogs gecontroleerd) die bij dit resultaat horen. Een _kleur-kopie
+ krijgt de meldingen van het origineel."""
+ path=Path(path);base=re.sub(r'_kleur(?:_\d+)?$','',path.stem)+path.suffix
+ for folder in (path.parent,colour_destination(path)):
+  try:records=json.loads((folder/'Studio-onderdelen.json').read_text()).get('files',[])
+  except (OSError,ValueError,TypeError):continue
+  for record in records:
+   if isinstance(record,dict) and record.get('name') in (path.name,base):
+    return [str(note) for note in record.get('quality',[]) if note]
+ return []
+
 def audit_files(req,files,action):
  from PIL import Image
  import numpy as np,cv2
@@ -383,6 +396,8 @@ def audit_files(req,files,action):
    result['signature']=f'{after.st_size}:{after.st_mtime_ns//10**9}:{after.st_mtime_ns%10**9}'
    result['readable']=True
    if file.get('partial'):result['message']='Afgebroken verwerking; dit resultaat moet opnieuw worden gecontroleerd.'
+   notes=component_quality(p)
+   if notes:result['message']=' '.join([result['message']]+notes if result['message'] else notes)
   except Exception as error:result['message']=str(error)
   audits.append(result);emit('audit',audits=[result])
  if any(not row['readable'] for row in audits):raise ValueError('Een resultaat kon niet volledig worden gelezen. De wachtrij is gepauzeerd; bekijk de eindcontrole.')

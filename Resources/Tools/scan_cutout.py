@@ -40,6 +40,8 @@ Image.MAX_IMAGE_PIXELS = None
 
 HOLE = 0.138        # cd/dvd: gatdiameter / schijfdiameter, zoals op de site
 HOLE_VINYL = 0.026  # lp/7": klein asgat, zoals op de site (7" met groot gat: --gat 0.217)
+LABEL_REFINE_MIN = 1.5 # graden: kleinere bijstellingen zijn ruis van het labelontwerp (gemeten tot 1,3)
+LABEL_REFINE = 4.0     # graden: fijnbijstelling op de tekstregels na de grove meting
 MAX_LABEL_SKEW = 12.0  # graden: grotere fijne scheefstand van een label is eerder een meetfout
 SIZE = None       # None = volle resolutie (de site-versie maakt een andere Quick Action)
 
@@ -198,6 +200,26 @@ def load_rgb(src):
     rgba = raw; alpha = rgba.getchannel('A')
     im = Image.new('RGB', rgba.size, (255, 255, 255)); im.paste(rgba, mask=alpha)
     return im, alpha
+
+
+def label_line_refine(label):
+    """Laatste paar graden: draai zo dat de tekstregels zo scherp mogelijk
+    horizontaal liggen (rijprofiel). Alleen binnen ±LABEL_REFINE graden, na de
+    grove meting; licht en donker drukwerk tellen allebei."""
+    import cv2
+    g = np.asarray(label.convert('L').resize((1200, 1200))).astype(np.float32)
+    n = 1200
+    yy, xx = np.ogrid[:n, :n]
+    d = np.hypot(xx - n / 2, yy - n / 2) / (n / 2)
+    ring = (d < .75) & (d > .15)
+    ink = ((np.abs(g - np.median(g[ring])) > 45) & ring).astype(np.float32)
+    if ink.mean() < .002:
+        return 0.0
+    best = max((float(cv2.warpAffine(ink, cv2.getRotationMatrix2D((n / 2, n / 2), a, 1), (n, n)).sum(1).var()), a)
+               for a in np.arange(-LABEL_REFINE, LABEL_REFINE + .01, .1))
+    if abs(best[1]) >= LABEL_REFINE - .05 or abs(best[1]) < LABEL_REFINE_MIN:
+        return 0.0          # op de rand: geen duidelijke regels; klein: ruis van het ontwerp
+    return float(best[1])
 
 
 def disc_text_angle(sq, vinyl=False):
@@ -466,6 +488,8 @@ def cut_disc(src, dst, angle=0, size=None, vinyl=False, hole=None, auto=False, a
             if abs(((ta + 45) % 90) - 45) > MAX_LABEL_SKEW:
                 print(f'tekst: rechtzethoek {ta:+.1f} graden onwaarschijnlijk, alleen kwartslagen')
                 ta = 0.0
+            else:
+                ta += label_line_refine(lab_im.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)))
             t1 = lab_im.rotate(ta, resample=Image.BICUBIC, fillcolor=(255, 255, 255)) if ta else lab_im
         else:
             ta = disc_text_angle(small, vinyl) or 0.0
