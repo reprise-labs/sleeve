@@ -31,6 +31,7 @@ DISC_EDGE_MM = 1.0               # feit: de rand van een plaat is afgerond, ±1 
                                  # toont die als glans of schaduw. Gesneden wordt op de vlakke plaat.
 HOLE_12_MM = 7.24                # feit (norm): het middengat van een 12"-plaat is 7,24 mm
 ANALYSIS_DPI = 300.0              # rekenen op deze resolutie; het eindbeeld komt op de volle resolutie
+SCAN_EDGE_MM = 0.6               # feit: de schaduw van de scannerrand is ±0,5 mm breed; daarbinnen is een rand geen bewijs
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
 SQUARE_MM = 1.5                  # een hoes is vierkant: breedte en hoogte verschillen hooguit zoveel
 SEEN = 0.5                       # zoveel van een zijde op een zichtbare rand = die zijde is gezien
@@ -335,7 +336,7 @@ def main():
     s = WORK_PX_MM / px_mm
     small = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     sa = cv2.resize(alpha.astype(np.uint8), (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
-    border = scan_border_mask(meta, sa.shape, s / F, 2 * WORK_PX_MM)        # 2 mm rond elke scanrand
+    border = scan_border_mask(meta, sa.shape, s / F, max(2, 2 * SCAN_EDGE_MM * WORK_PX_MM))   # strook langs elke scanrand
     shape = PART_SHAPE[a.part]; lo_mm, hi_mm = FACTS_MM[shape]
     lo, hi = lo_mm * WORK_PX_MM, hi_mm * WORK_PX_MM
     result = {'part': a.part, 'shape': shape}
@@ -426,7 +427,7 @@ def main():
         else:
             H, W = bgr.shape[:2]
             # feit: de rand van een scan is geen hoesrand, ook niet bij het nauwkeurig meten
-            near_scan_edge = scan_border_mask(meta, (H, W), 1 / F, 2 * px_mm)
+            near_scan_edge = scan_border_mask(meta, (H, W), 1 / F, max(2, 2 * SCAN_EDGE_MM * px_mm))
             usable = (alpha & ~near_scan_edge).astype(np.uint8)
             def rotated(angle):
                 Rm = cv2.getRotationMatrix2D((W / 2, H / 2), angle, 1.0)
