@@ -68,12 +68,17 @@ def release_format(discogs):
     return 'cd' if names & {'cd', 'cdr'} else ('vinyl' if 'vinyl' in names else None)
 
 
-def already_cut(path, spec):
+def scan_resolution(path, release_dpi=0.0):
+    """Feit: de resolutie uit het bestand (EXIF/JFIF, zie scan_dpi); staat die er niet
+    betrouwbaar in, dan die van de andere scans van deze release (zelfde scanner)."""
+    import scan_dpi
+    return scan_dpi.read(path) or (release_dpi if release_dpi and 50 < release_dpi < 5000 else 0.0)
+
+
+def already_cut(path, spec, release_dpi=0.0):
     """Is dit beeld al uitgesneden? Het zichtbare deel (niet-transparant) heeft dan al de
     maat die de feiten voor dit onderdeel geven. Geeft (beeld, notitie) of None."""
-    from PIL import Image
-    with Image.open(path) as im:
-        d = im.info.get('dpi'); dpi = float(d[0]) if d and 50 < float(d[0]) < 5000 else 0.0
+    dpi = scan_resolution(path, release_dpi)
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if img is None:
         return None
@@ -152,7 +157,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('scans', nargs='+'); p.add_argument('--part', required=True)
     p.add_argument('--discogs', default=''); p.add_argument('--out', required=True); p.add_argument('--work', required=True)
-    p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default='')
+    p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default=''); p.add_argument('--release-dpi', type=float, default=0.0)
     a = p.parse_args()
     folder = os.path.dirname(os.path.abspath(a.scans[0]))
     decision = json.loads(a.decision) if a.decision else load_decisions(folder).get(key_for(a.scans), {}).get('decision', {})
@@ -169,7 +174,7 @@ def main():
         if os.path.exists(f):
             os.remove(f)
     result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
-    already = already_cut(a.scans[0], SF.SHAPES[fmt][feit_part]) if len(a.scans) == 1 else None
+    already = already_cut(a.scans[0], SF.SHAPES[fmt][feit_part], a.release_dpi) if len(a.scans) == 1 else None
     if already:
         # Feit: dit beeld heeft al precies de maat van dit onderdeel: het is al uitgesneden.
         img0, note = already
@@ -180,8 +185,9 @@ def main():
     elif len(a.scans) == 1:
         # één scan: niets samen te voegen; de scan zelf is het hele beeld
         from PIL import Image
+        Image.MAX_IMAGE_PIXELS = None
+        dpi0 = scan_resolution(a.scans[0], a.release_dpi)
         with Image.open(a.scans[0]) as im:
-            d = im.info.get('dpi'); dpi0 = float(d[0]) if d and 50 < float(d[0]) < 5000 else 0.0
             w0, h0 = im.size
             im.convert('RGBA').save(raw)
         json.dump({'scale': 1, 'dpi': dpi0 or 300.0, 'scans': [{'scan': os.path.basename(a.scans[0]),
@@ -191,6 +197,10 @@ def main():
             result['why'].append('the scan has no resolution (dpi) stored; 300 dpi assumed for the size facts')
     else:
         st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + a.scans + ['--vorm', 'ruw'], capture_output=True, text=True)
+    if not already and st.returncode == 0 and os.path.exists(raw + '.scans.json') and a.release_dpi:
+        meta = json.load(open(raw + '.scans.json'))
+        if not meta.get('dpi'):                            # samengevoegd zonder betrouwbare resolutie: die van de release
+            meta['dpi'] = a.release_dpi; json.dump(meta, open(raw + '.scans.json', 'w'))
     if not already and (st.returncode != 0 or not os.path.exists(raw)):
         result.update(verdict='FOUT', why=[(st.stderr or st.stdout).strip().splitlines()[-1] if (st.stderr or st.stdout).strip() else 'merging failed'])
         print(json.dumps(result)); return

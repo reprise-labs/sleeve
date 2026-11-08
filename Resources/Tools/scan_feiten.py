@@ -44,6 +44,7 @@ HOLE_12_MM = 7.24                # feit (norm): het middengat van een 12"-plaat 
 ANALYSIS_DPI = 300.0              # rekenen op deze resolutie; het eindbeeld komt op de volle resolutie
 SCAN_EDGE_MM = 0.6               # feit: de schaduw van de scannerrand is ±0,5 mm breed; daarbinnen is een rand geen bewijs
 RIM_CUT_MM = 0.25                # net binnen de binnenkant van de afgeronde rand snijden
+EDGE_FLOOR = 3.0                 # kleinste sprong (Sobel) die een rand kan zijn; wit op wit is zwak, dus laag
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
 SQUARE_MM = 1.5                  # een hoes is vierkant: breedte en hoogte verschillen hooguit zoveel
 SEEN = 0.5                       # zoveel van een zijde op een zichtbare rand = die zijde is gezien
@@ -77,7 +78,7 @@ def edge_maps(bgr, alpha, border, ):
     valid = inside & ~border
     mag = np.hypot(gx, gy)
     noise = float(np.median(mag[valid])) + 1e-3
-    t = 3.0 * noise
+    t = max(3.0 * noise, EDGE_FLOOR)                  # vlak gescand papier: ruis ±0, dan telt pas een echte sprong
     eh = (np.abs(gy) > t) & (np.abs(gy) > 2 * np.abs(gx)) & valid      # horizontale rand
     ev = (np.abs(gx) > t) & (np.abs(gx) > 2 * np.abs(gy)) & valid      # verticale rand
     k = np.ones((3, 3), np.uint8)
@@ -98,7 +99,7 @@ def side_cover(eh, ev, valid, x0, y0, Sx, Sy):
     for name, edge, sl in (('top', eh, (y0, slice(x0, x0 + Sx))), ('bottom', eh, (y0 + Sy, slice(x0, x0 + Sx))),
                            ('left', ev, (slice(y0, y0 + Sy), x0)), ('right', ev, (slice(y0, y0 + Sy), x0 + Sx))):
         v = valid[sl]; e = edge[sl] & v
-        out[name] = {'cover': float(e.sum() / max(v.sum(), 1)), 'scanned': float(v.mean()) if v.size else 0.0}
+        out[name] = {'cover': float(e.sum() / max(v.sum(), 1)) if v.sum() >= .5 * max(v.size, 1) else 0.0, 'scanned': float(v.mean()) if v.size else 0.0}
     return out
 
 
@@ -113,10 +114,13 @@ def find_rect(eh0, ev0, valid0, sizes, angles):
         for Sx, Sy in sizes:
             if Sx >= w or Sy >= h:
                 continue
+            # feit: een zijde telt alleen als het grootste deel ervan gescand (bruikbaar) is
             if Sx not in cache_h:
-                cache_h[Sx] = seg_sums(eh & valid, Sx, 1) / np.maximum(seg_sums(valid, Sx, 1), 1)   # [y, x0]
+                vs = seg_sums(valid, Sx, 1)
+                cache_h[Sx] = np.where(vs >= .5 * Sx, seg_sums(eh & valid, Sx, 1) / np.maximum(vs, 1), 0)   # [y, x0]
             if Sy not in cache_v:
-                cache_v[Sy] = seg_sums(ev & valid, Sy, 0) / np.maximum(seg_sums(valid, Sy, 0), 1)   # [y0, x]
+                vs = seg_sums(valid, Sy, 0)
+                cache_v[Sy] = np.where(vs >= .5 * Sy, seg_sums(ev & valid, Sy, 0) / np.maximum(vs, 1), 0)   # [y0, x]
             th, tv = cache_h[Sx], cache_v[Sy]
             ny, nx = h - Sy, w - Sx
             score = th[:ny, :nx] + th[Sy:Sy + ny, :nx] + tv[:ny, :nx] + tv[:ny, Sx:Sx + nx]
@@ -135,7 +139,7 @@ def refine_sides(eh, ev, valid, x0, y0, Sx, Sy, xr, yr, reach):
                 v = valid[p, fixed_range]; e = edge[p, fixed_range] & v
             else:
                 v = valid[fixed_range, p]; e = edge[fixed_range, p] & v
-            scores.append(e.sum() / max(v.sum(), 1))
+            scores.append(e.sum() / max(v.sum(), 1) if v.sum() >= .5 * max(v.size, 1) else 0.0)
         return positions[int(np.argmax(scores))]
     h, w = eh.shape
     xs = slice(x0, x0 + Sx); ys = slice(y0, y0 + Sy)
@@ -157,7 +161,7 @@ def find_disc(bgr, alpha, border, lo, hi):
     gx = cv2.Sobel(g, cv2.CV_32F, 1, 0); gy = cv2.Sobel(g, cv2.CV_32F, 0, 1)
     mag = np.hypot(gx, gy)
     valid = (cv2.erode(alpha.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0) & ~border
-    t = 3.0 * (float(np.median(mag[valid])) + 1e-3)
+    t = max(3.0 * (float(np.median(mag[valid])) + 1e-3), EDGE_FLOOR)
     edge = ((mag > t) & valid).astype(np.float32)
     best = None
     for d in range(int(lo), int(hi) + 1, 1):
@@ -183,7 +187,7 @@ def find_disc(bgr, alpha, border, lo, hi):
     return best, sectors
 
 
-def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72, inner=False, fixed_centre=False):
+def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72, inner=False, fixed_centre=False, outermost=False, median=False):
     """De plaat precies, op volle resolutie. In n richtingen het gemiddelde
     helderheidsverloop langs de straal; de rand van de plaat is daar de sterkste
     sprong. Door die punten de best passende cirkel (een plaat is rond). Geeft
@@ -207,7 +211,10 @@ def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72, inner=False, fi
         if inner:
             # binnenkant van de afgeronde rand: de eerste duidelijke sprong vanaf het vlakke vinyl
             strong = np.nonzero(d >= .5 * d.max())[0]
-            i = int(strong.min()) if len(strong) else int(np.argmax(d))
+            if outermost:                                  # van buiten naar binnen: de eerste sprong
+                i = int(strong.max()) if len(strong) else int(np.argmax(d))
+            else:
+                i = int(strong.min()) if len(strong) else int(np.argmax(d))
         else:
             i = int(np.argmax(d))
         rr = radii[i] + 0.25; a = np.radians((k + .5) * 360 / n)
@@ -217,6 +224,8 @@ def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72, inner=False, fi
         return cx, cy, r, [None] * n
     if fixed_centre:                                       # zelfde midden, alleen de straal meten (mediaan: krassen tellen niet)
         d_all = np.hypot(P[:, 0] - cx, P[:, 1] - cy)
+        if outermost or median:                            # cd: de rand is rondom gelijk, de mediaan telt
+            return cx, cy, float(np.median(d_all)), [None] * n
         # overal binnen het vlakke vinyl: de kleinste afstand (5e percentiel, zodat één kras niet telt)
         return cx, cy, float(np.percentile(d_all, 5)), [None] * n
     def fit(Q):
@@ -259,12 +268,12 @@ def find_hole(img, r, reach):
     return lo + x, lo + y, float(cov[y, x])
 
 
-def hole_outline(img, hx, hy, r, n=72, outermost=False):
+def hole_outline(img, hx, hy, r, n=72, outermost=False, top=1.7):
     """Het echte gat zoals het gescand is (kan uitgesleten of niet helemaal rond
     zijn): in n richtingen vanuit het midden van het gat de sterkste sprong tussen
     0,7 en 1,6 keer de normstraal. Geeft de omtrek als punten."""
     g = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32), (0, 0), 1.0)
-    radii = np.arange(.7 * r, 1.6 * r, .5); pts = []
+    radii = np.arange(.7 * r, top * r, .5); pts = []
     for k in range(n):
         a = 2 * np.pi * (k + .5) / n
         xs = (hx + radii * np.cos(a)).astype(np.float32); ys = (hy + radii * np.sin(a)).astype(np.float32)
@@ -281,12 +290,13 @@ def hole_outline(img, hx, hy, r, n=72, outermost=False):
     return np.array([[hx + q * np.cos(a), hy + q * np.sin(a)] for q, (_, a) in zip(rs, pts)], np.float32)
 
 
-def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
+def precise_edges(img, alpha, L, T, R, B, reach, segments=False, candidates=False):
     """Elke zijde precies op de papierrand, op volle resolutie. Per zijde het
     gemiddelde helderheidsverloop dwars op de rand (middelste 80% van de zijde,
     alleen gescande pixels). De papierrand is de binnenste duidelijke sprong: een
     schaduw valt altijd buiten het papier, nooit erbinnen."""
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    near_px = reach * 0.4                                 # ±1,2 mm bij een zoekbereik van 3 mm
     def profile(horizontal, pos, a0, a1, whole=False):
         lo, hi = int(round(pos - reach)), int(round(pos + reach))
         lim = g.shape[0] if horizontal else g.shape[1]
@@ -303,15 +313,24 @@ def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
         full = band.shape[1] if horizontal else band.shape[0]
         # waar minder dan de helft van de zijde gescand (en bruikbaar) is, telt die positie niet
         weak = cnt < .5 * max(full, 1)
-        prof = np.convolve(prof, np.ones(3) / 3, 'same')
-        return lo, np.where(weak, np.nan, prof)
+        # niet-gescand telt niet mee, ook niet in het gladstrijken (alleen over de gescande buren middelen)
+        okv = (~weak).astype(np.float64); val = np.where(weak, 0.0, prof)
+        num = np.convolve(val, np.ones(3), 'same'); den = np.convolve(okv, np.ones(3), 'same')
+        prof = np.where(weak, np.nan, num / np.maximum(den, 1e-9))
+        return lo, prof
     def edge(horizontal, pos, a0, a1, inward, whole=False):
         lo, prof = profile(horizontal, pos, a0, a1, whole)
         d = np.abs(np.diff(prof)); d = np.nan_to_num(d, nan=0.0); d[:2] = 0; d[-2:] = 0
         if d.max() <= 0 or np.isnan(prof).mean() > .5:
-            return pos                                     # niets te meten: het grove kader blijft staan
+            return [pos] if candidates else pos            # niets te meten: het grove kader blijft staan
         peaks = [i for i in range(1, len(d) - 1) if d[i] >= d[i - 1] and d[i] >= d[i + 1] and d[i] >= .5 * d.max()]
-        i = max(peaks) if inward > 0 else min(peaks)          # binnenste sprong
+        # het grove kader (hele zijde op een rand, ±0,5 mm) is het bewijs; binnen ±1,2 mm daarvan
+        # de binnenste sprong (een schaduw valt buiten het papier); anders de binnenste overall
+        if candidates:                                     # alle duidelijke randen (de feiten kiezen er later uit)
+            return sorted(lo + j + 1 for j in peaks)
+        near = [i for i in peaks if abs(lo + i + 1 - pos) <= near_px]
+        pool = near or peaks
+        i = max(pool) if inward > 0 else min(pool)            # binnenste sprong
         return lo + i + 1 if inward > 0 else lo + i + 1
     if segments:
         # helling per zijde: de rand in 10 stukken meten en er een rechte lijn door leggen
@@ -347,21 +366,33 @@ def missing_part(result, covered, px_mm):
                          'or fill it in yourself, for example in Photoshop. Sleeve does not invent image.')
 
 
-def trim_edge_lines(img, px_mm, max_mm=0.3):
-    """Feit: een schaduw- of kleplijn langs de rand is geen drukwerk. Per zijde op de volle
-    resolutie: zolang de buitenste rij/kolom duidelijk anders is (helderheid of kleur) dan
-    het drukwerk net binnen de rand (0,5-1 mm), die rij weghalen; hooguit max_mm."""
+def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0):
+    """Feit: wat langs de rand de kleur van de klep heeft (gemeten vlak buiten het onderdeel
+    in dezelfde scan), of de schaduw ervan (donkerder en kleurlozer dan het drukwerk), is
+    klep en geen drukwerk. Per zijde de buitenste rijen weghalen zolang ze dichter bij de
+    klep liggen dan bij het drukwerk ernaast; hooguit max_mm."""
+    if lid_lab is None:
+        return img, (0, 0, 0, 0)
     lab = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2LAB).astype(np.float32)
-    L = lab[..., 0]; C = np.hypot(lab[..., 1] - 128, lab[..., 2] - 128)
-    a, b = int(.5 * px_mm), max(int(1.0 * px_mm), int(.5 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
-    def cut(Lr, Cr):                                      # Lr, Cr: per rij vanaf de rand naar binnen
-        ref_L, ref_C = np.median(Lr[a:b]), np.median(Cr[a:b])
+    a, b = int(1.0 * px_mm), max(int(1.5 * px_mm), int(1.0 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
+    def cut(rows):                                         # rows: Lab per rij/kolom vanaf de rand naar binnen
+        paper = np.median(rows[a:b], 0)
         k = 0
-        while k < m and (abs(Lr[k] - ref_L) > 8 or abs(Cr[k] - ref_C) > 6):
-            k += 1
+        while k < m:
+            r = rows[k]
+            to_lid, to_paper = np.linalg.norm(r - lid_lab), np.linalg.norm(r - paper)
+            shadow = r[0] < paper[0] - 10 and np.hypot(r[1] - 128, r[2] - 128) < np.hypot(paper[1] - 128, paper[2] - 128)
+            # een mengsel van klep en papier (de rand loopt over in de klep): ligt op de lijn papier-klep
+            d = lid_lab - paper; nd = float(d @ d)
+            tt = float((r - paper) @ d) / nd if nd > 1 else 0.0
+            blend = nd > 100 and tt > .12 and np.linalg.norm(r - (paper + tt * d)) < 10
+            if to_lid < to_paper or blend or (shadow and to_paper > 8):
+                k += 1
+            else:
+                break
         return k
-    t = cut(L.mean(1), C.mean(1)); bt = cut(L.mean(1)[::-1], C.mean(1)[::-1])
-    l = cut(L.mean(0), C.mean(0)); r = cut(L.mean(0)[::-1], C.mean(0)[::-1])
+    t = cut(lab.mean(1)); bt = cut(lab.mean(1)[::-1])
+    l = cut(lab.mean(0)); r = cut(lab.mean(0)[::-1])
     h, w = img.shape[:2]
     return img[t:h - bt, l:w - r], (t, r, bt, l)
 
@@ -438,7 +469,7 @@ def main():
     if a.out:
         k = 1 / s                                          # rekenschaal -> volle resolutie
         if shape == 'disc':
-            X, Y, rr, dev = precise_circle(bgr, alpha, cx * k, cy * k, r * k, 3 * px_mm, ROUND_MM * px_mm)
+            X, Y, rr, dev = precise_circle(bgr, alpha, cx * k, cy * k, r * k, 3 * px_mm, ROUND_MM * px_mm, inner=(fmt == 'cd'), outermost=(fmt == 'cd'))   # cd: de buitenste sprong is de rand tegen de klep
             off = [d for d in dev if d is not None and abs(d) > ROUND_MM * px_mm]
             result['precise_diameter_mm'] = round(2 * rr / px_mm, 2)
             # keuze André (8 nov): de afgeronde rand niet tonen. Feit: waar het vlakke vinyl
@@ -446,8 +477,13 @@ def main():
             # feit: de afgeronde rand is rondom even breed, dus hetzelfde midden als de buitenrand
             # feit: een plaat heeft een afgeronde rand, een cd een doorzichtige onbedrukte rand;
             # in beide gevallen snijden waar het vlakke, bedrukte deel ophoudt
-            _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
-            if rr - 2 * DISC_EDGE_MM * px_mm < ri < rr:
+            if fmt == 'cd':
+                # cd: de doorzichtige rand van buiten naar binnen; drukwerk (ringtekst) ligt daarbinnen
+                # de doorzichtige rand is een donkere band van ±1-1,5 mm; vanaf het drukwerk naar buiten de eerste sprong
+                _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 1.0 * px_mm, 0.9 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True, outermost=False, median=True)
+            else:
+                _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
+            if rr - (2.2 if fmt == 'cd' else 2) * DISC_EDGE_MM * px_mm < ri < rr:
                 rr = ri - RIM_CUT_MM * px_mm
             else:
                 rr -= DISC_EDGE_MM * px_mm
@@ -475,36 +511,37 @@ def main():
             inside = ring > 0
             cov = np.ones_like(inside); cov[inside] = crop[:, :, 3][inside] > 0
             missing_part(result, cov, px_mm)
-            hx, hy, hcov = find_hole(crop[:, :, :3], hole_mm / 2 * px_mm, 4 * px_mm)
+            hx, hy, hcov = find_hole(crop[:, :, :3], hole_mm / 2 * px_mm, 1.2 * px_mm)   # feit: het gat zit (vrijwel) in het midden
+            # Feit: het gat is rond. In 72 richtingen vanuit het midden van het gat de buitenste
+            # duidelijke sprong (waar de schijf begint, ook voorbij een lichte binnenwand), een
+            # cirkel erdoor (losse punten tellen niet) en die cirkel uitsnijden.
+            def fit_hole(outer):
+                Pq = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm, outermost=outer, top=(1.7 if fmt == 'cd' else 2.2)).astype(np.float64)
+                use = np.ones(len(Pq), bool); cx_, cy_, r_ = hx, hy, 0.0
+                for _ in range(6):
+                    A_ = np.c_[Pq[use], np.ones(use.sum())]; D_, E_, F_ = np.linalg.lstsq(A_, -(Pq[use] ** 2).sum(1), rcond=None)[0]
+                    cx_, cy_ = -D_ / 2, -E_ / 2; r_ = math.sqrt(max(D_ * D_ / 4 + E_ * E_ / 4 - F_, 0))
+                    res = np.abs(np.hypot(Pq[:, 0] - cx_, Pq[:, 1] - cy_) - r_)
+                    new_use = res <= max(.4 * px_mm, np.median(res) * 2.5)
+                    if new_use.sum() < 12 or (new_use == use).all():
+                        break
+                    use = new_use
+                dist = np.hypot(Pq[use, 0] - cx_, Pq[use, 1] - cy_)
+                # het hele gat weg: tot de buitenkant van de gemeten rand (90e percentiel), niet het gemiddelde
+                return cx_, cy_, float(np.percentile(dist, 90)) if len(dist) else r_, int(use.sum())
+            # feit: door het gat (en een doorzichtige naaf of een groter labelgat) zie je de klep
+            top = (1.62 if fmt == 'cd' else 2.1) * hole_mm / 2 * px_mm; low = 0.8 * hole_mm / 2 * px_mm
+            hcx = hcy = hr = None
+            for outer in ((True, False) if fmt == 'cd' else (False, True)):
+                c_ = fit_hole(outer)
+                if low < c_[2] < top and c_[3] >= 24:
+                    hcx, hcy, hr = c_[0], c_[1], c_[2]; break
+            if hr is None:
+                hcx, hcy, hr = hx, hy, hole_mm / 2 * px_mm
+                result.setdefault('why', []).append('centre hole: edge not clearly measured; cut at the standard size')
+            outline = np.float32([[hcx + hr * math.cos(t), hcy + hr * math.sin(t)] for t in np.linspace(0, 2 * math.pi, 180, endpoint=False)])
             hole = np.zeros((n, n), np.uint8)
-            outline = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm)
-            cv2.fillPoly(hole, [np.round(outline).astype(np.int32)], 255)
-            # Feit: door het gat zie je de klep. De kleur van de klep meten naast de plaat; in het
-            # midden alles in die kleur dat aan het gat vastzit hoort bij het gat (geen maantje).
-            yy, xx = np.mgrid[:bgr.shape[0], :bgr.shape[1]]
-            dist = np.hypot(xx - X, yy - Y)
-            around = alpha & (dist > rr * 1.03) & (dist < rr * 1.15)
-            if around.sum() > 200:
-                lab_all = cv2.cvtColor(crop[:, :, :3], cv2.COLOR_BGR2LAB).astype(np.float32)
-                lid = np.median(cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)[around].astype(np.float32), 0)
-                near = np.hypot(*np.mgrid[:n, :n][::-1] - np.array([hx, hy])[:, None, None]) < 1.35 * hole_mm / 2 * px_mm
-                # klep door het gat: kleurloos zoals de klep, en minstens zo licht (licht valt langs de rand van het gat)
-                chroma = np.hypot(lab_all[..., 1] - lid[1], lab_all[..., 2] - lid[2])
-                lidlike = (chroma < 10) & (lab_all[..., 0] > lid[0] - 12) & near
-                k_, lab_c = cv2.connectedComponents((lidlike | (hole > 0)).astype(np.uint8))
-                keep = set(np.unique(lab_c[hole > 0])) - {0}
-                hole = (np.isin(lab_c, list(keep)) * 255).astype(np.uint8)
-            # Feit: het gat is rond. De rand waar het bedrukte label begint rondom meten en
-            # er de best passende cirkel door leggen; alles daarbinnen is gat (ook de lichte binnenwand).
-            ring_pts = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm, outermost=True)
-            Pq = ring_pts.astype(np.float64)
-            A_ = np.c_[Pq, np.ones(len(Pq))]; D_, E_, F_ = np.linalg.lstsq(A_, -(Pq ** 2).sum(1), rcond=None)[0]
-            hcx, hcy = -D_ / 2, -E_ / 2; hr = math.sqrt(max(D_ * D_ / 4 + E_ * E_ / 4 - F_, 0))
-            if 0.85 * hole_mm / 2 * px_mm < hr < 1.35 * hole_mm / 2 * px_mm:
-                disc_hole = np.zeros((n, n), np.uint8)
-                cv2.circle(disc_hole, (int(round(hcx * 16)), int(round(hcy * 16))), int(round(hr * 16)), 255, -1, cv2.LINE_AA, 4)
-                hole = np.maximum(hole, disc_hole)
-            hole = cv2.dilate(hole, np.ones((3, 3), np.uint8))      # de randpixel van het gat zelf ook
+            cv2.circle(hole, (int(round(hcx * 16)), int(round(hcy * 16))), int(round((hr + .1 * px_mm) * 16)), 255, -1, cv2.LINE_AA, 4)
             hole_small = hole.copy()
             result['hole_diameter_mm'] = round(2 * math.sqrt(hole.sum() / 255 / math.pi) / px_mm, 2)
             crop[:, :, 3][hole > 0] = 0
@@ -560,6 +597,23 @@ def main():
             result['angle'] = round(ang, 3)
             print(f'angle refined on the edges: {ang:+.3f} degrees (remaining tilt {math.degrees(math.atan(best_try[0])):.3f})')
             L, T, Rr, B = precise_edges(full, fa, x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k, 3 * px_mm)
+            if square:
+                # feit: een hoes is vierkant. Uit de duidelijke randen per zijde de combinatie kiezen
+                # waarvan breedte en hoogte het best gelijk zijn (bij gelijke stand: de binnenste)
+                cl, ct, cr, cb = precise_edges(full, fa, x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k, 3 * px_mm, candidates=True)
+                best_c = None
+                for l_ in cl:
+                    for r_ in cr:
+                        for t_ in ct:
+                            for b_ in cb:
+                                w_, h_ = r_ - l_, b_ - t_
+                                if not (wlo * px_mm <= w_ <= whi * px_mm and hlo * px_mm <= h_ <= hhi * px_mm):
+                                    continue
+                                key = (0 if abs(w_ - h_) <= 1.0 * px_mm else abs(w_ - h_), w_ + h_)   # vierkant binnen 1 mm; dan de binnenste randen
+                                if best_c is None or key < best_c[0]:
+                                    best_c = (key, (l_, t_, r_, b_))
+                if best_c:
+                    L, T, Rr, B = best_c[1]
             result['precise_mm'] = [round(v / px_mm, 1) for v in (L, T, Rr - L, B - T)]
             print('precise box (mm):', result['precise_mm'])
             wmm, hmm = result['precise_mm'][2:]
@@ -568,6 +622,15 @@ def main():
                 result.setdefault('why', []).append(f'not square: {wmm} x {hmm} mm; one side is probably a print edge, not the paper edge')
             print('verdict:', result['verdict'], result.get('why', ''))
             crop = full[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
+            # kleur van de klep: een strook van 1-3 mm buiten het onderdeel, alleen gescande pixels
+            o1, o2 = 2, int(5 * px_mm)
+            ring = np.zeros(full.shape[:2], bool)
+            ring[max(0, int(T) - o2):int(B) + o2, max(0, int(L) - o2):int(Rr) + o2] = True
+            ring[max(0, int(T) - o1):int(B) + o1, max(0, int(L) - o1):int(Rr) + o1] = False
+            Rk = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
+            ring &= cv2.warpAffine(alpha.astype(np.uint8), Rk, (W, H), flags=cv2.INTER_NEAREST) > 0   # gescand (ook vlak bij de scanrand)
+            ring[:2] = ring[-2:] = False; ring[:, :2] = ring[:, -2:] = False
+            lid_lab = np.median(cv2.cvtColor(full, cv2.COLOR_BGR2LAB)[ring].astype(np.float32), 0) if ring.sum() > 100 else None
             Rm0 = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
             fa_real = cv2.warpAffine(alpha.astype(np.uint8), Rm0, (W, H), flags=cv2.INTER_NEAREST) > 0
             covered = fa_real[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
@@ -592,7 +655,22 @@ def main():
                 except cv2.error:
                     pass                                   # alleen een hulpbeeld; rand te dicht bij de beeldrand
         if shape != 'disc':
-            crop, trimmed = trim_edge_lines(crop, px_mm * F)
+            # feit: niet-gescande pixels (transparant in de bron) horen niet bij het onderdeel
+            if F > 1.0:
+                Hf, Wf = full_alpha.shape[:2]
+                Rmf = cv2.getRotationMatrix2D((Wf / 2, Hf / 2), ang, 1.0)
+                acrop = cv2.warpAffine(full_alpha.astype(np.uint8), Rmf, (Wf, Hf), flags=cv2.INTER_NEAREST)[int(round(T * F)):int(round(B * F)), int(round(L * F)):int(round(Rr * F))] > 0
+            else:
+                acrop = covered
+            def gone(v): return v < .995
+            m_ = int(1.0 * px_mm * F); h_, w_ = acrop.shape[:2]
+            t0 = next((k for k in range(m_) if not gone(acrop[k].mean())), m_)
+            b0 = next((k for k in range(m_) if not gone(acrop[h_ - 1 - k].mean())), m_)
+            l0 = next((k for k in range(m_) if not gone(acrop[:, k].mean())), m_)
+            r0 = next((k for k in range(m_) if not gone(acrop[:, w_ - 1 - k].mean())), m_)
+            crop = crop[t0:crop.shape[0] - b0, l0:crop.shape[1] - r0]
+            crop, trimmed = trim_edge_lines(crop, px_mm * F, lid_lab)
+            trimmed = tuple(x + y for x, y in zip(trimmed, (t0, r0, b0, l0)))
             if any(trimmed):
                 result['edge_lines_trimmed_px'] = trimmed
                 print('edge lines trimmed (top, right, bottom, left px):', trimmed)

@@ -1011,7 +1011,8 @@ def main_with_resources(resources,lease=None):
     # Admission only shrinks later, so concurrent workers cannot deadlock upgrading.
     reserve=max(29+max(0,len(a.delen)-4)*3, int(np.ceil((max_source_pixels*8+512*1024**2)/(64*1024**2))))
     lease=resources.enter_context(MemoryLease(min(70,reserve),phase='Opening partial scans'))
-    dpis = [float(im.info.get('dpi',(0,0))[0]) for im in metadata]
+    import scan_dpi
+    dpis = [scan_dpi.read(path) for path in a.delen]          # feit: EXIF/JFIF goed gelezen (scan_dpi)
     ref_dpi = max(dpis) if all(50<d<5000 for d in dpis) else None
     ratios = [ref_dpi/d for d in dpis] if ref_dpi else [1.]*len(dpis)
     longest = max(max(im.size)*ratio for im,ratio in zip(metadata,ratios))
