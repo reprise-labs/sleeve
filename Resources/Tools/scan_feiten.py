@@ -32,6 +32,7 @@ DISC_EDGE_MM = 1.0               # feit: de rand van een plaat is afgerond, ±1 
 HOLE_12_MM = 7.24                # feit (norm): het middengat van een 12"-plaat is 7,24 mm
 ANALYSIS_DPI = 300.0              # rekenen op deze resolutie; het eindbeeld komt op de volle resolutie
 SCAN_EDGE_MM = 0.6               # feit: de schaduw van de scannerrand is ±0,5 mm breed; daarbinnen is een rand geen bewijs
+RIM_CUT_MM = 0.25                # net binnen de binnenkant van de afgeronde rand snijden
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
 SQUARE_MM = 1.5                  # een hoes is vierkant: breedte en hoogte verschillen hooguit zoveel
 SEEN = 0.5                       # zoveel van een zijde op een zichtbare rand = die zijde is gezien
@@ -167,7 +168,7 @@ def find_disc(bgr, alpha, border, lo, hi):
     return best, sectors
 
 
-def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72):
+def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72, inner=False, fixed_centre=False):
     """De plaat precies, op volle resolutie. In n richtingen het gemiddelde
     helderheidsverloop langs de straal; de rand van de plaat is daar de sterkste
     sprong. Door die punten de best passende cirkel (een plaat is rond). Geeft
@@ -188,12 +189,21 @@ def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72):
             continue
         prof = (vals * good).sum(0) / np.maximum(good.sum(0), 1)
         d = np.abs(np.diff(prof)); d[:2] = 0; d[-2:] = 0
-        i = int(np.argmax(d))
+        if inner:
+            # binnenkant van de afgeronde rand: de eerste duidelijke sprong vanaf het vlakke vinyl
+            strong = np.nonzero(d >= .5 * d.max())[0]
+            i = int(strong.min()) if len(strong) else int(np.argmax(d))
+        else:
+            i = int(np.argmax(d))
         rr = radii[i] + 0.25; a = np.radians((k + .5) * 360 / n)
         pts.append((cx + rr * np.cos(a), cy + rr * np.sin(a))); idx.append(k)
     P = np.array(pts)
     if len(P) < 3:                                         # rand nergens te meten: niets bij te stellen
         return cx, cy, r, [None] * n
+    if fixed_centre:                                       # zelfde midden, alleen de straal meten (mediaan: krassen tellen niet)
+        d_all = np.hypot(P[:, 0] - cx, P[:, 1] - cy)
+        # overal binnen het vlakke vinyl: de kleinste afstand (5e percentiel, zodat één kras niet telt)
+        return cx, cy, float(np.percentile(d_all, 5)), [None] * n
     def fit(Q):
         # kleinste kwadraten: x^2+y^2 + D x + E y + F = 0
         A = np.c_[Q, np.ones(len(Q))]; bvec = -(Q ** 2).sum(1)
@@ -369,7 +379,14 @@ def main():
             X, Y, rr, dev = precise_circle(bgr, alpha, cx * k, cy * k, r * k, 3 * px_mm, ROUND_MM * px_mm)
             off = [d for d in dev if d is not None and abs(d) > ROUND_MM * px_mm]
             result['precise_diameter_mm'] = round(2 * rr / px_mm, 2)
-            rr -= DISC_EDGE_MM * px_mm                      # keuze André (8 nov): de afgeronde rand niet tonen
+            # keuze André (8 nov): de afgeronde rand niet tonen. Feit: waar het vlakke vinyl
+            # ophoudt is per richting te meten (eerste sprong van binnenuit); daar snijden.
+            # feit: de afgeronde rand is rondom even breed, dus hetzelfde midden als de buitenrand
+            _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
+            if rr - 2 * DISC_EDGE_MM * px_mm < ri < rr:
+                rr = ri - RIM_CUT_MM * px_mm
+            else:
+                rr -= DISC_EDGE_MM * px_mm
             result['cut_diameter_mm'] = round(2 * rr / px_mm, 2)
             result['precise_dev_mm'] = round(max([abs(d) for d in dev if d is not None] or [0]) / px_mm, 2)
             result['directions_measured'] = sum(d is not None for d in dev)
