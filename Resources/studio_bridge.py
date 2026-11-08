@@ -228,6 +228,13 @@ def feiten_scan(req,rows,layout,work):
    emit('progress',fraction=done/len(jobs),index=None,total=len(jobs),phase='Processing parts',scope='preparation',completedParts=done,activeParts=min(2,len(jobs)-done))
    if result.get('path'):emit('outputs',files=[feiten_file(result)])
    for why in result.get('why',[]):emit('warning',message=f'{futures[future]}: {why}')
+ # Feit: kant A en B (C en D) zijn dezelfde plaat: kleurverschil van de scanner gelijktrekken
+ made={r['part']:r['path'] for r in results if r.get('path') and r.get('part','').startswith('side')}
+ for x,y in (('sidea','sideb'),('sidec','sided')):
+  if x in made and y in made:
+   emit('status',message=f'Same record, same colour: matching {x} and {y}')
+   cp=subprocess.run([sys.executable,str(TOOLS/'scan_kleur_kanten.py'),made[x],made[y]],capture_output=True,text=True)
+   for line in (cp.stdout+cp.stderr).splitlines()[-3:]:emit('log',message=line)
  files=[feiten_file(r) for r in results if r.get('path')]
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':results,'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
  if not files:raise ValueError('No processed images were made. See the log.')

@@ -262,16 +262,20 @@ def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
         span = slice(int(a0), int(a1)) if whole else slice(int(a0 + .1 * (a1 - a0)), int(a1 - .1 * (a1 - a0)))
         if horizontal:
             band, ok = g[lo:hi, span], alpha[lo:hi, span]
-            prof = (band * ok).sum(1) / np.maximum(ok.sum(1), 1)
+            cnt = ok.sum(1); prof = (band * ok).sum(1) / np.maximum(cnt, 1)
         else:
             band, ok = g[span, lo:hi], alpha[span, lo:hi]
-            prof = (band * ok).sum(0) / np.maximum(ok.sum(0), 1)
-        return lo, cv2.GaussianBlur(prof.reshape(-1, 1), (1, 0), 1.5).ravel() if False else np.convolve(prof, np.ones(3) / 3, 'same')
+            cnt = ok.sum(0); prof = (band * ok).sum(0) / np.maximum(cnt, 1)
+        full = band.shape[1] if horizontal else band.shape[0]
+        # waar minder dan de helft van de zijde gescand (en bruikbaar) is, telt die positie niet
+        weak = cnt < .5 * max(full, 1)
+        prof = np.convolve(prof, np.ones(3) / 3, 'same')
+        return lo, np.where(weak, np.nan, prof)
     def edge(horizontal, pos, a0, a1, inward, whole=False):
         lo, prof = profile(horizontal, pos, a0, a1, whole)
-        d = np.abs(np.diff(prof)); d[:2] = 0; d[-2:] = 0
-        if d.max() <= 0:
-            return pos
+        d = np.abs(np.diff(prof)); d = np.nan_to_num(d, nan=0.0); d[:2] = 0; d[-2:] = 0
+        if d.max() <= 0 or np.isnan(prof).mean() > .5:
+            return pos                                     # niets te meten: het grove kader blijft staan
         peaks = [i for i in range(1, len(d) - 1) if d[i] >= d[i - 1] and d[i] >= d[i + 1] and d[i] >= .5 * d.max()]
         i = max(peaks) if inward > 0 else min(peaks)          # binnenste sprong
         return lo + i + 1 if inward > 0 else lo + i + 1
@@ -384,7 +388,7 @@ def main():
             src = np.dstack([bgr, alpha.astype(np.uint8) * 255])
             sx0, sy0 = max(0, x0f), max(0, y0f); sx1, sy1 = min(src.shape[1], x0f + n), min(src.shape[0], y0f + n)
             crop[sy0 - y0f:sy1 - y0f, sx0 - x0f:sx1 - x0f] = src[sy0:sy1, sx0:sx1]
-            ring = np.zeros((n, n), np.uint8); cv2.circle(ring, (n // 2, n // 2), int(rr), 255, -1)
+            ring = np.zeros((n, n), np.uint8); cv2.circle(ring, (n * 8, n * 8), int(round(rr * 16)), 255, -1, cv2.LINE_AA, 4)   # zachte rand van één pixel
             crop[:, :, 3] = np.minimum(crop[:, :, 3], ring)
             inside = ring > 0
             cov = np.ones_like(inside); cov[inside] = crop[:, :, 3][inside] > 0
@@ -411,13 +415,13 @@ def main():
                 src = np.dstack([full_bgr, full_alpha.astype(np.uint8) * 255])
                 sx0, sy0 = max(0, x0g), max(0, y0g); sx1, sy1 = min(src.shape[1], x0g + n2), min(src.shape[0], y0g + n2)
                 big[sy0 - y0g:sy1 - y0g, sx0 - x0g:sx1 - x0g] = src[sy0:sy1, sx0:sx1]
-                ring2 = np.zeros((n2, n2), np.uint8); cv2.circle(ring2, (n2 // 2, n2 // 2), int(rf), 255, -1)
+                ring2 = np.zeros((n2, n2), np.uint8); cv2.circle(ring2, (n2 * 8, n2 * 8), int(round(rf * 16)), 255, -1, cv2.LINE_AA, 4)
                 big[:, :, 3] = np.minimum(big[:, :, 3], ring2)
                 hole2 = np.zeros((n2, n2), np.uint8)
                 pts = (outline + np.float32([x0f, y0f])) * F - np.float32([x0g, y0g])
-                cv2.fillPoly(hole2, [np.round(pts).astype(np.int32)], 255)
+                cv2.fillPoly(hole2, [np.round(pts * 16).astype(np.int32)], 255, cv2.LINE_AA, 4)
                 hole2 = cv2.dilate(hole2, np.ones((int(2 * F) | 1, int(2 * F) | 1), np.uint8))
-                big[:, :, 3][hole2 > 0] = 0
+                big[:, :, 3] = np.minimum(big[:, :, 3], 255 - hole2)
                 crop = big
         else:
             H, W = bgr.shape[:2]
