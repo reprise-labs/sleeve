@@ -29,6 +29,7 @@ WORK_PX_MM = 2.0                 # rekenschaal voor het zoeken
 ON_CIRCLE = 0.9                  # zoveel van de gemeten richtingen moet op de cirkel liggen
 DISC_EDGE_MM = 1.0               # feit: de rand van een plaat is afgerond, ±1 mm breed; de scanner
                                  # toont die als glans of schaduw. Gesneden wordt op de vlakke plaat.
+HOLE_12_MM = 7.24                # feit (norm): het middengat van een 12"-plaat is 7,24 mm
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
 SQUARE_MM = 1.5                  # een hoes is vierkant: breedte en hoogte verschillen hooguit zoveel
 SEEN = 0.5                       # zoveel van een zijde op een zichtbare rand = die zijde is gezien
@@ -209,6 +210,26 @@ def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72):
     return ncx, ncy, nr, dev
 
 
+def find_hole(img, r, reach):
+    """Het middengat: de cirkel met de straal van het gat (feit) binnen 'reach' van
+    het midden van de plaat waarvan de omtrek het best op een rand ligt.
+    Geeft (x, y, deel van de omtrek op een rand)."""
+    h, w = img.shape[:2]; c = w // 2
+    lo, hi = int(c - reach - r - 4), int(c + reach + r + 4)
+    g = cv2.GaussianBlur(cv2.cvtColor(img[lo:hi, lo:hi], cv2.COLOR_BGR2GRAY).astype(np.float32), (0, 0), 1.0)
+    mag = np.hypot(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
+    edge = (mag > 3.0 * (np.median(mag) + 1e-3)).astype(np.float32)
+    edge = cv2.dilate(edge, np.ones((3, 3), np.uint8))
+    size = int(np.ceil(r)) * 2 + 3; ring = np.zeros((size, size), np.float32)
+    cv2.circle(ring, (size // 2, size // 2), int(round(r)), 1.0, 1)
+    cov = cv2.filter2D(edge, -1, ring / ring.sum(), borderType=cv2.BORDER_CONSTANT)
+    m = np.zeros_like(cov); cc = (hi - lo) // 2
+    cv2.circle(m, (cc, cc), int(reach), 1, -1)
+    cov = cov * m
+    y, x = divmod(int(np.argmax(cov)), cov.shape[1])
+    return lo + x, lo + y, float(cov[y, x])
+
+
 def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
     """Elke zijde precies op de papierrand, op volle resolutie. Per zijde het
     gemiddelde helderheidsverloop dwars op de rand (middelste 80% van de zijde,
@@ -337,6 +358,15 @@ def main():
             inside = ring > 0
             cov = np.ones_like(inside); cov[inside] = crop[:, :, 3][inside] > 0
             missing_part(result, cov, px_mm)
+            hx, hy, hcov = find_hole(crop[:, :, :3], HOLE_12_MM / 2 * px_mm, 4 * px_mm)
+            hole = np.zeros((n, n), np.uint8); cv2.circle(hole, (int(round(hx)), int(round(hy))), int(round(HOLE_12_MM / 2 * px_mm)), 255, -1)
+            crop[:, :, 3][hole > 0] = 0
+            result['hole_offset_mm'] = [round((hx - n / 2) / px_mm, 2), round((hy - n / 2) / px_mm, 2)]
+            result['hole_edge_seen'] = round(hcov, 2)
+            print('centre hole: offset', result['hole_offset_mm'], 'mm from the disc centre; edge seen', result['hole_edge_seen'])
+            if hcov < SEEN:
+                result['verdict'] = 'TWIJFEL'
+                result.setdefault('why', []).append('centre hole not clearly visible')
             print('final verdict:', result['verdict'], result.get('why', ''))
         else:
             H, W = bgr.shape[:2]

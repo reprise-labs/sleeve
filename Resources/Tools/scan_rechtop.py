@@ -78,6 +78,27 @@ def read_image(im):
     return lines
 
 
+def text_level(label, angle, r_px, hole_px):
+    """Feit: de tekstregels op een label zijn recht en evenwijdig. Rond de grove hoek
+    in stappen van 0,1 graad draaien; waar de regels het scherpst horizontaal
+    liggen (rij-voor-rij het grootste verschil in drukwerk) staat het label recht."""
+    g = cv2.cvtColor(label, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    mag = np.hypot(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
+    ink = (mag > np.percentile(mag, 90)).astype(np.float32)
+    n = label.shape[0]; c = n / 2
+    keep = np.zeros_like(ink); cv2.circle(keep, (int(c), int(c)), int(r_px * .85), 1, -1)
+    cv2.circle(keep, (int(c), int(c)), int(hole_px * 2), 0, -1)
+    ink *= keep
+    best = None
+    for a in np.arange(angle - 4, angle + 4.01, 0.1):
+        R = cv2.getRotationMatrix2D((c, c), -a, 1.0)
+        prof = cv2.warpAffine(ink, R, (n, n)).sum(1)
+        score = float(np.var(prof))
+        if best is None or score > best[0]:
+            best = (score, float(a))
+    return best[1]
+
+
 def disc_angle(path, words, px_mm):
     """Plaat: alleen het label lezen (midden, volle resolutie), in stappen rondgedraaid.
     De hoek waarin de bekende tekst het best terug te lezen is, is rechtop.
@@ -100,7 +121,8 @@ def disc_angle(path, words, px_mm):
     for base in np.arange(coarse - 6, coarse + 6.1, 3):
         score_at(float(base) % 90)
     best = max(tried, key=lambda k: (tried[k][0], -abs(((k - coarse + 180) % 360) - 180)))
-    return best, {round(k, 1): v[0] for k, v in sorted(tried.items())}, tried[best][1]
+    fine = text_level(label, best, r, 3.62 * px_mm) % 360
+    return fine, {round(k, 1): v[0] for k, v in sorted(tried.items())}, tried[best][1]
 
 
 def main():
