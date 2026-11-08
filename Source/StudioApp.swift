@@ -6,8 +6,9 @@ import AppKit
     @NSApplicationDelegateAdaptor(StudioAppDelegate.self) private var delegate
     var body: some Scene {
         WindowGroup("Sleeve") {
-            StudioView(model:model).frame(minWidth:1100,minHeight:720)
-                .onAppear { delegate.onQuit = {model.prepareForQuit()}; if CommandLine.arguments.contains("--demo") && model.inputs.isEmpty {model.loadDemo()} }
+            // Feit (André): de donkere modus is onleesbaar; Sleeve is ontworpen op licht.
+            StudioView(model:model).frame(minWidth:1100,minHeight:720).preferredColorScheme(.light)
+                .onAppear { NSApp.appearance=NSAppearance(named:.aqua); delegate.onQuit = {model.prepareForQuit()}; if CommandLine.arguments.contains("--demo") && model.inputs.isEmpty {model.loadDemo()} }
         }.defaultSize(width:1380,height:900)
         .commands {
             CommandGroup(replacing:.newItem) {

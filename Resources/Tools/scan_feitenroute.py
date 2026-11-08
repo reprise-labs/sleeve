@@ -74,25 +74,41 @@ def already_cut(path, spec):
     from PIL import Image
     with Image.open(path) as im:
         d = im.info.get('dpi'); dpi = float(d[0]) if d and 50 < float(d[0]) < 5000 else 0.0
-    if not dpi:
-        return None
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if img is None:
         return None
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    cut_out = False
     if img.shape[2] == 4:
         ys, xs = np.nonzero(img[:, :, 3] > 0)
         if not len(xs):
             return None
+        cut_out = (img[:, :, 3] == 0).any()                # transparant eromheen: al uitgesneden
         img = img[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    inferred = False
+    if not dpi and cut_out:
+        # Geen resolutie in het bestand, maar wel al uitgesneden: de bekende maat van het
+        # onderdeel (feit) geeft de resolutie, als de verhouding past.
+        h_px, w_px = img.shape[:2]
+        if spec[0] == 'disc':
+            if abs(w_px - h_px) <= .015 * w_px:
+                dpi = w_px / (sum(spec[1]) / 2 / 25.4); inferred = True
+        else:
+            (wl, wh), (hl, hh) = spec[1], spec[2]
+            for W_, H_ in ((w_px, h_px), (h_px, w_px)):
+                lo_d = max(W_ / (wh / 25.4), H_ / (hh / 25.4)); hi_d = min(W_ / (wl / 25.4), H_ / (hl / 25.4))
+                if lo_d <= hi_d:
+                    dpi = (lo_d + hi_d) / 2; inferred = True; break
+    if not dpi:
+        return None
     w_mm, h_mm = img.shape[1] / dpi * 25.4, img.shape[0] / dpi * 25.4
     if spec[0] == 'disc':
         ok = spec[1][0] - 1 <= w_mm <= spec[1][1] + 1 and abs(w_mm - h_mm) < 1.5
     else:
         (wl, wh), (hl, hh) = spec[1], spec[2]
         ok = (wl <= w_mm <= wh and hl <= h_mm <= hh) or (wl <= h_mm <= wh and hl <= w_mm <= hh)
-    return (img, {'mm': [round(w_mm, 1), round(h_mm, 1)], 'dpi': dpi}) if ok else None
+    return (img, {'mm': [round(w_mm, 1), round(h_mm, 1)], 'dpi': dpi, 'dpi_from_size': inferred}) if ok else None
 
 
 def choices_for(why):
@@ -159,7 +175,7 @@ def main():
         img0, note = already
         cv2.imwrite(crop, img0)
         json.dump({'verdict': 'GOED', 'why': [], 'dpi': note['dpi'], 'already_cut': note}, open(crop + '.feiten.json', 'w'))
-        result['applied'] = f'already cut ({note["mm"][0]} x {note["mm"][1]} mm matches the facts); not cropped again'
+        result['applied'] = f'already cut ({note["mm"][0]} x {note["mm"][1]} mm matches the facts); not cropped again' + (' (no resolution in the file: taken from the known size)' if note.get('dpi_from_size') else '')
         st = subprocess.CompletedProcess([], 0, '', '')
     elif len(a.scans) == 1:
         # één scan: niets samen te voegen; de scan zelf is het hele beeld
