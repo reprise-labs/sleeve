@@ -143,9 +143,9 @@ def line_angle(view, box, around):
 
 
 def level_label(label, coarse, words):
-    """Feit: tekst op een label staat recht. Draai het label naar de grove stand en
-    zet de grootste tekst precies horizontaal: de naam van de artiest of de titel
-    (bekend van Discogs). Is die niet te lezen, dan de regels van de tracklist samen.
+    """Feit: de tracklist op een label staat recht. Draai het label naar de grove
+    stand en zet de regels van de tracklist (bekend van Discogs) precies horizontaal.
+    Is er geen tracklist te lezen, dan de grootste tekst (artiest of titel).
     Meten, bijdraaien en opnieuw meten tot de regels recht liggen (de grove stand
     kan tot ±7,5 graad naast zitten)."""
     n = label.shape[0]; c = (n / 2, n / 2); angle = coarse; how = 'none'
@@ -155,18 +155,17 @@ def level_label(label, coarse, words):
         lines = [l for l in ocr_lines(view) if len(re.findall(r'\w', l['text'])) >= 3]
         titles = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[:2])]
         tracks = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[2:])]
-        t_off = float(np.median([line_angle(view, l['box'], 0.0) for l in tracks])) if tracks else None
-        if titles:
+        # Feit (André, 8 nov): de tracklist staat op een label (bijna) altijd recht.
+        # Die is leidend; alleen als er geen tracklist te lezen is, de grootste tekst
+        # (artiest of titel).
+        if len(tracks) >= 2:
+            off = float(np.median([line_angle(view, l['box'], 0.0) for l in tracks]))
+            how = 'tracklist (%d lines)' % len(tracks)
+        elif titles:
             big = max(titles, key=lambda l: l['height'])
-            b_off = line_angle(view, big['box'], 0.0)
-            # Sierletters (handschrift) hebben geen rechte onderkant: is de grootste tekst
-            # het meer dan 1 graad oneens met de gedrukte tracklist, dan wint de tracklist.
-            if t_off is not None and len(tracks) >= 2 and abs(b_off - t_off) > 1.0:
-                off, how = t_off, 'tracklist (%d lines; largest text "%s" disagrees)' % (len(tracks), big['text'])
-            else:
-                off, how = b_off, 'largest text: ' + big['text']
-        elif t_off is not None:
-            off, how = t_off, 'tracklist (%d lines)' % len(tracks)
+            off, how = line_angle(view, big['box'], 0.0), 'largest text: ' + big['text']
+        elif tracks:
+            off, how = line_angle(view, tracks[0]['box'], 0.0), 'tracklist (1 line)'
         else:
             break
         angle = (angle - off) % 360
