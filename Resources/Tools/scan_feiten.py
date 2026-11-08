@@ -248,6 +248,20 @@ def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
     return (edge(False, L, T, B, +1), edge(True, T, L, R, +1), edge(False, R, T, B, -1), edge(True, B, L, R, -1))
 
 
+def missing_part(result, covered, px_mm):
+    """Feit: een uitkomst bestaat alleen uit gescande pixels. Valt een stuk van de
+    vorm buiten alle scans, dan is dat stuk er niet: TWIJFEL, met de plek."""
+    gap = ~covered
+    area = gap.sum() / px_mm ** 2
+    if area < 1.0:                                         # minder dan 1 mm2: niets
+        return
+    h, w = gap.shape; ys, xs = np.nonzero(gap)
+    where = ('top' if ys.mean() < h / 3 else 'bottom' if ys.mean() > 2 * h / 3 else 'middle') + '-' + \
+            ('left' if xs.mean() < w / 3 else 'right' if xs.mean() > 2 * w / 3 else 'centre')
+    result['verdict'] = 'TWIJFEL'
+    result.setdefault('why', []).append(f'not scanned: {area:.0f} mm2 ({gap.mean():.1%}) at {where} (before turning upright)')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('image'); p.add_argument('part', choices=sorted(PART_SHAPE))
@@ -313,6 +327,10 @@ def main():
             crop[sy0 - y0f:sy1 - y0f, sx0 - x0f:sx1 - x0f] = src[sy0:sy1, sx0:sx1]
             ring = np.zeros((n, n), np.uint8); cv2.circle(ring, (n // 2, n // 2), int(rr), 255, -1)
             crop[:, :, 3] = np.minimum(crop[:, :, 3], ring)
+            inside = ring > 0
+            cov = np.ones_like(inside); cov[inside] = crop[:, :, 3][inside] > 0
+            missing_part(result, cov, px_mm)
+            print('final verdict:', result['verdict'], result.get('why', ''))
         else:
             H, W = bgr.shape[:2]
             def rotated(angle):
@@ -348,6 +366,9 @@ def main():
                 result.setdefault('why', []).append(f'not square: {wmm} x {hmm} mm; one side is probably a print edge, not the paper edge')
             print('verdict:', result['verdict'], result.get('why', ''))
             crop = full[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
+            covered = fa[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
+            missing_part(result, covered, px_mm)
+            print('final verdict:', result['verdict'], result.get('why', ''))
             if a.overlay:
                 m = int(5 * px_mm); ym = int((T + B) / 2); xm = int((L + Rr) / 2); z = int(15 * px_mm)
                 def mark(tile, at):
