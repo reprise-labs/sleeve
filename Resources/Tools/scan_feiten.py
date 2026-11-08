@@ -207,15 +207,15 @@ def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72):
     return ncx, ncy, nr, dev
 
 
-def precise_edges(img, alpha, L, T, R, B, reach):
+def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
     """Elke zijde precies op de papierrand, op volle resolutie. Per zijde het
     gemiddelde helderheidsverloop dwars op de rand (middelste 80% van de zijde,
     alleen gescande pixels). De papierrand is de binnenste duidelijke sprong: een
     schaduw valt altijd buiten het papier, nooit erbinnen."""
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    def profile(horizontal, pos, a0, a1):
+    def profile(horizontal, pos, a0, a1, whole=False):
         lo, hi = int(round(pos - reach)), int(round(pos + reach))
-        span = slice(int(a0 + .1 * (a1 - a0)), int(a1 - .1 * (a1 - a0)))
+        span = slice(int(a0), int(a1)) if whole else slice(int(a0 + .1 * (a1 - a0)), int(a1 - .1 * (a1 - a0)))
         if horizontal:
             band, ok = g[lo:hi, span], alpha[lo:hi, span]
             prof = (band * ok).sum(1) / np.maximum(ok.sum(1), 1)
@@ -223,14 +223,28 @@ def precise_edges(img, alpha, L, T, R, B, reach):
             band, ok = g[span, lo:hi], alpha[span, lo:hi]
             prof = (band * ok).sum(0) / np.maximum(ok.sum(0), 1)
         return lo, cv2.GaussianBlur(prof.reshape(-1, 1), (1, 0), 1.5).ravel() if False else np.convolve(prof, np.ones(3) / 3, 'same')
-    def edge(horizontal, pos, a0, a1, inward):
-        lo, prof = profile(horizontal, pos, a0, a1)
+    def edge(horizontal, pos, a0, a1, inward, whole=False):
+        lo, prof = profile(horizontal, pos, a0, a1, whole)
         d = np.abs(np.diff(prof)); d[:2] = 0; d[-2:] = 0
         if d.max() <= 0:
             return pos
         peaks = [i for i in range(1, len(d) - 1) if d[i] >= d[i - 1] and d[i] >= d[i + 1] and d[i] >= .5 * d.max()]
         i = max(peaks) if inward > 0 else min(peaks)          # binnenste sprong
         return lo + i + 1 if inward > 0 else lo + i + 1
+    if segments:
+        # helling per zijde: de rand in 10 stukken meten en er een rechte lijn door leggen
+        slopes = []
+        for horizontal, pos, a0, a1, inward in ((False, L, T, B, +1), (True, T, L, R, +1), (False, R, T, B, -1), (True, B, L, R, -1)):
+            cuts = np.linspace(a0 + .1 * (a1 - a0), a1 - .1 * (a1 - a0), 11)
+            mids = (cuts[:-1] + cuts[1:]) / 2
+            pts = np.array([edge(horizontal, pos, c0, c1, inward, True) for c0, c1 in zip(cuts[:-1], cuts[1:])], float)
+            fit = np.polyfit(mids, pts, 1); resid = np.abs(pts - np.polyval(fit, mids))
+            keep = resid <= max(2.0, np.median(resid) * 3)
+            if keep.sum() >= 5:
+                fit = np.polyfit(mids[keep], pts[keep], 1)
+            # vertikale zijde: x = a + b*y ; horizontale zijde: y = a + b*x. Zelfde draairichting: b_h = -b_v
+            slopes.append(fit[0] if horizontal else -fit[0])
+        return float(np.median(slopes)), slopes
     return (edge(False, L, T, B, +1), edge(True, T, L, R, +1), edge(False, R, T, B, -1), edge(True, B, L, R, -1))
 
 
@@ -301,10 +315,30 @@ def main():
             crop[:, :, 3] = np.minimum(crop[:, :, 3], ring)
         else:
             H, W = bgr.shape[:2]
-            Rf = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
-            full = cv2.warpAffine(bgr, Rf, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-            # kader uit rekenschaal: het rotatiecentrum schaalt mee
-            fa = cv2.warpAffine(alpha.astype(np.uint8), Rf, (W, H), flags=cv2.INTER_NEAREST) > 0
+            def rotated(angle):
+                Rm = cv2.getRotationMatrix2D((W / 2, H / 2), angle, 1.0)
+                return (cv2.warpAffine(bgr, Rm, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE),
+                        cv2.warpAffine(alpha.astype(np.uint8), Rm, (W, H), flags=cv2.INTER_NEAREST) > 0)
+            # Feit: de randen van een hoes zijn recht en haaks. De hoek fijn bijstellen
+            # tot de gemeten randen recht in het beeld liggen (grof zoeken: stappen van 0,25 graad).
+            box0 = (x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k)
+            tries = {}
+            def tilt_at(angle):
+                if angle not in tries:
+                    f2, a2 = rotated(angle)
+                    tries[angle] = abs(precise_edges(f2, a2, *box0, 3 * px_mm, segments=True)[0])
+                return tries[angle]
+            step = 0.2
+            while step >= 0.0125:                     # steeds fijner rond de beste hoek
+                ang = min((ang - step, ang, ang + step), key=tilt_at)
+                if ang not in (min(tries, key=tries.get),):
+                    ang = min(tries, key=tries.get)
+                step /= 2
+            ang = min(tries, key=tries.get)
+            full, fa = rotated(ang)
+            best_try = (tries[ang],)
+            result['angle'] = round(ang, 3)
+            print(f'angle refined on the edges: {ang:+.3f} degrees (remaining tilt {math.degrees(math.atan(best_try[0])):.3f})')
             L, T, Rr, B = precise_edges(full, fa, x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k, 3 * px_mm)
             result['precise_mm'] = [round(v / px_mm, 1) for v in (L, T, Rr - L, B - T)]
             print('precise box (mm):', result['precise_mm'])
