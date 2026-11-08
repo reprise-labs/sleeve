@@ -51,6 +51,7 @@ INK_WINDOW = 15       # px (op 0,2): vak waarin drukwerk randen in beide richtin
 INK_BOTH = 0.15       # zoveel van dat vak met randen per richting
 HOLE_RADIUS = 0.022   # asgat (straal) als deel van de plaatstraal; iets kleiner dan 0,026 voor de marge
 SPREAD_ASPECT = 1.7   # samengevoegd vlak minstens zo langwerpig: uitgeklapte binnenkant (2:1)
+LP_MM = 304.8         # bekende maat 12": vangnet als de papierrand nergens te zien is
 INK_MIN_AREA = 0.002  # minder drukwerk dan dit deel van het canvas: geen controle (alleen lijnen)
 REFINE_SLACK = 0.5     # px: bijstellen mag geen enkel paar meer dan dit verslechteren
 SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
@@ -609,6 +610,32 @@ def edge_box(Gx, Gy, ink, angle, c, ratio=1.0):
     return (0.0, angle, int(x0), int(y0), int(x1 - x0), int(y1 - y0))
 
 
+def known_box(Gx, Gy, ink, angle, c, ratio, S):
+    """Kader van de bekende maat (S px op verkleinde schaal) rond de tekst,
+    gedraaid over 'angle'. Binnen de ruimte die de tekst laat, de plek waar de
+    randen het sterkst zijn (is de papierrand aan één kant wel te zien, dan
+    sluit het kader daarop aan). None als de tekst er niet in past of het kader
+    buiten het canvas valt."""
+    h, w = ink.shape
+    R = cv2.getRotationMatrix2D(c, angle, 1.0)
+    rotated = cv2.warpAffine(ink, R, (w, h))
+    Py = np.abs(cv2.warpAffine(Gy, R, (w, h))).sum(axis=1); Px = np.abs(cv2.warpAffine(Gx, R, (w, h))).sum(axis=0)
+    spans = ink_span(rotated.sum(axis=0)), ink_span(rotated.sum(axis=1))
+    if None in spans:
+        return None
+    (ax, bx), (ay, by) = spans
+    Sx, Sy = (int(round(S * ratio)), int(round(S))) if bx - ax > by - ay else (int(round(S)), int(round(S * ratio))) if ratio > 1 else (int(round(S)), int(round(S)))
+    if bx - ax > Sx or by - ay > Sy or Sx > w or Sy > h:
+        return None
+    def place(a, b, S, P, n):
+        m = max(2, int(INK_MARGIN * S))                  # buitenste tekstregel is geen papierrand
+        lo, hi = max(0, b + m - S), min(a - m, n - 1 - S)
+        if lo > hi:
+            return min(max(int(round((a + b - S) / 2)), 0), n - S)
+        return max(range(lo, hi + 1), key=lambda t: P[t] + P[t + S])
+    return (0.0, angle, place(ax, bx, Sx, Px, w), place(ay, by, Sy, Py, h), Sx, Sy)
+
+
 def ink_span(profile):
     """Van waar tot waar ligt de tekst langs één as (0,5-99,5% van de inkt)."""
     total = float(profile.sum())
@@ -618,7 +645,7 @@ def ink_span(profile):
     return int(np.searchsorted(cumulative, .005)), int(np.searchsorted(cumulative, .995))
 
 
-def find_square(Gx, Gy, size, sc=0.2, ratio=1.0):
+def find_square(Gx, Gy, size, sc=0.2, ratio=1.0, px_mm=None):
     """Het vierkant (hoes) dat het best op de randen past. Voor elke kleine
     draaiing: profiel van horizontale en verticale randen, en het paar randen
     op afstand S (x en y bijna gelijk) met de meeste steun. ratio=2: een
@@ -711,6 +738,14 @@ def find_square(Gx, Gy, size, sc=0.2, ratio=1.0):
             # De steun (hoes of plaat?) blijft die van het sterke vierkant: een zwakke
             # papierrand mag een tekstvel niet tot plaat maken (Deena & Jim).
             judged = best; best = wider; closed_choice = False
+        elif px_mm:
+            known = known_box(Gx, Gy, ink, best[1], c, ratio, LP_MM * px_mm * sc)
+            if known is not None and outside(known) <= INK_OUTSIDE:
+                # Wit vel op het witte deksel en geen papierrand te zien (Queen for a Day,
+                # tekstvel kant A: kader op de scanrand sneed 26% van de tekst weg).
+                # Dan de bekende maat (12") rond de tekst.
+                print(f'cover: frame left out {outside(best):.0%} of the text and no paper edge found; used the known 12" size around the text', flush=True)
+                judged = best; best = known; closed_choice = False
     _, ang, x0, y0, Sx, Sy = best
     # vierkant terug naar het canvas (volle resolutie)
     R = cv2.getRotationMatrix2D(c, ang, 1.0); Ri = cv2.invertAffineTransform(R)
@@ -990,6 +1025,7 @@ def main_with_resources(resources,lease=None):
         # Check scratch requirements before expensive alignment/blending can trigger swap.
         MappedScanStore(a.delen,range(len(a.delen)),load)
     source_scales = [f*ratio for ratio in ratios]
+    px_mm = ref_dpi * f / 25.4 if ref_dpi else None      # canvaspixels per mm (rekenschaal)
     imgs=[];progress('Opening partial scans',0,len(a.delen))
     for index,(fn,scale) in enumerate(zip(a.delen,source_scales)):
         imgs.append(load(fn,scale,consume_cache=True));progress('Opening partial scans',index+1,len(a.delen))
@@ -1059,7 +1095,7 @@ def main_with_resources(resources,lease=None):
         # lang als breed (Deena & Jim: 6 deelscans, ~61 x 30 cm). Dan een
         # rechthoek van 2:1 zoeken; Sleeve splitst die daarna in twee panelen.
         spread = max(size) / min(size) >= SPREAD_ASPECT
-        sq = find_square(Gx, Gy, size, ratio=2.0 if spread else 1.0) if a.vorm in ('auto', 'hoes') else None
+        sq = find_square(Gx, Gy, size, ratio=2.0 if spread else 1.0, px_mm=px_mm) if a.vorm in ('auto', 'hoes') else None
         ci = find_circle(gmean, cover, G) if a.vorm == 'plaat' or (a.vorm == 'auto' and not spread) else None
         if os.environ.get('STITCH_DEBUG'): print('DEBUG square support', None if sq is None else round(sq[3], 1), 'cirkel', None if ci is None else round(ci[0], 1))
         # Twijfel (cirkel bijna even sterk als het vierkant, bv. doorzichtig vinyl
