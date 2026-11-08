@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Eén onderdeel door de feitenroute: samenvoegen, uitsnijden op feiten, rechtop,
+beslissing van de gebruiker toepassen, naam geven.
+
+Uitkomst per onderdeel: GOED, of TWIJFEL met de reden en de keuzes. Bij TWIJFEL gokt
+Sleeve niet; de gebruiker kiest, en die keuze wordt per onderdeel onthouden
+(.sleeve-beslissingen.json in de map met de scans) en de volgende keer toegepast.
+
+Gebruik (vanuit studio_bridge.py):
+  scan_feitenroute.py --part sidea --discogs <link> --out <map> --work <tijdelijke map> scan1 scan2 ...
+  [--decision '{"crop":"square","rotate":90}']
+Schrijft op stdout één JSON-regel met de uitkomst.
+"""
+import argparse, json, os, re, subprocess, sys, tempfile
+import numpy as np, cv2
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+PY = sys.executable
+DECISIONS = '.sleeve-beslissingen.json'
+ROTATE = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+def key_for(scans):
+    """Een onderdeel herken je aan zijn scans (namen, gesorteerd)."""
+    return '|'.join(sorted(os.path.basename(s) for s in scans))
+
+
+def load_decisions(folder):
+    try:
+        return json.load(open(os.path.join(folder, DECISIONS)))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_decision(folder, scans, part, decision):
+    data = load_decisions(folder)
+    data[key_for(scans)] = {'part': part, 'decision': decision}
+    try:
+        json.dump(data, open(os.path.join(folder, DECISIONS), 'w'), indent=1, ensure_ascii=False)
+    except OSError:
+        pass                                               # alleen-lezen map: dan niet onthouden
+
+
+def release_words(discogs):
+    """Bekende tekst van de release: artiest, titel, tracks, labels (feit voor rechtop)."""
+    import scan_naam as N
+    m = re.search(r'/(release|master)/(\d+)', discogs or '')
+    if not m:
+        return []
+    r = N.get(f'https://api.discogs.com/{"masters" if m[1] == "master" else "releases"}/{m[2]}')
+    if m[1] == 'master':
+        r = N.get(f'https://api.discogs.com/releases/{r["main_release"]}')
+    return ([a['name'] for a in r.get('artists', [])] + [r.get('title', '')] +
+            [t['title'] for t in r.get('tracklist', []) if t.get('title')] + [l['name'] for l in r.get('labels', [])])
+
+
+def choices_for(why):
+    """Welke keuzes horen bij een twijfel."""
+    out = ['keep']
+    for w in why:
+        if w.startswith('not square'):
+            out.append('square')
+    return out
+
+
+def square_up(img, sides):
+    """Beslissing 'vierkant': de zijde met het zwakste randbewijs schuift in."""
+    h, w = img.shape[:2]; k = abs(h - w)
+    long_sides = ('top', 'bottom') if h > w else ('left', 'right')
+    weak = min(long_sides, key=lambda s: sides[s]['cover'])
+    sl = {'top': (slice(k, None), slice(None)), 'bottom': (slice(0, h - k), slice(None)),
+          'left': (slice(None), slice(k, None)), 'right': (slice(None), slice(0, w - k))}[weak]
+    return img[sl], weak
+
+
+def side_on_label(img, dpi):
+    """Kantletter zoals op het label gedrukt (SIDE A / SIDE ONE ...), of None."""
+    h, w = img.shape[:2]; r = int(52 / 25.4 * dpi)
+    lab = img[max(0, h // 2 - r):h // 2 + r, max(0, w // 2 - r):w // 2 + r, :3]
+    s = 1600 / max(lab.shape[:2])
+    if s < 1:
+        lab = cv2.resize(lab, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, 'l.png'); cv2.imwrite(p, lab)
+        out = subprocess.run([os.path.join(HERE, 'sleeve_ocr'), p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
+    words = {'one': 'a', 'two': 'b', 'three': 'c', 'four': 'd'}
+    for line in out.splitlines():
+        m = re.search(r'\bside\s*([abcd]|one|two|three|four)\b', line.split('\t')[1] if '\t' in line else line, re.I)
+        if m:
+            v = m[1].lower(); return words.get(v, v)
+    return None
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument('scans', nargs='+'); p.add_argument('--part', required=True)
+    p.add_argument('--discogs', default=''); p.add_argument('--out', required=True); p.add_argument('--work', required=True)
+    p.add_argument('--decision', default=''); p.add_argument('--variant', default='')
+    a = p.parse_args()
+    folder = os.path.dirname(os.path.abspath(a.scans[0]))
+    decision = json.loads(a.decision) if a.decision else load_decisions(folder).get(key_for(a.scans), {}).get('decision', {})
+    if a.decision:
+        save_decision(folder, a.scans, a.part, decision)
+    feit_part = 'insert' if a.part.startswith('insert') else ('back' if a.part in ('inside', 'inlay') else a.part)
+    raw = os.path.join(a.work, f'{a.part}_raw.png'); crop = os.path.join(a.work, f'{a.part}_crop.png')
+    result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
+    st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + a.scans + ['--vorm', 'ruw'], capture_output=True, text=True)
+    if not os.path.exists(raw):
+        result.update(verdict='FOUT', why=[(st.stderr or st.stdout).strip().splitlines()[-1] if (st.stderr or st.stdout).strip() else 'merging failed'])
+        print(json.dumps(result)); return
+    fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--out', crop], capture_output=True, text=True)
+    try:
+        facts = json.load(open(crop + '.feiten.json'))
+    except (OSError, ValueError):
+        result.update(verdict='FOUT', why=[fe.stderr.strip().splitlines()[-1] if fe.stderr.strip() else 'cropping failed'])
+        print(json.dumps(result)); return
+    dpi = facts.get('dpi') or 300.0
+    why = list(facts.get('why', []))
+    if facts.get('message'):
+        result['message'] = facts['message']
+    img = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
+    if why and decision.get('crop') == 'square' and 'sides' in facts:
+        img, weak = square_up(img, facts['sides'])
+        why = [w for w in why if not w.startswith('not square')]
+        result['applied'] = f'square ({weak} side moved in)'
+        cv2.imwrite(crop, img)
+    # rechtop
+    words = release_words(a.discogs) if a.discogs else []
+    disc = feit_part.startswith('side')
+    up = os.path.join(a.work, f'{a.part}_up.png')
+    if words:
+        args = [PY, os.path.join(HERE, 'scan_rechtop.py'), crop, '--words', os.path.join(a.work, 'words.json'), '--out', up]
+        json.dump(words, open(os.path.join(a.work, 'words.json'), 'w'))
+        if disc:
+            args += ['--disc', '--dpi', str(dpi)]
+        ro = subprocess.run(args, capture_output=True, text=True)
+        try:
+            upright = json.loads(ro.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            upright = {'verdict': 'TWIJFEL'}
+        result['upright'] = {k: upright.get(k) for k in ('rotate_clockwise', 'verdict', 'read_upright')}
+        if os.path.exists(up):
+            img = cv2.imread(up, cv2.IMREAD_UNCHANGED)
+        if upright.get('verdict') != 'GOED':
+            if decision.get('rotate') in ROTATE or decision.get('rotate') == 0:
+                base = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
+                img = cv2.rotate(base, ROTATE[decision['rotate']]) if decision['rotate'] else base
+                result['applied'] = (result.get('applied', '') + f' rotated {decision["rotate"]}').strip()
+            else:
+                why.append('which way is up: no known text of the release could be read')
+    else:
+        why.append('which way is up: no Discogs release, so no known text to read')
+    # kant op het label (feit) tegen het vak
+    if disc:
+        letter = side_on_label(img, dpi)
+        result['side_on_label'] = letter
+        if letter and a.part.startswith('side') and a.part != 'side' + letter:
+            why.append(f'the label says side {letter.upper()}, the slot says {a.part[4:].upper()}')
+    if why and decision.get('crop') == 'keep':
+        result['applied'] = (result.get('applied', '') + ' kept as it is').strip()
+        why = [w for w in why if w.startswith('which way is up') or w.startswith('the label says')]
+    if why:
+        result['verdict'] = 'TWIJFEL'; result['why'] = why; result['choices'] = choices_for(why)
+        if any(w.startswith('which way is up') for w in why):
+            result['choices'] += ['rotate90', 'rotate180', 'rotate270']
+    # naam
+    name = None
+    if a.discogs:
+        try:
+            import scan_naam as N
+            name = N.naam(a.discogs, a.part, a.variant)
+        except Exception as e:                             # geen verbinding e.d.: neutrale naam
+            result['name_note'] = str(e)
+    name = name or f'{os.path.splitext(os.path.basename(a.scans[0]))[0]}_{a.part}'
+    os.makedirs(a.out, exist_ok=True)
+    path = os.path.join(a.out, name + '.png'); n = 2
+    while os.path.exists(path) and not a.decision:
+        path = os.path.join(a.out, f'{name}_{n}.png'); n += 1
+    cv2.imwrite(path, img)
+    try:                                                   # dpi in het bestand zetten
+        from PIL import Image
+        with Image.open(path) as im:
+            im.load(); im.save(path, dpi=(dpi, dpi))
+    except Exception:
+        pass
+    result['path'] = path; result['dpi'] = dpi
+    result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    main()

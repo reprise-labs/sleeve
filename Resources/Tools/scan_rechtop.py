@@ -7,7 +7,7 @@ Lees het onderdeel in alle vier de standen met de tekstherkenning van macOS; in 
 stand waarin die bekende tekst terug te lezen is, staat het rechtop. Is er geen
 duidelijke winnaar: TWIJFEL, de gebruiker beslist.
 """
-import argparse, difflib, json, os, re, subprocess, sys, tempfile
+import argparse, difflib, json, math, os, re, subprocess, sys, tempfile
 import numpy as np, cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -103,7 +103,11 @@ def ocr_lines(view):
     """Gelezen regels met hun kader in pixels (x0, y0, x1, y1), via sleeve_ocr --boxes."""
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, view)
-        out = subprocess.run([OCR, p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
+        out = ''
+        for _ in range(2):                                 # Vision geeft af en toe niets terug: één keer opnieuw
+            out = subprocess.run([OCR, p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
+            if out.strip():
+                break
     h, w = view.shape[:2]; lines = []
     for row in out.splitlines():
         try:
@@ -113,9 +117,10 @@ def ocr_lines(view):
             continue
         xs, ys = pts[:, 0] * w, (1 - pts[:, 1]) * h
         P = np.c_[xs, ys]                                  # tl, tr, br, bl
+        direction = math.degrees(math.atan2(P[0][1] - P[1][1], P[1][0] - P[0][0]))   # leesrichting, tegen de klok in vanaf rechts
         height = (np.linalg.norm(P[0] - P[3]) + np.linalg.norm(P[1] - P[2])) / 2   # letterhoogte, ook als de regel scheef staat
         lines.append({'text': text, 'box': (xs.min(), ys.min(), xs.max(), ys.max()), 'height': height,
-                      'width': (np.linalg.norm(P[0] - P[1]) + np.linalg.norm(P[3] - P[2])) / 2})
+                      'width': (np.linalg.norm(P[0] - P[1]) + np.linalg.norm(P[3] - P[2])) / 2, 'direction': direction})
     return lines
 
 
@@ -183,6 +188,21 @@ def disc_angle(path, words, px_mm):
     label = im[h // 2 - r:h // 2 + r, w // 2 - r:w // 2 + r].copy()
     mask = np.zeros(label.shape[:2], np.uint8); cv2.circle(mask, (r, r), r, 255, -1)
     label[mask == 0] = 255
+    small = cv2.resize(label, (1240, 1240), interpolation=cv2.INTER_AREA) if label.shape[0] > 1300 else label
+    # Vision leest tekst in elke stand en geeft de leesrichting per regel: de tracklist
+    # (of anders artiest/titel) zegt dan meteen hoe het label gedraaid ligt.
+    lines = ocr_lines(small)
+    tracks = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[2:])]
+    heads = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[:2])]
+    use = tracks if len(tracks) >= 2 else heads
+    if use:
+        dirs = np.array([l['direction'] for l in use])
+        ref = dirs[0]; spread = np.abs(((dirs - ref + 180) % 360) - 180)
+        if np.median(spread) < 10:
+            est = (float(np.median(((dirs - ref + 180) % 360) - 180)) + ref) % 360   # zoveel met de klok mee draaien
+            fine, how = level_label(small, est, words)
+            got = [w for w in words if any(found(norm(w), norm(l['text'])) for l in lines)]
+            return fine, {round(est, 1): len(use)}, got + ['direction from %d lines' % len(use), 'level: ' + how]
     tried = {}
     def score_at(base):
         R = cv2.getRotationMatrix2D((r, r), -base, 1.0)              # met de klok mee draaien
@@ -196,7 +216,7 @@ def disc_angle(path, words, px_mm):
     for base in np.arange(coarse - 6, coarse + 6.1, 3):
         score_at(float(base) % 90)
     best = max(tried, key=lambda k: (tried[k][0], -abs(((k - coarse + 180) % 360) - 180)))
-    fine, how = level_label(label, best, words)
+    fine, how = level_label(small, best, words)          # fijne hoek op ±300 dpi: Vision leest de regels daar het best
     print('label level:', how, f'({fine:.1f} degrees)', file=sys.stderr)
     return fine, {round(k, 1): v[0] for k, v in sorted(tried.items())}, tried[best][1] + ['level: ' + how]
 
