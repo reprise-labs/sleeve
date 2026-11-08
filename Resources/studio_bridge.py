@@ -223,7 +223,7 @@ def feiten_scan(req,rows,layout,work):
  workers=1 if max(scan_dpi(f) for _,files in jobs for f in files[:1])>=900 else 2
  with CF.ThreadPoolExecutor(max_workers=workers) as pool:
   # feit: alle onderdelen van één release hebben hetzelfde formaat; een cd-vak = een cd
-  fmt='cd' if any(part.startswith('cd') for part,_ in jobs) else ''
+  fmt=req.get('format') if req.get('format') in ('cd','vinyl') else ('cd' if any(part.startswith('cd') for part,_ in jobs) else '')
   futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}-{uuid.uuid4().hex[:8]}',None,fmt):part for i,(part,files) in enumerate(jobs)}
   for future in CF.as_completed(futures):
    result=future.result();done+=1;results.append(result)
@@ -255,7 +255,7 @@ def feiten_decide(req,work):
  else:raise ValueError('Unknown choice.')
  old=Path(req.get('path','')) if req.get('path') else None
  output=old.parent if old else Path(req['output'])
- result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision)
+ result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision,req.get('format') if req.get('format') in ('cd','vinyl') else ('cd' if part.startswith('cd') else ''))
  if old and result.get('path') and Path(result['path'])!=old and old.exists():
   shutil.move(result['path'],old);result['path']=str(old)
  if result.get('path'):emit('outputs',files=[dict(feiten_file(result),replace=True)])
@@ -272,7 +272,7 @@ def scan(req,rows,work):
   if part not in PARTS:raise ValueError('Choose a valid part.')
   if any(row.get('reference') for row in rows):raise ValueError('Choose only the source images for this part.')
   output=job_folder(req,'Scans');emit('destination',path=str(output))
-  result=feiten_part(req,part,[row['path'] for row in rows],output,work/f'rerun-{uuid.uuid4().hex[:8]}')
+  result=feiten_part(req,part,[row['path'] for row in rows],output,work/f'rerun-{uuid.uuid4().hex[:8]}',None,req.get('format') if req.get('format') in ('cd','vinyl') else '')
   if not result.get('path'):raise ValueError('This part could not be made: '+'; '.join(result.get('why',[])))
   files=[feiten_file(result)];JOB_OUTPUTS[files[0]['path']]=files[0]
   emit('outputs',files=files)

@@ -97,6 +97,8 @@ final class PipeReader: @unchecked Sendable {
     @Published var discogs = ""
     @Published var useNames = true
     @Published var useStand = true
+    // Feit van de gebruiker: cd of vinyl ("auto" = uit Discogs, of cd als er een cd-vak is).
+    @Published var mediaFormat = "auto"
     // Kept for decoding older projects; scan requests always disable reference colour.
     @Published var useColour = false
     @Published var discovering = false
@@ -343,7 +345,7 @@ final class PipeReader: @unchecked Sendable {
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Jobs/"+UUID().uuidString)
         do {
             try FileManager.default.createDirectory(at:cache,withIntermediateDirectories:true)
-            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? "","group":$0.group ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":false,"strength":strength,"scope":colourScope]
+            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? "","group":$0.group ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":false,"strength":strength,"scope":colourScope,"format":mediaFormat]
             if let folder=outputFolder{req["output"]=folder.path}
             if let ref=referenceURL{req["reference"]=ref.path}
             if action=="namesApply" {req["proposals"]=try JSONSerialization.jsonObject(with:JSONEncoder().encode(proposals))}

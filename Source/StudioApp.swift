@@ -200,6 +200,10 @@ struct StudioView: View {
             TextField("Discogs link (optional for scans)",text:$model.discogs).textFieldStyle(.roundedBorder).disabled(model.busy)
                 .onChange(of:model.discogs){ model.cancelReleaseAdvice();model.proposals=[];model.references=[];if model.referenceFromDiscogs {model.referenceURL=nil}}
             if model.mode == .scans {
+                Text("Format").font(.system(size:12,weight:.semibold))
+                Picker("Format",selection:$model.mediaFormat){Text("Automatic").tag("auto");Text("CD").tag("cd");Text("Vinyl").tag("vinyl")}
+                    .pickerStyle(.segmented).labelsHidden().disabled(model.busy)
+                Text(model.mediaFormat=="auto" ? "From the Discogs link, or CD when there is a CD slot." : "You chose \(model.mediaFormat=="cd" ? "CD" : "vinyl"): Sleeve cuts to those sizes, with or without Discogs.").font(.caption).foregroundStyle(.secondary)
                 Text("Use of Discogs").font(.system(size:12,weight:.semibold))
                 Toggle("Use file names",isOn:$model.useNames)
                 Toggle("Rotate cover and record correctly",isOn:$model.useStand)

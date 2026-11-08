@@ -347,6 +347,25 @@ def missing_part(result, covered, px_mm):
                          'or fill it in yourself, for example in Photoshop. Sleeve does not invent image.')
 
 
+def trim_edge_lines(img, px_mm, max_mm=0.3):
+    """Feit: een schaduw- of kleplijn langs de rand is geen drukwerk. Per zijde op de volle
+    resolutie: zolang de buitenste rij/kolom duidelijk anders is (helderheid of kleur) dan
+    het drukwerk net binnen de rand (0,5-1 mm), die rij weghalen; hooguit max_mm."""
+    lab = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2LAB).astype(np.float32)
+    L = lab[..., 0]; C = np.hypot(lab[..., 1] - 128, lab[..., 2] - 128)
+    a, b = int(.5 * px_mm), max(int(1.0 * px_mm), int(.5 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
+    def cut(Lr, Cr):                                      # Lr, Cr: per rij vanaf de rand naar binnen
+        ref_L, ref_C = np.median(Lr[a:b]), np.median(Cr[a:b])
+        k = 0
+        while k < m and (abs(Lr[k] - ref_L) > 8 or abs(Cr[k] - ref_C) > 6):
+            k += 1
+        return k
+    t = cut(L.mean(1), C.mean(1)); bt = cut(L.mean(1)[::-1], C.mean(1)[::-1])
+    l = cut(L.mean(0), C.mean(0)); r = cut(L.mean(0)[::-1], C.mean(0)[::-1])
+    h, w = img.shape[:2]
+    return img[t:h - bt, l:w - r], (t, r, bt, l)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('image'); p.add_argument('part', choices=sorted(PART_SHAPE))
@@ -425,14 +444,13 @@ def main():
             # keuze André (8 nov): de afgeronde rand niet tonen. Feit: waar het vlakke vinyl
             # ophoudt is per richting te meten (eerste sprong van binnenuit); daar snijden.
             # feit: de afgeronde rand is rondom even breed, dus hetzelfde midden als de buitenrand
-            if fmt != 'cd':
-                _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
-                if rr - 2 * DISC_EDGE_MM * px_mm < ri < rr:
-                    rr = ri - RIM_CUT_MM * px_mm
-                else:
-                    rr -= DISC_EDGE_MM * px_mm
+            # feit: een plaat heeft een afgeronde rand, een cd een doorzichtige onbedrukte rand;
+            # in beide gevallen snijden waar het vlakke, bedrukte deel ophoudt
+            _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
+            if rr - 2 * DISC_EDGE_MM * px_mm < ri < rr:
+                rr = ri - RIM_CUT_MM * px_mm
             else:
-                rr -= 0.1 * px_mm                          # net binnen de scherpe rand
+                rr -= DISC_EDGE_MM * px_mm
             result['cut_diameter_mm'] = round(2 * rr / px_mm, 2)
             result['precise_dev_mm'] = round(max([abs(d) for d in dev if d is not None] or [0]) / px_mm, 2)
             result['directions_measured'] = sum(d is not None for d in dev)
@@ -573,6 +591,11 @@ def main():
                     cv2.imwrite(a.overlay.replace('.jpg', '_edges.jpg'), cv2.resize(np.hstack([left, right, top, bot]), None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST))
                 except cv2.error:
                     pass                                   # alleen een hulpbeeld; rand te dicht bij de beeldrand
+        if shape != 'disc':
+            crop, trimmed = trim_edge_lines(crop, px_mm * F)
+            if any(trimmed):
+                result['edge_lines_trimmed_px'] = trimmed
+                print('edge lines trimmed (top, right, bottom, left px):', trimmed)
         cv2.imwrite(a.out, crop)
         result['dpi'] = round(dpi * F, 2)
         json.dump(result, open(a.out + '.feiten.json', 'w'), indent=1)
