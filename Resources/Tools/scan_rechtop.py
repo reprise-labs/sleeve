@@ -247,11 +247,28 @@ def main():
             R = cv2.getRotationMatrix2D((ww / 2, hh / 2), -best, 1.0)
             cv2.imwrite(a.out, cv2.warpAffine(im, R, (ww, hh), flags=cv2.INTER_CUBIC, borderValue=(0, 0, 0, 0)))
         return
-    score, hits = known_text_score(read_rotations(a.image), words)
-    ranked = sorted(score, key=score.get, reverse=True)
-    best, second = ranked[0], ranked[1]
-    verdict = 'GOED' if score[best] > 0 and score[best] >= CLEAR * max(score[second], 1) else 'TWIJFEL'
-    result = {'rotate_clockwise': best, 'known_text_per_rotation': score, 'read_upright': hits[best], 'verdict': verdict}
+    # Hoes: Vision leest tekst in elke stand en geeft de leesrichting per regel. Bekende
+    # tekst van de release (feit) in een duidelijke richting = zo moet de hoes draaien
+    # (een hoes staat altijd op een kwartslag).
+    im0 = cv2.imread(a.image, cv2.IMREAD_UNCHANGED)[:, :, :3]
+    k0 = 1600 / max(im0.shape[:2])
+    view0 = cv2.resize(im0, None, fx=k0, fy=k0, interpolation=cv2.INTER_AREA) if k0 < 1 else im0
+    known = [l for l in ocr_lines(view0) if any(found(norm(w), norm(l['text'])) for w in words)]
+    votes = {}
+    for l in known:
+        q = int(round(l['direction'] / 90.0)) % 4 * 90               # leesrichting op een kwartslag
+        votes[q] = votes.get(q, 0) + len(norm(l['text']))
+    if votes:
+        ranked = sorted(votes, key=votes.get, reverse=True)
+        best = ranked[0]; second = votes[ranked[1]] if len(ranked) > 1 else 0
+        verdict = 'GOED' if votes[best] >= CLEAR * max(second, 1) else 'TWIJFEL'
+        result = {'rotate_clockwise': best, 'known_text_per_rotation': votes, 'read_upright': [l['text'] for l in known][:12] + ['direction from Vision'], 'verdict': verdict}
+    else:
+        score, hits = known_text_score(read_rotations(a.image), words)
+        ranked = sorted(score, key=score.get, reverse=True)
+        best, second = ranked[0], ranked[1]
+        verdict = 'GOED' if score[best] > 0 and score[best] >= CLEAR * max(score[second], 1) else 'TWIJFEL'
+        result = {'rotate_clockwise': best, 'known_text_per_rotation': score, 'read_upright': hits[best], 'verdict': verdict}
     print(json.dumps(result, ensure_ascii=False))
     if a.out:
         im = cv2.imread(a.image, cv2.IMREAD_UNCHANGED)

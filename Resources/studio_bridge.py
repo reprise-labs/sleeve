@@ -196,6 +196,21 @@ def feiten_scan(req,rows,layout,work):
  for group in layout:
   if group.get('part') not in PARTS:raise ValueError('Give every slot its part (Front, Back, Side A …) before processing.')
   jobs.append((group['part'],[by_name[name] for name in group['files']]))
+ # Feit (Discogs): welke plaatkanten de release heeft (tracklist A1, B1 …). Ontbreekt er
+ # een kant in je vakken, dan melden; niets raden.
+ missing=[]
+ if req.get('discogs'):
+  try:
+   import scan_naam as N
+   m=re.search(r'/(release|master)/(\d+)',release_url(req['discogs']))
+   r=N.get('https://api.discogs.com/'+('masters' if m[1]=='master' else 'releases')+'/'+m[2])
+   if m[1]=='master':r=N.get('https://api.discogs.com/releases/'+str(r['main_release']))
+   if any((f.get('name') or '').lower()=='vinyl' for f in r.get('formats',[])):
+    sides={t['position'][0].lower() for t in r.get('tracklist',[]) if t.get('position') and t['position'][0].isalpha()}
+    have={part[4:] for part,_ in jobs if part.startswith('side')}
+    missing=sorted(sides-have)
+    if missing:emit('warning',message='Discogs lists side '+', '.join(x.upper() for x in sorted(sides))+'; no slot for side '+', '.join(x.upper() for x in missing)+'.')
+  except Exception as e:emit('log',message=f'Sides not checked against Discogs: {e}')
  output=job_folder(req,'Scans');emit('destination',path=str(output))
  done=0;results=[]
  emit('progress',fraction=0,index=None,total=len(jobs),phase='Processing parts',scope='preparation',completedParts=0,activeParts=min(2,len(jobs)))
@@ -217,7 +232,8 @@ def feiten_scan(req,rows,layout,work):
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':results,'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
  if not files:raise ValueError('No processed images were made. See the log.')
  good=sum(r.get('verdict')=='GOED' for r in results);doubt=len(results)-good
- emit('complete',message=f'{len(results)} parts processed: {good} good'+(f', {doubt} in doubt. Decide in the Final Check.' if doubt else '.'),path=str(output))
+ note=(' Missing according to Discogs: side '+', '.join(x.upper() for x in missing)+'.') if missing else ''
+ emit('complete',message=f'{len(results)} parts processed: {good} good'+(f', {doubt} in doubt. Decide in the Final Check.' if doubt else '.')+note,path=str(output))
 
 def feiten_decide(req,work):
  """Beslissing van de gebruiker voor één onderdeel: onthouden en dat onderdeel opnieuw maken."""
