@@ -27,6 +27,8 @@ PART_SHAPE = {'front': 'sleeve', 'back': 'sleeve', 'inside': 'sleeve', 'insert':
               'sidea': 'disc', 'sideb': 'disc', 'sidec': 'disc', 'sided': 'disc'}
 WORK_PX_MM = 2.0                 # rekenschaal voor het zoeken
 ON_CIRCLE = 0.9                  # zoveel van de gemeten richtingen moet op de cirkel liggen
+DISC_EDGE_MM = 1.0               # feit: de rand van een plaat is afgerond, ±1 mm breed; de scanner
+                                 # toont die als glans of schaduw. Gesneden wordt op de vlakke plaat.
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
 SQUARE_MM = 1.5                  # een hoes is vierkant: breedte en hoogte verschillen hooguit zoveel
 SEEN = 0.5                       # zoveel van een zijde op een zichtbare rand = die zijde is gezien
@@ -313,6 +315,8 @@ def main():
             X, Y, rr, dev = precise_circle(bgr, alpha, cx * k, cy * k, r * k, 3 * px_mm, ROUND_MM * px_mm)
             off = [d for d in dev if d is not None and abs(d) > ROUND_MM * px_mm]
             result['precise_diameter_mm'] = round(2 * rr / px_mm, 2)
+            rr -= DISC_EDGE_MM * px_mm                      # keuze André (8 nov): de afgeronde rand niet tonen
+            result['cut_diameter_mm'] = round(2 * rr / px_mm, 2)
             result['precise_dev_mm'] = round(max(abs(d) for d in dev if d is not None) / px_mm, 2)
             result['directions_measured'] = sum(d is not None for d in dev)
             measured = [d for d in dev if d is not None]
@@ -322,7 +326,7 @@ def main():
             if len(off) > (1 - ON_CIRCLE) * len(measured):
                 result['verdict'] = 'TWIJFEL'
                 result.setdefault('why', []).append(f'{len(off)} directions more than {ROUND_MM} mm off the circle: ' + ', '.join(f'{k * 5}deg {d / px_mm:+.1f}mm' for k, d in enumerate(dev) if d is not None and abs(d) > ROUND_MM * px_mm))
-            print('precise disc:', result['precise_diameter_mm'], 'mm;', result['directions_on_circle'], 'of', result['directions_measured'], 'directions on the circle; loose:', result.get('loose_points', '-'), '; verdict', result['verdict'], result.get('why', ''))
+            print('precise disc:', result['precise_diameter_mm'], 'mm measured, cut at', result['cut_diameter_mm'], 'mm (flat part);', result['directions_on_circle'], 'of', result['directions_measured'], 'directions on the circle; loose:', result.get('loose_points', '-'), '; verdict', result['verdict'], result.get('why', ''))
             x0f, y0f = int(round(X - rr)), int(round(Y - rr)); n = int(round(2 * rr))
             crop = np.zeros((n, n, 4), np.uint8)
             src = np.dstack([bgr, alpha.astype(np.uint8) * 255])
