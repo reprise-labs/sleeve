@@ -191,6 +191,8 @@ def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72):
         rr = radii[i] + 0.25; a = np.radians((k + .5) * 360 / n)
         pts.append((cx + rr * np.cos(a), cy + rr * np.sin(a))); idx.append(k)
     P = np.array(pts)
+    if len(P) < 3:                                         # rand nergens te meten: niets bij te stellen
+        return cx, cy, r, [None] * n
     def fit(Q):
         # kleinste kwadraten: x^2+y^2 + D x + E y + F = 0
         A = np.c_[Q, np.ones(len(Q))]; bvec = -(Q ** 2).sum(1)
@@ -364,13 +366,16 @@ def main():
             result['precise_diameter_mm'] = round(2 * rr / px_mm, 2)
             rr -= DISC_EDGE_MM * px_mm                      # keuze André (8 nov): de afgeronde rand niet tonen
             result['cut_diameter_mm'] = round(2 * rr / px_mm, 2)
-            result['precise_dev_mm'] = round(max(abs(d) for d in dev if d is not None) / px_mm, 2)
+            result['precise_dev_mm'] = round(max([abs(d) for d in dev if d is not None] or [0]) / px_mm, 2)
             result['directions_measured'] = sum(d is not None for d in dev)
             measured = [d for d in dev if d is not None]
             result['directions_on_circle'] = len(measured) - len(off)
             if off:
                 result['loose_points'] = ', '.join(f'{k * 5}deg {d / px_mm:+.1f}mm' for k, d in enumerate(dev) if d is not None and abs(d) > ROUND_MM * px_mm)
-            if len(off) > (1 - ON_CIRCLE) * len(measured):
+            if not measured:
+                result['verdict'] = 'TWIJFEL'
+                result.setdefault('why', []).append('the edge of the record could not be measured anywhere (does the scan resolution match the real size?)')
+            elif len(off) > (1 - ON_CIRCLE) * len(measured):
                 result['verdict'] = 'TWIJFEL'
                 result.setdefault('why', []).append(f'{len(off)} directions more than {ROUND_MM} mm off the circle: ' + ', '.join(f'{k * 5}deg {d / px_mm:+.1f}mm' for k, d in enumerate(dev) if d is not None and abs(d) > ROUND_MM * px_mm))
             print('precise disc:', result['precise_diameter_mm'], 'mm measured, cut at', result['cut_diameter_mm'], 'mm (flat part);', result['directions_on_circle'], 'of', result['directions_measured'], 'directions on the circle; loose:', result.get('loose_points', '-'), '; verdict', result['verdict'], result.get('why', ''))

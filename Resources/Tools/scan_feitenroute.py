@@ -105,7 +105,20 @@ def main():
     feit_part = 'insert' if a.part.startswith('insert') else ('back' if a.part in ('inside', 'inlay') else a.part)
     raw = os.path.join(a.work, f'{a.part}_raw.png'); crop = os.path.join(a.work, f'{a.part}_crop.png')
     result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
-    st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + a.scans + ['--vorm', 'ruw'], capture_output=True, text=True)
+    if len(a.scans) == 1:
+        # één scan: niets samen te voegen; de scan zelf is het hele beeld
+        from PIL import Image
+        with Image.open(a.scans[0]) as im:
+            d = im.info.get('dpi'); dpi0 = float(d[0]) if d and 50 < float(d[0]) < 5000 else 0.0
+            w0, h0 = im.size
+            im.convert('RGBA').save(raw)
+        json.dump({'scale': 1, 'dpi': dpi0 or 300.0, 'scans': [{'scan': os.path.basename(a.scans[0]),
+                   'corners': [[0, 0], [w0, 0], [w0, h0], [0, h0]]}]}, open(raw + '.scans.json', 'w'))
+        st = subprocess.CompletedProcess([], 0, '', '')
+        if not dpi0:
+            result['why'].append('the scan has no resolution (dpi) stored; 300 dpi assumed for the size facts')
+    else:
+        st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + a.scans + ['--vorm', 'ruw'], capture_output=True, text=True)
     if not os.path.exists(raw):
         result.update(verdict='FOUT', why=[(st.stderr or st.stdout).strip().splitlines()[-1] if (st.stderr or st.stdout).strip() else 'merging failed'])
         print(json.dumps(result)); return
@@ -116,7 +129,7 @@ def main():
         result.update(verdict='FOUT', why=[fe.stderr.strip().splitlines()[-1] if fe.stderr.strip() else 'cropping failed'])
         print(json.dumps(result)); return
     dpi = facts.get('dpi') or 300.0
-    why = list(facts.get('why', []))
+    why = result['why'] + list(facts.get('why', []))
     if facts.get('message'):
         result['message'] = facts['message']
     img = cv2.imread(crop, cv2.IMREAD_UNCHANGED)

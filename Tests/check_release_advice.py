@@ -67,17 +67,13 @@ calls.clear();A.search({'artist':'Anouk','title':'Fake It Till We Die'},'Vinyl',
 assert urllib.parse.parse_qs(urllib.parse.urlparse(calls[0]).query)['format']==['Vinyl']
 rows=[{'path':str(i),'part':'front','reference':i==0} for i in range(30)]
 chosen=A.sample_rows(rows);assert len(chosen)==6 and rows[0] not in chosen and rows[-1] in chosen
-# A legacy project/queue with useColour=true must never colour-correct during scans.
+# Feitenroute: zonder vakken gokt Sleeve de indeling niet, maar vraagt erom.
 sys.path.insert(0,str(root/'Resources'));import studio_bridge as B
-class Captured(Exception):pass
-captured=[]
-def fake_run(command):captured.extend(map(str,command));raise Captured()
 with tempfile.TemporaryDirectory(dir=work) as folder:
  folder=Path(folder);output=folder/'output';output.mkdir();staging=folder/'work';staging.mkdir()
  sample=root/'Resources/Samples/Voorbeeld_sidea.png'
- with patch.object(B,'run',side_effect=fake_run):
-  try:B.scan({'output':str(output),'discogs':'https://www.discogs.com/release/33664818','useNames':False,'useStand':False,'useColour':True},[{'path':str(sample),'part':'sidea'}],staging)
-  except Captured:pass
- assert captured and '--discogs-kleur' not in captured
+ try:
+  B.scan({'output':str(output),'discogs':'https://www.discogs.com/release/33664818','useColour':True},[{'path':str(sample),'part':'sidea'}],staging);raise AssertionError('scan without slots must refuse')
+ except ValueError as e:assert 'slots' in str(e)
 checks={'barcode_checksum_and_upc_ean_equivalence':True,'distinct_pressings_need_user_choice':True,'orange_variant_shown':True,'no_upload_of_images_or_raw_text':True,'offline_and_no_text_handled':True,'format_filter_and_bounded_sampling':True,'legacy_scan_colour_disabled':True,'promo_title_isrc':True,'split_title_and_credit_artist':True}
 (work/'RESULTAAT.json').write_text(json.dumps(checks,indent=2));print(checks)

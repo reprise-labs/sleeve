@@ -117,19 +117,6 @@ def run(args):
  if rc and resource_error:raise RuntimeError(resource_error)
  if rc:raise RuntimeError('Processing stopped on a check error. See the log; nothing is marked complete unless it is.')
 
-def profile_for(rows):
- parents={str(Path(row['path']).parent) for row in rows}
- if len(parents)!=1:raise ValueError('Choose scans of one release from one source folder. Process CD and vinyl separately.')
- parent=Path(next(iter(parents)));p=parent/'.anouk-referenties.json'
- if not p.exists():return {}
- raw=json.loads(p.read_text());profile={'reference_files':[],'scan_groups':[]}
- basenames={Path(row['path']).name for row in rows}
- for group in raw.get('scan_groups',[]):
-  if not isinstance(group,dict) or group.get('part') not in PARTS:continue
-  names=[name for name in group.get('files',[]) if isinstance(name,str) and Path(name).name==name and name in basenames]
-  if names:profile['scan_groups'].append({'part':group['part'],'files':names})
- return profile
-
 def layout_from_groups(rows):
  """Vakken uit de app: scans die je samen in één vak sleepte, vormen één onderdeel.
  Het onderdeel van het vak (Front, Side A …) staat vast; zonder onderdeel bepaalt
@@ -155,22 +142,6 @@ def remember_layout(rows,layout):
   p.write_text(json.dumps(data,ensure_ascii=False,indent=1))
  except (OSError,ValueError):
   emit('log',message='Layout not remembered (folder not writable).')
-
-def suggest_groups(rows):
- """Voorstel voor de vakken: dezelfde automatische indeling als bij het verwerken,
- met de kant als die op het label te lezen is. De gebruiker controleert en sleept."""
- import scan_alles as A
- paths=[row['path'] for row in rows if not row.get('reference')]
- if not paths:raise ValueError('Only reference images are selected. Add the original scans too.')
- emit('status',message='Grouping scans…')
- with contextlib.redirect_stdout(sys.stderr):
-  grouped=A.groups(paths) if len(paths)>1 else [paths]
-  result=[]
-  for group in grouped:
-   letters={A.disc_side(path) for path in group}-{None}
-   result.append({'files':group,'part':'side'+letters.pop().lower() if len(letters)==1 else 'unknown'})
- emit('groups',groups=result)
- emit('complete',message=f'{len(result)} groups suggested. Check them and drag scans where needed.')
 
 def report_outputs(folder,mapping=None,partial=False,part=None):
  files=[];components={}
@@ -259,58 +230,29 @@ def feiten_decide(req,work):
 
 
 def scan(req,rows,work):
- import scan_naam as N
+ """Alleen de feitenroute: jij zet de scans in vakken (één vak = één onderdeel), Sleeve
+ snijdt uit en zet rechtop op feiten. Geen oude regels, geen gegokte indeling."""
  selected=[row for row in rows if not row.get('reference')]
  if not selected:raise ValueError('Only reference images are selected. Add the original scans too.')
- if req.get('discogs') and any(req.get(flag) for flag in ('useNames','useStand')):
-  url=release_url(req['discogs']);match=re.search(r'/(release|master)/(\d+)',urllib.parse.urlparse(url).path)
-  emit('status',message='Checking the Discogs release…')
-  metadata=N.get('https://api.discogs.com/'+('masters' if match[1]=='master' else 'releases')+'/'+match[2])
-  if match[1]=='master':metadata=N.get('https://api.discogs.com/releases/'+str(metadata['main_release']))
-  if req.get('useStand') and not metadata.get('images'):
-   raise ValueError('This release has no reference photos. Turn off ‘Rotate cover and record correctly’ or choose another release.')
- profile=profile_for(rows)
- layout=layout_from_groups(rows)
- if layout and not req.get('rerunPart'):
-  # Jij hebt de scans in vakken gesleept: die indeling volgen, niets raden, en uitsnijden op feiten.
-  remember_layout(rows,layout)
-  feiten_scan(req,rows,layout,work);return
  if req.get('rerunPart'):
   part=req['rerunPart']
   if part not in PARTS:raise ValueError('Choose a valid part.')
   if any(row.get('reference') for row in rows):raise ValueError('Choose only the source images for this part.')
-  profile={'reference_files':[],'scan_groups':[{'part':part,'files':[Path(row['path']).name for row in rows]}]}
- staging=work/'scans';staging.mkdir()
- for row in rows:
-  p=Path(row['path']);os.symlink(p,staging/p.name)
- profile['reference_files']=[Path(row['path']).name for row in rows if row.get('reference')]
- (staging/'.anouk-referenties.json').write_text(json.dumps(profile))
- output=job_folder(req,'Scans');emit('destination',path=str(output))
- cmd=[TOOLS/'scan_alles.py',*[staging/Path(row['path']).name for row in rows],'--geen-vragen','--uit',output]
- if req.get('discogs'):
-  url=release_url(req['discogs']);cmd+=['--discogs',url]
-  if req.get('useStand'):cmd+=['--discogs-stand']
-  if not req.get('useNames',True):cmd+=['--geen-discogs-namen']
- if req.get('variant'):cmd+=['--variant',req['variant']]
- if req.get('rerunPart'):cmd+=['--een-onderdeel']
- try:
-  run(cmd)
- except BaseException:
-  report_outputs(output,partial=True)
-  raise
- files=report_outputs(output,part=req.get('rerunPart'))
- if req.get('rerunPart'):
-  if len(files)!=1:raise ValueError('The chosen scans don’t produce exactly one part. Check the selection; the previous result is kept.')
-  for file in files:file['part']=req['rerunPart'];JOB_OUTPUTS[file['path']]=file
+  output=job_folder(req,'Scans');emit('destination',path=str(output))
+  result=feiten_part(req,part,[row['path'] for row in rows],output,work/'rerun')
+  if not result.get('path'):raise ValueError('This part could not be made: '+'; '.join(result.get('why',[])))
+  files=[feiten_file(result)];JOB_OUTPUTS[files[0]['path']]=files[0]
   emit('outputs',files=files)
- (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','inputs':rows,'outputs':files,'discogs':req.get('discogs',''),'one_release_per_batch':True},ensure_ascii=False,indent=2))
- if not files:raise ValueError('No processed images were made. See the log.')
- has_vinyl=any(re.search(r'_side[abcd](?:_\d+)?$',Path(file['path']).stem) for file in files)
- made,name=auto_vinyl_colour(release_url(req['discogs']),files,work) if has_vinyl and req.get('discogs') and req.get('autoColour',True) else ([],'')
- if made:note=f' The record color differed from Discogs ({name}): {len(made)} color suggestion{"s" if len(made)!=1 else ""} (_kleur) made with a Discogs photo; the originals are kept.'
- elif has_vinyl and name in __import__('scan_colour').HUES:note=f' Vinyl color matches Discogs ({name}).'
- else:note=' Vinyl color not adjusted yet.' if has_vinyl else ''
- emit('complete',message=f'{len(files)} images processed.'+note,path=str(output))
+  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':[result],'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
+  emit('complete',message=f'{part}: {result.get("verdict")}',path=str(output));return
+ layout=layout_from_groups(rows)
+ if not layout:
+  raise ValueError('Put the scans in slots first (Arrange Scans…). Sleeve works only from your slots and the facts; it doesn’t guess which scans belong together.')
+ loose=[Path(r['path']).name for r in rows if not r.get('reference') and not str(r.get('group') or '').strip()]
+ if loose:emit('warning',message=f'Not in a slot, so not used: '+', '.join(loose))
+ remember_layout(rows,layout)
+ feiten_scan(req,rows,layout,work)
+
 
 def colour_destination(source):
  # Follow only explicit legacy colour provenance, never a raw scan source.
@@ -383,32 +325,6 @@ def discogs_release(url):
  release=N.get('https://api.discogs.com/'+('masters' if match[1]=='master' else 'releases')+'/'+match[2])
  if match[1]=='master':release=N.get('https://api.discogs.com/releases/'+str(release['main_release']))
  return release
-
-def auto_vinyl_colour(url,files,work):
- """Wijkt de gescande plaatkleur af van de kleurnaam op Discogs (bv. oranje
- vinyl dat de scanner rood maakt)? Dan een _kleur-voorstel naast het origineel,
- met een Discogs-foto waarvan de tint wél bij die naam past."""
- import scan_colour as C,scan_discogs as D,scan_naam as N
- vinyl=[f for f in files if re.search(r'_side[abcd](?:_\d+)?$',Path(f['path']).stem)]
- if not vinyl:return [],''
- emit('status',message='Comparing vinyl color with the color on Discogs…')
- try:
-  formats=discogs_release(url).get('formats',[])
-  words=[(d or '').lower() for f in formats for d in (f.get('descriptions') or [])]+[w.lower() for f in formats for w in re.split(r'[\s,/]+',f.get('text') or '')]
-  if any(word in words for word in ('marbled','splatter','swirl','multicolor','multicoloured')):return [],''
-  name=next((k for k in N.KLEUREN if k in words),'')
-  if name not in C.HUES:return [],name
-  _,images=D.release_images(url)
-  plan,chosen=C.vinyl_plan([f['path'] for f in vinyl],images,name)
- except (Exception,SystemExit) as error:
-  emit('warning',message=f'Vinyl color not compared with Discogs ({error}).');return [],''
- if not plan:return [],name
- folder=work/'references';folder.mkdir(exist_ok=True)
- ref=folder/f'Discogs-foto {chosen["photo"]}.png';chosen['reference'].save(ref)
- rows=[f for f in vinyl if f['path'] in plan]
- made=[colour_copy(row,ref,1.0,'vinyl',i,len(rows)) for i,row in enumerate(rows)]
- colour_metadata(ref,1.0,'vinyl',rows,made,automatic={'discogs_colour':name,'discogs_photo':chosen['photo']})
- return made,name
 
 def names_preview(req,rows):
  import scan_naam as N
@@ -574,7 +490,7 @@ def main():
     os.killpg(process.pid,signal.SIGKILL);process.communicate();raise
    finally:OCR_CHILDREN.discard(process)
   emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Release suggestions fetched.');return
- if action=='suggestGroups':suggest_groups(inputs(req));return
+ if action=='suggestGroups':raise ValueError('Sleeve no longer guesses the layout. Drag the scans into slots yourself.')
  if action=='decide':feiten_decide(req,work);return
  if action=='references':reference_photos(req,work);emit('complete',message='Reference photos loaded. Choose the right photo.');return
  rows=inputs(req)

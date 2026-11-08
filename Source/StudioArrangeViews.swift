@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Indelingsscherm: sleep de scans van één uitgave in vakken (Front, Back, Side A …).
-/// Sleeve volgt die indeling precies en raadt niets meer; 'Suggest' vult de vakken
+/// Sleeve volgt die indeling precies en raadt niets meer (geen 'Suggest': de oude regels zijn weg)
 /// alvast met Sleeve's eigen voorstel, dat je daarna corrigeert.
 struct StudioArrangeView: View {
     @ObservedObject var model: StudioModel
@@ -14,9 +14,6 @@ struct StudioArrangeView: View {
                     Text("Drag each scan into the slot it belongs to. Sleeve follows this exactly and doesn’t guess.").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if model.suggesting {ProgressView().controlSize(.small);Button("Stop"){model.stopSuggestion()}}
-                Button {model.suggestArrangement()} label:{Label("Suggest",systemImage:"wand.and.stars")}
-                    .disabled(model.suggesting || model.unassignedInputs.isEmpty)
                     .help("Let Sleeve fill the slots for the scans that aren’t in a slot yet")
                 Menu {
                     ForEach(slotParts,id:\.self){part in Button(partLabel(part)){model.addSlot(part:part)}}
@@ -63,7 +60,7 @@ struct StudioArrangeView: View {
         if model.slots.isEmpty {
             VStack(alignment:.leading,spacing:8) {
                 Text("No slots yet").font(.headline)
-                Text("Click ‘Suggest’ to let Sleeve fill the slots, or use ‘Add Slot’ to make them yourself (for example Front, Back, Side A and Side B), then drag the scans in.").font(.caption).foregroundStyle(.secondary)
+                Text("Use ‘Add Slot’ to make the slots yourself (for example Front, Back, Side A and Side B), then drag the scans in.").font(.caption).foregroundStyle(.secondary)
             }.padding(14).frame(maxWidth:.infinity,minHeight:150,alignment:.topLeading).background(studioPaper,in:RoundedRectangle(cornerRadius:12))
         }
     }
