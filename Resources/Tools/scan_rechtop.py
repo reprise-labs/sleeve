@@ -99,6 +99,82 @@ def text_level(label, angle, r_px, hole_px):
     return best[1]
 
 
+def ocr_lines(view):
+    """Gelezen regels met hun kader in pixels (x0, y0, x1, y1), via sleeve_ocr --boxes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, view)
+        out = subprocess.run([OCR, p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
+    h, w = view.shape[:2]; lines = []
+    for row in out.splitlines():
+        try:
+            conf, text, quad = row.split('\t')
+            pts = np.array([[float(v) for v in q.split(',')] for q in quad.split(';')])
+        except ValueError:
+            continue
+        xs, ys = pts[:, 0] * w, (1 - pts[:, 1]) * h
+        P = np.c_[xs, ys]                                  # tl, tr, br, bl
+        height = (np.linalg.norm(P[0] - P[3]) + np.linalg.norm(P[1] - P[2])) / 2   # letterhoogte, ook als de regel scheef staat
+        lines.append({'text': text, 'box': (xs.min(), ys.min(), xs.max(), ys.max()), 'height': height,
+                      'width': (np.linalg.norm(P[0] - P[1]) + np.linalg.norm(P[3] - P[2])) / 2})
+    return lines
+
+
+def line_angle(view, box, around):
+    """Hoek van één tekstregel: een ruim stuk rond de regel draaien in stappen van
+    0,1 graad en daarna precies de regel eruit nemen (zo vallen er geen lege hoeken
+    in de meting); recht is waar de boven- en onderkanten van de letters per rij het
+    scherpst samenvallen."""
+    x0, y0, x1, y1 = box; hgt = y1 - y0; wid = x1 - x0
+    pad = int(.08 * wid + hgt)                                 # ruim genoeg voor 4 graden over de halve regel
+    X0, X1 = int(max(0, x0 - pad)), int(min(view.shape[1], x1 + pad))
+    Y0, Y1 = int(max(0, y0 - pad)), int(min(view.shape[0], y1 + pad))
+    g = cv2.cvtColor(view[Y0:Y1, X0:X1], cv2.COLOR_BGR2GRAY).astype(np.float32)
+    gy = np.abs(cv2.Sobel(g, cv2.CV_32F, 0, 1))
+    c = ((x0 + x1) / 2 - X0, (y0 + y1) / 2 - Y0)
+    bx0, bx1 = int(x0 - X0), int(x1 - X0); by0, by1 = int(y0 - X0 * 0 - Y0 - .4 * hgt), int(y1 - Y0 + .4 * hgt)
+    best = None
+    for a in np.arange(around - 4, around + 4.01, 0.1):
+        R = cv2.getRotationMatrix2D(c, a, 1.0)
+        band = cv2.warpAffine(gy, R, (g.shape[1], g.shape[0]))[max(0, by0):by1, max(0, bx0):bx1]
+        sc = float(np.var(band.sum(1)))
+        if best is None or sc > best[0]:
+            best = (sc, float(a))
+    return best[1]
+
+
+def level_label(label, coarse, words):
+    """Feit: tekst op een label staat recht. Draai het label naar de grove stand en
+    zet de grootste tekst precies horizontaal: de naam van de artiest of de titel
+    (bekend van Discogs). Is die niet te lezen, dan de regels van de tracklist samen.
+    Meten, bijdraaien en opnieuw meten tot de regels recht liggen (de grove stand
+    kan tot ±7,5 graad naast zitten)."""
+    n = label.shape[0]; c = (n / 2, n / 2); angle = coarse; how = 'none'
+    for _ in range(4):
+        R = cv2.getRotationMatrix2D(c, -angle, 1.0)
+        view = cv2.warpAffine(label, R, (n, n), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255))
+        lines = [l for l in ocr_lines(view) if len(re.findall(r'\w', l['text'])) >= 3]
+        titles = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[:2])]
+        tracks = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[2:])]
+        t_off = float(np.median([line_angle(view, l['box'], 0.0) for l in tracks])) if tracks else None
+        if titles:
+            big = max(titles, key=lambda l: l['height'])
+            b_off = line_angle(view, big['box'], 0.0)
+            # Sierletters (handschrift) hebben geen rechte onderkant: is de grootste tekst
+            # het meer dan 1 graad oneens met de gedrukte tracklist, dan wint de tracklist.
+            if t_off is not None and len(tracks) >= 2 and abs(b_off - t_off) > 1.0:
+                off, how = t_off, 'tracklist (%d lines; largest text "%s" disagrees)' % (len(tracks), big['text'])
+            else:
+                off, how = b_off, 'largest text: ' + big['text']
+        elif t_off is not None:
+            off, how = t_off, 'tracklist (%d lines)' % len(tracks)
+        else:
+            break
+        angle = (angle - off) % 360
+        if abs(off) < 0.15:
+            break
+    return angle, how
+
+
 def disc_angle(path, words, px_mm):
     """Plaat: alleen het label lezen (midden, volle resolutie), in stappen rondgedraaid.
     De hoek waarin de bekende tekst het best terug te lezen is, is rechtop.
@@ -121,8 +197,9 @@ def disc_angle(path, words, px_mm):
     for base in np.arange(coarse - 6, coarse + 6.1, 3):
         score_at(float(base) % 90)
     best = max(tried, key=lambda k: (tried[k][0], -abs(((k - coarse + 180) % 360) - 180)))
-    fine = text_level(label, best, r, 3.62 * px_mm) % 360
-    return fine, {round(k, 1): v[0] for k, v in sorted(tried.items())}, tried[best][1]
+    fine, how = level_label(label, best, words)
+    print('label level:', how, f'({fine:.1f} degrees)', file=sys.stderr)
+    return fine, {round(k, 1): v[0] for k, v in sorted(tried.items())}, tried[best][1] + ['level: ' + how]
 
 
 def main():

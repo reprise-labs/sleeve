@@ -230,6 +230,24 @@ def find_hole(img, r, reach):
     return lo + x, lo + y, float(cov[y, x])
 
 
+def hole_outline(img, hx, hy, r, n=72):
+    """Het echte gat zoals het gescand is (kan uitgesleten of niet helemaal rond
+    zijn): in n richtingen vanuit het midden van het gat de sterkste sprong tussen
+    0,7 en 1,6 keer de normstraal. Geeft de omtrek als punten."""
+    g = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32), (0, 0), 1.0)
+    radii = np.arange(.7 * r, 1.6 * r, .5); pts = []
+    for k in range(n):
+        a = 2 * np.pi * (k + .5) / n
+        xs = (hx + radii * np.cos(a)).astype(np.float32); ys = (hy + radii * np.sin(a)).astype(np.float32)
+        prof = cv2.remap(g, xs.reshape(1, -1), ys.reshape(1, -1), cv2.INTER_LINEAR).ravel()
+        d = np.abs(np.diff(np.convolve(prof, np.ones(3) / 3, 'same'))); d[:1] = 0; d[-1:] = 0
+        rr = radii[int(np.argmax(d)) + 1]
+        pts.append((rr, a))
+    rs = np.array([p[0] for p in pts])
+    rs = np.maximum(rs, np.median(rs) - .15 * r)            # een losse kras binnenin trekt de rand niet naar binnen
+    return np.array([[hx + q * np.cos(a), hy + q * np.sin(a)] for q, (_, a) in zip(rs, pts)], np.float32)
+
+
 def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
     """Elke zijde precies op de papierrand, op volle resolutie. Per zijde het
     gemiddelde helderheidsverloop dwars op de rand (middelste 80% van de zijde,
@@ -359,11 +377,15 @@ def main():
             cov = np.ones_like(inside); cov[inside] = crop[:, :, 3][inside] > 0
             missing_part(result, cov, px_mm)
             hx, hy, hcov = find_hole(crop[:, :, :3], HOLE_12_MM / 2 * px_mm, 4 * px_mm)
-            hole = np.zeros((n, n), np.uint8); cv2.circle(hole, (int(round(hx)), int(round(hy))), int(round(HOLE_12_MM / 2 * px_mm)), 255, -1)
+            hole = np.zeros((n, n), np.uint8)
+            outline = hole_outline(crop[:, :, :3], hx, hy, HOLE_12_MM / 2 * px_mm)
+            cv2.fillPoly(hole, [np.round(outline).astype(np.int32)], 255)
+            hole = cv2.dilate(hole, np.ones((3, 3), np.uint8))      # de randpixel van het gat zelf ook
+            result['hole_diameter_mm'] = round(2 * math.sqrt(hole.sum() / 255 / math.pi) / px_mm, 2)
             crop[:, :, 3][hole > 0] = 0
             result['hole_offset_mm'] = [round((hx - n / 2) / px_mm, 2), round((hy - n / 2) / px_mm, 2)]
             result['hole_edge_seen'] = round(hcov, 2)
-            print('centre hole: offset', result['hole_offset_mm'], 'mm from the disc centre; edge seen', result['hole_edge_seen'])
+            print('centre hole: offset', result['hole_offset_mm'], 'mm from the disc centre; measured', result['hole_diameter_mm'], 'mm; edge seen', result['hole_edge_seen'])
             if hcov < SEEN:
                 result['verdict'] = 'TWIJFEL'
                 result.setdefault('why', []).append('centre hole not clearly visible')
