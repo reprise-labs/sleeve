@@ -18,13 +18,24 @@ Ergens niet: TWIJFEL, met een voorstel; de gebruiker beslist.
 import argparse, json, math, sys
 import numpy as np, cv2
 
-FACTS_MM = {                     # (kleinste, grootste) maat in mm
-    'sleeve': (307.0, 317.0),
-    'insert': (290.0, 306.0),
-    'disc': (290.0, 304.0),
+# Feiten per formaat en onderdeel: rechthoek (breedte, hoogte in mm, elk (min, max); de
+# stand mag ook gedraaid liggen) of schijf (doorsnede (min, max), middengat in mm).
+SHAPES = {
+    'vinyl': {
+        'front': ('rect', (307, 317), (307, 317), True), 'back': ('rect', (307, 317), (307, 317), True),
+        'inside': ('rect', (307, 317), (307, 317), True), 'inlay': ('rect', (307, 317), (307, 317), True),
+        'insert': ('rect', (290, 306), (290, 306), True),
+        'sidea': ('disc', (296, 304), 7.24), 'sideb': ('disc', (296, 304), 7.24),
+        'sidec': ('disc', (296, 304), 7.24), 'sided': ('disc', (296, 304), 7.24),
+    },
+    'cd': {                      # jewelcase: boekje 120 x 120, tray-inlay ±151 x 118 (met ruggetjes), schijf 120, gat 15
+        'front': ('rect', (117, 123), (117, 123), True), 'inside': ('rect', (117, 123), (117, 123), True),
+        'insert': ('rect', (117, 123), (117, 123), True),
+        'back': ('rect', (136, 154), (114, 120), False), 'inlay': ('rect', (136, 154), (114, 120), False),
+        'cd': ('disc', (117, 122), 15.0), 'cd1': ('disc', (117, 122), 15.0), 'cd2': ('disc', (117, 122), 15.0),
+    },
 }
-PART_SHAPE = {'front': 'sleeve', 'back': 'sleeve', 'inside': 'sleeve', 'insert': 'insert',
-              'sidea': 'disc', 'sideb': 'disc', 'sidec': 'disc', 'sided': 'disc'}
+PART_SHAPE = {k: ('disc' if v[0] == 'disc' else 'sleeve') for f in SHAPES.values() for k, v in f.items()}
 WORK_PX_MM = 2.0                 # rekenschaal voor het zoeken
 ON_CIRCLE = 0.9                  # zoveel van de gemeten richtingen moet op de cirkel liggen
 DISC_EDGE_MM = 1.0               # feit: de rand van een plaat is afgerond, ±1 mm breed; de scanner
@@ -91,27 +102,31 @@ def side_cover(eh, ev, valid, x0, y0, Sx, Sy):
     return out
 
 
-def find_rect(eh0, ev0, valid0, lo, hi, angles):
-    """Vierkant met zijde tussen lo en hi px dat het best op randen ligt (grof)."""
+def find_rect(eh0, ev0, valid0, sizes, angles):
+    """Rechthoek (Sx, Sy uit 'sizes', in px) die het best op randen ligt (grof)."""
     h, w = eh0.shape; c = (w / 2, h / 2); best = None
     for ang in angles:
         R = cv2.getRotationMatrix2D(c, ang, 1.0)
         rot = lambda a: cv2.warpAffine(a.astype(np.uint8), R, (w, h), flags=cv2.INTER_NEAREST) > 0
         eh, ev, valid = rot(eh0), rot(ev0), rot(valid0)
-        for S in range(int(lo), int(hi) + 1):
-            if S >= min(w, h):
-                break
-            th = seg_sums(eh & valid, S, 1) / np.maximum(seg_sums(valid, S, 1), 1)   # [y, x0]
-            tv = seg_sums(ev & valid, S, 0) / np.maximum(seg_sums(valid, S, 0), 1)   # [y0, x]
-            ny, nx = h - S, w - S
-            score = th[:ny, :nx] + th[S:S + ny, :nx] + tv[:ny, :nx] + tv[:ny, S:S + nx]
+        cache_h, cache_v = {}, {}
+        for Sx, Sy in sizes:
+            if Sx >= w or Sy >= h:
+                continue
+            if Sx not in cache_h:
+                cache_h[Sx] = seg_sums(eh & valid, Sx, 1) / np.maximum(seg_sums(valid, Sx, 1), 1)   # [y, x0]
+            if Sy not in cache_v:
+                cache_v[Sy] = seg_sums(ev & valid, Sy, 0) / np.maximum(seg_sums(valid, Sy, 0), 1)   # [y0, x]
+            th, tv = cache_h[Sx], cache_v[Sy]
+            ny, nx = h - Sy, w - Sx
+            score = th[:ny, :nx] + th[Sy:Sy + ny, :nx] + tv[:ny, :nx] + tv[:ny, Sx:Sx + nx]
             i = int(np.argmax(score)); y0, x0 = divmod(i, nx)
             if best is None or score[y0, x0] > best[0]:
-                best = (float(score[y0, x0]), ang, x0, y0, S)
+                best = (float(score[y0, x0]), ang, x0, y0, Sx, Sy)
     return best
 
 
-def refine_sides(eh, ev, valid, x0, y0, S, lo, hi, reach):
+def refine_sides(eh, ev, valid, x0, y0, Sx, Sy, xr, yr, reach):
     """Elke zijde apart iets verschuiven (hoes hoeft niet precies vierkant), binnen de feiten."""
     def best_line(edge, fixed_range, positions, horizontal):
         scores = []
@@ -123,15 +138,15 @@ def refine_sides(eh, ev, valid, x0, y0, S, lo, hi, reach):
             scores.append(e.sum() / max(v.sum(), 1))
         return positions[int(np.argmax(scores))]
     h, w = eh.shape
-    xs = slice(x0, x0 + S); ys = slice(y0, y0 + S)
+    xs = slice(x0, x0 + Sx); ys = slice(y0, y0 + Sy)
     top = best_line(eh, xs, list(range(max(0, y0 - reach), min(h, y0 + reach + 1))), True)
-    bottom = best_line(eh, xs, list(range(max(0, y0 + S - reach), min(h, y0 + S + reach + 1))), True)
+    bottom = best_line(eh, xs, list(range(max(0, y0 + Sy - reach), min(h, y0 + Sy + reach + 1))), True)
     left = best_line(ev, ys, list(range(max(0, x0 - reach), min(w, x0 + reach + 1))), False)
-    right = best_line(ev, ys, list(range(max(0, x0 + S - reach), min(w, x0 + S + reach + 1))), False)
-    if not (lo <= bottom - top <= hi):
-        top, bottom = y0, y0 + S
-    if not (lo <= right - left <= hi):
-        left, right = x0, x0 + S
+    right = best_line(ev, ys, list(range(max(0, x0 + Sx - reach), min(w, x0 + Sx + reach + 1))), False)
+    if not (yr[0] <= bottom - top <= yr[1]):
+        top, bottom = y0, y0 + Sy
+    if not (xr[0] <= right - left <= xr[1]):
+        left, right = x0, x0 + Sx
     return left, top, right - left, bottom - top
 
 
@@ -327,6 +342,7 @@ def missing_part(result, covered, px_mm):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('image'); p.add_argument('part', choices=sorted(PART_SHAPE))
+    p.add_argument('--format', choices=sorted(SHAPES), default=None, help='vinyl or cd (default: cd for cd parts, else vinyl)')
     p.add_argument('--overlay', help='write a preview with the found shape')
     p.add_argument('--out', help='write the crop at full resolution')
     a = p.parse_args()
@@ -347,8 +363,18 @@ def main():
     small = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     sa = cv2.resize(alpha.astype(np.uint8), (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
     border = scan_border_mask(meta, sa.shape, s / F, max(2, 2 * SCAN_EDGE_MM * WORK_PX_MM))   # strook langs elke scanrand
-    shape = PART_SHAPE[a.part]; lo_mm, hi_mm = FACTS_MM[shape]
-    lo, hi = lo_mm * WORK_PX_MM, hi_mm * WORK_PX_MM
+    fmt = a.format or ('cd' if a.part.startswith('cd') else 'vinyl')
+    spec = SHAPES[fmt].get(a.part) or SHAPES['vinyl'][a.part]
+    shape = 'disc' if spec[0] == 'disc' else 'sleeve'
+    if shape == 'disc':
+        lo, hi = spec[1][0] * WORK_PX_MM, spec[1][1] * WORK_PX_MM; hole_mm = spec[2]
+    else:
+        (wlo, whi), (hlo, hhi), square = spec[1], spec[2], spec[3]
+        xs_ = range(int(wlo * WORK_PX_MM), int(whi * WORK_PX_MM) + 1); ys_ = range(int(hlo * WORK_PX_MM), int(hhi * WORK_PX_MM) + 1)
+        if square:
+            sizes = [(S, S) for S in xs_]
+        else:                                              # rechthoek: beide standen
+            sizes = [(x, y) for x in xs_[::2] for y in ys_[::2]] + [(y, x) for x in xs_[::2] for y in ys_[::2]]
     result = {'part': a.part, 'shape': shape}
     if shape == 'disc':
         (score, cx, cy, r, scanned), sectors = find_disc(small, sa, border, lo, hi)
@@ -360,13 +386,16 @@ def main():
         result['verdict'] = 'GOED' if seen and not unseen else 'TWIJFEL'
     else:
         eh, ev, valid, _, _ = edge_maps(small, sa, border)
-        coarse = find_rect(eh, ev, valid, lo, hi, np.arange(-3, 3.01, 0.25))
-        _, ang, x0, y0, S = coarse
+        coarse = find_rect(eh, ev, valid, sizes, np.arange(-3, 3.01, 0.25))
+        _, ang, x0, y0, S0x, S0y = coarse
+        landscape = S0x >= S0y
+        xr = ((wlo, whi) if landscape or square else (hlo, hhi)); yr = ((hlo, hhi) if landscape or square else (wlo, whi))
+        xr = (xr[0] * WORK_PX_MM, xr[1] * WORK_PX_MM); yr = (yr[0] * WORK_PX_MM, yr[1] * WORK_PX_MM)
         c = (eh.shape[1] / 2, eh.shape[0] / 2)
         R = cv2.getRotationMatrix2D(c, ang, 1.0)
         rot = lambda m: cv2.warpAffine(m.astype(np.uint8), R, (m.shape[1], m.shape[0]), flags=cv2.INTER_NEAREST) > 0
         reh, rev, rva = rot(eh), rot(ev), rot(valid)
-        x0, y0, Sx, Sy = refine_sides(reh, rev, rva, x0, y0, S, lo, hi, int(3 * WORK_PX_MM))
+        x0, y0, Sx, Sy = refine_sides(reh, rev, rva, x0, y0, S0x, S0y, xr, yr, int(3 * WORK_PX_MM))
         sides = side_cover(reh, rev, rva, x0, y0, Sx, Sy)
         weak = [k for k, v in sides.items() if v['cover'] < SEEN]
         result.update({'angle': ang, 'box_mm': [x0 / WORK_PX_MM, y0 / WORK_PX_MM, Sx / WORK_PX_MM, Sy / WORK_PX_MM],
@@ -411,9 +440,9 @@ def main():
             inside = ring > 0
             cov = np.ones_like(inside); cov[inside] = crop[:, :, 3][inside] > 0
             missing_part(result, cov, px_mm)
-            hx, hy, hcov = find_hole(crop[:, :, :3], HOLE_12_MM / 2 * px_mm, 4 * px_mm)
+            hx, hy, hcov = find_hole(crop[:, :, :3], hole_mm / 2 * px_mm, 4 * px_mm)
             hole = np.zeros((n, n), np.uint8)
-            outline = hole_outline(crop[:, :, :3], hx, hy, HOLE_12_MM / 2 * px_mm)
+            outline = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm)
             cv2.fillPoly(hole, [np.round(outline).astype(np.int32)], 255)
             hole = cv2.dilate(hole, np.ones((3, 3), np.uint8))      # de randpixel van het gat zelf ook
             result['hole_diameter_mm'] = round(2 * math.sqrt(hole.sum() / 255 / math.pi) / px_mm, 2)
@@ -474,7 +503,7 @@ def main():
             result['precise_mm'] = [round(v / px_mm, 1) for v in (L, T, Rr - L, B - T)]
             print('precise box (mm):', result['precise_mm'])
             wmm, hmm = result['precise_mm'][2:]
-            if abs(wmm - hmm) > SQUARE_MM:
+            if square and abs(wmm - hmm) > SQUARE_MM:
                 result['verdict'] = 'TWIJFEL'
                 result.setdefault('why', []).append(f'not square: {wmm} x {hmm} mm; one side is probably a print edge, not the paper edge')
             print('verdict:', result['verdict'], result.get('why', ''))

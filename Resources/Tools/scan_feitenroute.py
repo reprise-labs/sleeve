@@ -55,6 +55,46 @@ def release_words(discogs):
             [t['title'] for t in r.get('tracklist', []) if t.get('title')] + [l['name'] for l in r.get('labels', [])])
 
 
+def release_format(discogs):
+    """Feit (Discogs): cd of vinyl."""
+    import scan_naam as N
+    m = re.search(r'/(release|master)/(\d+)', discogs or '')
+    if not m:
+        return None
+    r = N.get(f'https://api.discogs.com/{"masters" if m[1] == "master" else "releases"}/{m[2]}')
+    if m[1] == 'master':
+        r = N.get(f'https://api.discogs.com/releases/{r["main_release"]}')
+    names = {(f.get('name') or '').lower() for f in r.get('formats', [])}
+    return 'cd' if names & {'cd', 'cdr'} else ('vinyl' if 'vinyl' in names else None)
+
+
+def already_cut(path, spec):
+    """Is dit beeld al uitgesneden? Het zichtbare deel (niet-transparant) heeft dan al de
+    maat die de feiten voor dit onderdeel geven. Geeft (beeld, notitie) of None."""
+    from PIL import Image
+    with Image.open(path) as im:
+        d = im.info.get('dpi'); dpi = float(d[0]) if d and 50 < float(d[0]) < 5000 else 0.0
+    if not dpi:
+        return None
+    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        return None
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if img.shape[2] == 4:
+        ys, xs = np.nonzero(img[:, :, 3] > 0)
+        if not len(xs):
+            return None
+        img = img[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    w_mm, h_mm = img.shape[1] / dpi * 25.4, img.shape[0] / dpi * 25.4
+    if spec[0] == 'disc':
+        ok = spec[1][0] - 1 <= w_mm <= spec[1][1] + 1 and abs(w_mm - h_mm) < 1.5
+    else:
+        (wl, wh), (hl, hh) = spec[1], spec[2]
+        ok = (wl <= w_mm <= wh and hl <= h_mm <= hh) or (wl <= h_mm <= wh and hl <= w_mm <= hh)
+    return (img, {'mm': [round(w_mm, 1), round(h_mm, 1)], 'dpi': dpi}) if ok else None
+
+
 def choices_for(why):
     """Welke keuzes horen bij een twijfel."""
     out = ['keep']
@@ -96,20 +136,32 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('scans', nargs='+'); p.add_argument('--part', required=True)
     p.add_argument('--discogs', default=''); p.add_argument('--out', required=True); p.add_argument('--work', required=True)
-    p.add_argument('--decision', default=''); p.add_argument('--variant', default='')
+    p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default='')
     a = p.parse_args()
     folder = os.path.dirname(os.path.abspath(a.scans[0]))
     decision = json.loads(a.decision) if a.decision else load_decisions(folder).get(key_for(a.scans), {}).get('decision', {})
     if a.decision:
         save_decision(folder, a.scans, a.part, decision)
-    feit_part = 'insert' if a.part.startswith('insert') else ('back' if a.part in ('inside', 'inlay') else a.part)
+    import scan_feiten as SF
+    fmt = a.format or (release_format(a.discogs) if a.discogs else None) or ('cd' if a.part.startswith('cd') else 'vinyl')
+    feit_part = a.part if a.part in SF.SHAPES[fmt] else ('insert' if a.part.startswith('insert') else 'front')
+    result_fmt = fmt
+    os.makedirs(a.work, exist_ok=True)
     raw = os.path.join(a.work, f'{a.part}_raw.png'); crop = os.path.join(a.work, f'{a.part}_crop.png')
     up = os.path.join(a.work, f'{a.part}_up.png')
     for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):   # nooit een oud tussenbestand gebruiken
         if os.path.exists(f):
             os.remove(f)
     result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
-    if len(a.scans) == 1:
+    already = already_cut(a.scans[0], SF.SHAPES[fmt][feit_part]) if len(a.scans) == 1 else None
+    if already:
+        # Feit: dit beeld heeft al precies de maat van dit onderdeel: het is al uitgesneden.
+        img0, note = already
+        cv2.imwrite(crop, img0)
+        json.dump({'verdict': 'GOED', 'why': [], 'dpi': note['dpi'], 'already_cut': note}, open(crop + '.feiten.json', 'w'))
+        result['applied'] = f'already cut ({note["mm"][0]} x {note["mm"][1]} mm matches the facts); not cropped again'
+        st = subprocess.CompletedProcess([], 0, '', '')
+    elif len(a.scans) == 1:
         # één scan: niets samen te voegen; de scan zelf is het hele beeld
         from PIL import Image
         with Image.open(a.scans[0]) as im:
@@ -123,10 +175,10 @@ def main():
             result['why'].append('the scan has no resolution (dpi) stored; 300 dpi assumed for the size facts')
     else:
         st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + a.scans + ['--vorm', 'ruw'], capture_output=True, text=True)
-    if st.returncode != 0 or not os.path.exists(raw):
+    if not already and (st.returncode != 0 or not os.path.exists(raw)):
         result.update(verdict='FOUT', why=[(st.stderr or st.stdout).strip().splitlines()[-1] if (st.stderr or st.stdout).strip() else 'merging failed'])
         print(json.dumps(result)); return
-    fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--out', crop], capture_output=True, text=True)
+    fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', fmt, '--out', crop], capture_output=True, text=True) if not already else subprocess.CompletedProcess([], 0, '', '')
     try:
         facts = json.load(open(crop + '.feiten.json'))
     except (OSError, ValueError):
@@ -144,7 +196,7 @@ def main():
         cv2.imwrite(crop, img)
     # rechtop
     words = release_words(a.discogs) if a.discogs else []
-    disc = feit_part.startswith('side')
+    disc = SF.SHAPES[fmt][feit_part][0] == 'disc'
     if words:
         args = [PY, os.path.join(HERE, 'scan_rechtop.py'), crop, '--words', os.path.join(a.work, 'words.json'), '--out', up]
         json.dump(words, open(os.path.join(a.work, 'words.json'), 'w'))
@@ -170,7 +222,7 @@ def main():
     else:
         why.append('which way is up: no Discogs release, so no known text to read')
     # kant op het label (feit) tegen het vak
-    if disc:
+    if disc and feit_part.startswith('side'):
         letter = side_on_label(img, dpi)
         result['side_on_label'] = letter
         if letter and a.part.startswith('side') and a.part != 'side' + letter:

@@ -277,6 +277,15 @@ def scan(req,rows,work):
   emit('complete',message=f'{part}: {result.get("verdict")}',path=str(output));return
  layout=layout_from_groups(rows)
  if not layout:
+  # Feit: heet elk bestand naar zijn onderdeel (front, back, cd, inlay …), dan is elke scan
+  # zijn eigen vak (bijvoorbeeld een cd: elk onderdeel past in één scan).
+  named=[r for r in rows if not r.get('reference')]
+  stems=[Path(r['path']).stem.lower() for r in named]
+  if named and all(stem in PARTS for stem in stems) and len(set(stems))==len(stems):
+   layout=[{'part':stem,'files':[Path(r['path']).name]} for stem,r in zip(stems,named)]
+   for r,stem in zip(named,stems):r['group']=stem;r['part']=stem
+   emit('status',message='Each file is named after its part; using one slot per file.')
+ if not layout:
   raise ValueError('Put the scans in slots first (Arrange Scans…). Sleeve works only from your slots and the facts; it doesn’t guess which scans belong together.')
  loose=[Path(r['path']).name for r in rows if not r.get('reference') and not str(r.get('group') or '').strip()]
  if loose:emit('warning',message=f'Not in a slot, so not used: '+', '.join(loose))
