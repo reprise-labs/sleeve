@@ -260,6 +260,9 @@ def missing_part(result, covered, px_mm):
             ('left' if xs.mean() < w / 3 else 'right' if xs.mean() > 2 * w / 3 else 'centre')
     result['verdict'] = 'TWIJFEL'
     result.setdefault('why', []).append(f'not scanned: {area:.0f} mm2 ({gap.mean():.1%}) at {where} (before turning upright)')
+    result['message'] = (f'Sleeve can do no more than this: {area:.0f} mm2 at {where} is not on any scan. '
+                         'Scan that part again (a black sheet under the lid makes the edges clear), '
+                         'or fill it in yourself, for example in Photoshop. Sleeve does not invent image.')
 
 
 def main():
