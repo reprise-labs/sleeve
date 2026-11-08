@@ -995,7 +995,7 @@ def main_with_resources(resources,lease=None):
     p.add_argument('--snelle-tussenbestanden',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--referentie', type=int)
     p.add_argument('--klein', action='store_true', help='output at ~300 dpi (fast) instead of full scan resolution')
-    p.add_argument('--vorm', choices=['auto', 'hoes', 'plaat', 'geen'], default='auto', help='hoes = square, plaat = round, geen = by color only (default: decide automatically)')
+    p.add_argument('--vorm', choices=['auto', 'hoes', 'plaat', 'geen', 'ruw'], default='auto', help='hoes = square, plaat = round, geen = by color only, ruw = whole scans, no cropping (default: decide automatically)')
     a = p.parse_args()
     cv2.setNumThreads(2)
     if len(a.delen) < 2:
@@ -1080,6 +1080,7 @@ def main_with_resources(resources,lease=None):
         fr = np.zeros(imgs[k].shape[:2], np.uint8); fr[6:-6, 6:-6] = 1
         frames[k] = cv2.warpAffine(fr, M, size, flags=cv2.INTER_NEAREST) > 0
 
+    a_sizes = {k: (imgs[k].shape[1], imgs[k].shape[0]) for k in order}
     imgs=valid=feats=None
     gc.collect()
     # 0. hoes of plaat? Een plaat (rond) gaat prima op kleur: het deksel eromheen
@@ -1088,7 +1089,12 @@ def main_with_resources(resources,lease=None):
     #    de hoes ook heeft (wit en grijs zijn op kleur niet van het deksel te
     #    onderscheiden, en het deksel is grijzer naarmate de hoes dikker is).
     square = None; disc_c = None
-    if a.vorm != 'geen':
+    if a.vorm == 'ruw':
+        # Feitenaanpak: niets wegsnijden, de hele scans samenvoegen; het uitsnijden
+        # gebeurt daarna op feiten (scan_feiten.py).
+        for k in order:
+            masks[k] = frames[k].copy()
+    if a.vorm not in ('geen', 'ruw'):
         Gx, Gy, gmean, cover = edge_maps(warped, frames, order, size)
         G = np.hypot(Gx, Gy)
         # Uitgeklapte binnenkant: het samengevoegde vlak is ongeveer twee keer zo
@@ -1235,6 +1241,15 @@ def main_with_resources(resources,lease=None):
     ys, xs = np.where(nz)
     out = out[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
     O = np.array([[1, 0, -xs.min()], [0, 1, -ys.min()], [0, 0, 1]], float) @ O
+    if a.vorm == 'ruw':
+        import json
+        outlines = []
+        for k in order:
+            hk, wk = int(a_sizes[k][1]), int(a_sizes[k][0])
+            cor = np.float32([[0, 0], [wk, 0], [wk, hk], [0, hk]]).reshape(-1, 1, 2)
+            cor = cv2.perspectiveTransform(cv2.perspectiveTransform(cor, Tsh @ H[k]), O).reshape(-1, 2)
+            outlines.append({'scan': os.path.basename(a.delen[k]), 'corners': (cor / (1 if (a.klein or f >= 1) else f)).round(1).tolist()})
+        json.dump({'scale': 1 if (a.klein or f >= 1) else 1 / f, 'dpi': (ref_dpi or 0) * (f if (a.klein and f < 1) else 1), 'scans': outlines}, open(a.uitvoer + '.scans.json', 'w'), indent=1)
     if f < 1 and not a.klein:
         shape = ('square', None) if square is not None else (('disc', disc_c) if disc_c is not None else (None, None))
         out_wh=(out.shape[1],out.shape[0])
