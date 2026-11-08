@@ -163,6 +163,8 @@ def main():
                 base = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
                 img = cv2.rotate(base, ROTATE[decision['rotate']]) if decision['rotate'] else base
                 result['applied'] = (result.get('applied', '') + f' rotated {decision["rotate"]}').strip()
+            elif 'title only' in (upright.get('read_upright') or []):
+                why.append('which way is up: the label was set straight on the title only (no tracklist read); a title can be printed at an angle')
             else:
                 why.append('which way is up: no known text of the release could be read')
     else:
