@@ -259,7 +259,7 @@ def find_hole(img, r, reach):
     return lo + x, lo + y, float(cov[y, x])
 
 
-def hole_outline(img, hx, hy, r, n=72):
+def hole_outline(img, hx, hy, r, n=72, outermost=False):
     """Het echte gat zoals het gescand is (kan uitgesleten of niet helemaal rond
     zijn): in n richtingen vanuit het midden van het gat de sterkste sprong tussen
     0,7 en 1,6 keer de normstraal. Geeft de omtrek als punten."""
@@ -270,7 +270,11 @@ def hole_outline(img, hx, hy, r, n=72):
         xs = (hx + radii * np.cos(a)).astype(np.float32); ys = (hy + radii * np.sin(a)).astype(np.float32)
         prof = cv2.remap(g, xs.reshape(1, -1), ys.reshape(1, -1), cv2.INTER_LINEAR).ravel()
         d = np.abs(np.diff(np.convolve(prof, np.ones(3) / 3, 'same'))); d[:1] = 0; d[-1:] = 0
-        rr = radii[int(np.argmax(d)) + 1]
+        if outermost:                                      # de buitenste duidelijke sprong: waar het bedrukte label begint
+            strong = np.nonzero(d >= .5 * d.max())[0]
+            rr = radii[int(strong.max()) + 1] if len(strong) else radii[int(np.argmax(d)) + 1]
+        else:
+            rr = radii[int(np.argmax(d)) + 1]
         pts.append((rr, a))
     rs = np.array([p[0] for p in pts])
     rs = np.maximum(rs, np.median(rs) - .15 * r)            # een losse kras binnenin trekt de rand niet naar binnen
@@ -285,6 +289,10 @@ def precise_edges(img, alpha, L, T, R, B, reach, segments=False):
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
     def profile(horizontal, pos, a0, a1, whole=False):
         lo, hi = int(round(pos - reach)), int(round(pos + reach))
+        lim = g.shape[0] if horizontal else g.shape[1]
+        lo, hi = max(0, lo), min(lim, hi)                  # niet buiten het beeld zoeken
+        if hi - lo < 4:
+            return lo, np.full(max(hi - lo, 1), np.nan)
         span = slice(int(a0), int(a1)) if whole else slice(int(a0 + .1 * (a1 - a0)), int(a1 - .1 * (a1 - a0)))
         if horizontal:
             band, ok = g[lo:hi, span], alpha[lo:hi, span]
@@ -387,6 +395,12 @@ def main():
     else:
         eh, ev, valid, _, _ = edge_maps(small, sa, border)
         coarse = find_rect(eh, ev, valid, sizes, np.arange(-3, 3.01, 0.25))
+        if coarse is None:
+            msg = f'no {a.part} of the expected size ({wlo}-{whi} x {hlo}-{hhi} mm, {fmt}) fits in this scan'
+            print('final verdict: FOUT', msg)
+            if a.out:
+                json.dump({'verdict': 'FOUT', 'why': [msg]}, open(a.out + '.feiten.json', 'w'))
+            return
         _, ang, x0, y0, S0x, S0y = coarse
         landscape = S0x >= S0y
         xr = ((wlo, whi) if landscape or square else (hlo, hhi)); yr = ((hlo, hhi) if landscape or square else (wlo, whi))
@@ -411,11 +425,14 @@ def main():
             # keuze André (8 nov): de afgeronde rand niet tonen. Feit: waar het vlakke vinyl
             # ophoudt is per richting te meten (eerste sprong van binnenuit); daar snijden.
             # feit: de afgeronde rand is rondom even breed, dus hetzelfde midden als de buitenrand
-            _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
-            if rr - 2 * DISC_EDGE_MM * px_mm < ri < rr:
-                rr = ri - RIM_CUT_MM * px_mm
+            if fmt != 'cd':
+                _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
+                if rr - 2 * DISC_EDGE_MM * px_mm < ri < rr:
+                    rr = ri - RIM_CUT_MM * px_mm
+                else:
+                    rr -= DISC_EDGE_MM * px_mm
             else:
-                rr -= DISC_EDGE_MM * px_mm
+                rr -= 0.1 * px_mm                          # net binnen de scherpe rand
             result['cut_diameter_mm'] = round(2 * rr / px_mm, 2)
             result['precise_dev_mm'] = round(max([abs(d) for d in dev if d is not None] or [0]) / px_mm, 2)
             result['directions_measured'] = sum(d is not None for d in dev)
@@ -444,7 +461,33 @@ def main():
             hole = np.zeros((n, n), np.uint8)
             outline = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm)
             cv2.fillPoly(hole, [np.round(outline).astype(np.int32)], 255)
+            # Feit: door het gat zie je de klep. De kleur van de klep meten naast de plaat; in het
+            # midden alles in die kleur dat aan het gat vastzit hoort bij het gat (geen maantje).
+            yy, xx = np.mgrid[:bgr.shape[0], :bgr.shape[1]]
+            dist = np.hypot(xx - X, yy - Y)
+            around = alpha & (dist > rr * 1.03) & (dist < rr * 1.15)
+            if around.sum() > 200:
+                lab_all = cv2.cvtColor(crop[:, :, :3], cv2.COLOR_BGR2LAB).astype(np.float32)
+                lid = np.median(cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)[around].astype(np.float32), 0)
+                near = np.hypot(*np.mgrid[:n, :n][::-1] - np.array([hx, hy])[:, None, None]) < 1.35 * hole_mm / 2 * px_mm
+                # klep door het gat: kleurloos zoals de klep, en minstens zo licht (licht valt langs de rand van het gat)
+                chroma = np.hypot(lab_all[..., 1] - lid[1], lab_all[..., 2] - lid[2])
+                lidlike = (chroma < 10) & (lab_all[..., 0] > lid[0] - 12) & near
+                k_, lab_c = cv2.connectedComponents((lidlike | (hole > 0)).astype(np.uint8))
+                keep = set(np.unique(lab_c[hole > 0])) - {0}
+                hole = (np.isin(lab_c, list(keep)) * 255).astype(np.uint8)
+            # Feit: het gat is rond. De rand waar het bedrukte label begint rondom meten en
+            # er de best passende cirkel door leggen; alles daarbinnen is gat (ook de lichte binnenwand).
+            ring_pts = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm, outermost=True)
+            Pq = ring_pts.astype(np.float64)
+            A_ = np.c_[Pq, np.ones(len(Pq))]; D_, E_, F_ = np.linalg.lstsq(A_, -(Pq ** 2).sum(1), rcond=None)[0]
+            hcx, hcy = -D_ / 2, -E_ / 2; hr = math.sqrt(max(D_ * D_ / 4 + E_ * E_ / 4 - F_, 0))
+            if 0.85 * hole_mm / 2 * px_mm < hr < 1.35 * hole_mm / 2 * px_mm:
+                disc_hole = np.zeros((n, n), np.uint8)
+                cv2.circle(disc_hole, (int(round(hcx * 16)), int(round(hcy * 16))), int(round(hr * 16)), 255, -1, cv2.LINE_AA, 4)
+                hole = np.maximum(hole, disc_hole)
             hole = cv2.dilate(hole, np.ones((3, 3), np.uint8))      # de randpixel van het gat zelf ook
+            hole_small = hole.copy()
             result['hole_diameter_mm'] = round(2 * math.sqrt(hole.sum() / 255 / math.pi) / px_mm, 2)
             crop[:, :, 3][hole > 0] = 0
             result['hole_offset_mm'] = [round((hx - n / 2) / px_mm, 2), round((hy - n / 2) / px_mm, 2)]
@@ -464,10 +507,9 @@ def main():
                 big[sy0 - y0g:sy1 - y0g, sx0 - x0g:sx1 - x0g] = src[sy0:sy1, sx0:sx1]
                 ring2 = np.zeros((n2, n2), np.uint8); cv2.circle(ring2, (n2 * 8, n2 * 8), int(round(rf * 16)), 255, -1, cv2.LINE_AA, 4)
                 big[:, :, 3] = np.minimum(big[:, :, 3], ring2)
-                hole2 = np.zeros((n2, n2), np.uint8)
-                pts = (outline + np.float32([x0f, y0f])) * F - np.float32([x0g, y0g])
-                cv2.fillPoly(hole2, [np.round(pts * 16).astype(np.int32)], 255, cv2.LINE_AA, 4)
-                hole2 = cv2.dilate(hole2, np.ones((int(2 * F) | 1, int(2 * F) | 1), np.uint8))
+                # zelfde gat, opgeschaald naar de volle resolutie (zachte rand)
+                Mh = np.float32([[F, 0, x0f * F - x0g], [0, F, y0f * F - y0g]])
+                hole2 = cv2.warpAffine(hole_small, Mh, (n2, n2), flags=cv2.INTER_LINEAR)
                 big[:, :, 3] = np.minimum(big[:, :, 3], 255 - hole2)
                 crop = big
         else:

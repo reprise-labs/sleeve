@@ -167,12 +167,13 @@ def reference_photos(req,work):
   p=folder/f'Foto {i+1}.png';cv2.imwrite(str(p),img);refs.append({'path':str(p),'title':f'Foto {i+1}'})
  emit('references',files=refs,message=title)
 
-def feiten_part(req,part,files,output,work,decision=None):
+def feiten_part(req,part,files,output,work,decision=None,fmt=''):
  """Eén onderdeel door de feitenroute (scan_feitenroute.py); geeft de uitkomst."""
  cmd=[sys.executable,str(TOOLS/'scan_feitenroute.py'),'--part',part,'--out',str(output),'--work',str(work),*files]
  if req.get('discogs'):cmd+=['--discogs',release_url(req['discogs'])]
  if req.get('variant'):cmd+=['--variant',req['variant']]
  if decision is not None:cmd+=['--decision',json.dumps(decision)]
+ if fmt:cmd+=['--format',fmt]
  work.mkdir(parents=True,exist_ok=True)
  process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
  OCR_CHILDREN.add(process)
@@ -221,7 +222,9 @@ def feiten_scan(req,rows,layout,work):
   except Exception:return 300.0
  workers=1 if max(scan_dpi(f) for _,files in jobs for f in files[:1])>=900 else 2
  with CF.ThreadPoolExecutor(max_workers=workers) as pool:
-  futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}-{uuid.uuid4().hex[:8]}'):part for i,(part,files) in enumerate(jobs)}
+  # feit: alle onderdelen van één release hebben hetzelfde formaat; een cd-vak = een cd
+  fmt='cd' if any(part.startswith('cd') for part,_ in jobs) else ''
+  futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}-{uuid.uuid4().hex[:8]}',None,fmt):part for i,(part,files) in enumerate(jobs)}
   for future in CF.as_completed(futures):
    result=future.result();done+=1;results.append(result)
    emit('status',message=f'{futures[future]}: {result.get("verdict")} ({done} of {len(jobs)})')

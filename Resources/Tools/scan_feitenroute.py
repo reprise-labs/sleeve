@@ -200,6 +200,9 @@ def main():
     except (OSError, ValueError):
         result.update(verdict='FOUT', why=[fe.stderr.strip().splitlines()[-1] if fe.stderr.strip() else 'cropping failed'])
         print(json.dumps(result)); return
+    if facts.get('verdict') == 'FOUT':
+        result.update(verdict='FOUT', why=facts.get('why', ['not found']))
+        print(json.dumps(result)); return
     dpi = facts.get('dpi') or 300.0
     why = result['why'] + list(facts.get('why', []))
     if facts.get('message'):
