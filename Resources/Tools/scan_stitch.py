@@ -1030,7 +1030,15 @@ def main_with_resources(resources,lease=None):
     for index,(fn,scale) in enumerate(zip(a.delen,source_scales)):
         imgs.append(load(fn,scale,consume_cache=True));progress('Opening partial scans',index+1,len(a.delen))
     progress('Detecting edges and background')
-    valid = [~background_mask(im) for im in imgs]
+    if a.vorm == 'ruw':
+        # Feitenaanpak: geen gok over wat deksel is; overeenkomende punten op de hele
+        # scan (een egaal deksel levert toch geen punten op), alleen de scanrand zelf niet.
+        def whole(im):
+            m = np.ones(im.shape[:2], bool); m[:6] = m[-6:] = False; m[:, :6] = m[:, -6:] = False
+            return m
+        valid = [whole(im) for im in imgs]
+    else:
+        valid = [~background_mask(im) for im in imgs]
     # kenmerken alleen op de hoes; maar is bijna alles als 'deksel' gezien (witte/crème
     # hoes op een wit deksel), zoek dan op de hele scan, anders mist hij de tekst
     def fmask(im, v):
