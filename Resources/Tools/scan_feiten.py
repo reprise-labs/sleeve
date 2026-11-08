@@ -30,6 +30,7 @@ ON_CIRCLE = 0.9                  # zoveel van de gemeten richtingen moet op de c
 DISC_EDGE_MM = 1.0               # feit: de rand van een plaat is afgerond, ±1 mm breed; de scanner
                                  # toont die als glans of schaduw. Gesneden wordt op de vlakke plaat.
 HOLE_12_MM = 7.24                # feit (norm): het middengat van een 12"-plaat is 7,24 mm
+ANALYSIS_DPI = 300.0              # rekenen op deze resolutie; het eindbeeld komt op de volle resolutie
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
 SQUARE_MM = 1.5                  # een hoes is vierkant: breedte en hoogte verschillen hooguit zoveel
 SEEN = 0.5                       # zoveel van een zijde op een zichtbare rand = die zijde is gezien
@@ -316,12 +317,19 @@ def main():
     dpi = meta['dpi']
     if not dpi:
         sys.exit('unknown dpi: the size facts cannot be used')
-    bgr, alpha = load(a.image)
+    full_bgr, full_alpha = load(a.image)
+    F = dpi / ANALYSIS_DPI if dpi > ANALYSIS_DPI * 1.05 else 1.0     # volle resolutie : rekenresolutie
+    if F > 1.0:
+        bgr = cv2.resize(full_bgr, None, fx=1 / F, fy=1 / F, interpolation=cv2.INTER_AREA)
+        alpha = cv2.resize(full_alpha.astype(np.uint8), (bgr.shape[1], bgr.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
+        dpi = dpi / F
+    else:
+        bgr, alpha = full_bgr, full_alpha
     px_mm = dpi / 25.4
     s = WORK_PX_MM / px_mm
     small = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     sa = cv2.resize(alpha.astype(np.uint8), (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
-    border = scan_border_mask(meta, sa.shape, s, 2 * WORK_PX_MM)        # 2 mm rond elke scanrand
+    border = scan_border_mask(meta, sa.shape, s / F, 2 * WORK_PX_MM)        # 2 mm rond elke scanrand
     shape = PART_SHAPE[a.part]; lo_mm, hi_mm = FACTS_MM[shape]
     lo, hi = lo_mm * WORK_PX_MM, hi_mm * WORK_PX_MM
     result = {'part': a.part, 'shape': shape}
@@ -390,6 +398,22 @@ def main():
                 result['verdict'] = 'TWIJFEL'
                 result.setdefault('why', []).append('centre hole not clearly visible')
             print('final verdict:', result['verdict'], result.get('why', ''))
+            if F > 1.0:
+                # zelfde plaat en gat op de volle resolutie uitsnijden
+                Xf, Yf, rf = X * F, Y * F, rr * F
+                x0g, y0g = int(round(Xf - rf)), int(round(Yf - rf)); n2 = int(round(2 * rf))
+                big = np.zeros((n2, n2, 4), np.uint8)
+                src = np.dstack([full_bgr, full_alpha.astype(np.uint8) * 255])
+                sx0, sy0 = max(0, x0g), max(0, y0g); sx1, sy1 = min(src.shape[1], x0g + n2), min(src.shape[0], y0g + n2)
+                big[sy0 - y0g:sy1 - y0g, sx0 - x0g:sx1 - x0g] = src[sy0:sy1, sx0:sx1]
+                ring2 = np.zeros((n2, n2), np.uint8); cv2.circle(ring2, (n2 // 2, n2 // 2), int(rf), 255, -1)
+                big[:, :, 3] = np.minimum(big[:, :, 3], ring2)
+                hole2 = np.zeros((n2, n2), np.uint8)
+                pts = (outline + np.float32([x0f, y0f])) * F - np.float32([x0g, y0g])
+                cv2.fillPoly(hole2, [np.round(pts).astype(np.int32)], 255)
+                hole2 = cv2.dilate(hole2, np.ones((int(2 * F) | 1, int(2 * F) | 1), np.uint8))
+                big[:, :, 3][hole2 > 0] = 0
+                crop = big
         else:
             H, W = bgr.shape[:2]
             def rotated(angle):
@@ -428,6 +452,13 @@ def main():
             covered = fa[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
             missing_part(result, covered, px_mm)
             print('final verdict:', result['verdict'], result.get('why', ''))
+            if F > 1.0:
+                # zelfde hoek en kader op de volle resolutie
+                Hf, Wf = full_bgr.shape[:2]
+                Rm = cv2.getRotationMatrix2D((Wf / 2, Hf / 2), ang, 1.0)
+                big = cv2.warpAffine(full_bgr, Rm, (Wf, Hf), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                crop = big[int(round(T * F)):int(round(B * F)), int(round(L * F)):int(round(Rr * F))]
+                big = None
             if a.overlay:
                 m = int(5 * px_mm); ym = int((T + B) / 2); xm = int((L + Rr) / 2); z = int(15 * px_mm)
                 def mark(tile, at):
@@ -437,6 +468,8 @@ def main():
                 bot = mark(cv2.rotate(full[int(B) - m:int(B) + m, xm - z:xm + z], cv2.ROTATE_90_CLOCKWISE), m)
                 cv2.imwrite(a.overlay.replace('.jpg', '_edges.jpg'), cv2.resize(np.hstack([left, right, top, bot]), None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST))
         cv2.imwrite(a.out, crop)
+        result['dpi'] = round(dpi * F, 2)
+        json.dump(result, open(a.out + '.feiten.json', 'w'), indent=1)
     if a.overlay:
         view = small.copy()
         if shape == 'disc':
