@@ -196,6 +196,68 @@ def reference_photos(req,work):
   p=folder/f'Foto {i+1}.png';cv2.imwrite(str(p),img);refs.append({'path':str(p),'title':f'Foto {i+1}'})
  emit('references',files=refs,message=title)
 
+def feiten_part(req,part,files,output,work,decision=None):
+ """Eén onderdeel door de feitenroute (scan_feitenroute.py); geeft de uitkomst."""
+ cmd=[sys.executable,str(TOOLS/'scan_feitenroute.py'),'--part',part,'--out',str(output),'--work',str(work),*files]
+ if req.get('discogs'):cmd+=['--discogs',release_url(req['discogs'])]
+ if req.get('variant'):cmd+=['--variant',req['variant']]
+ if decision is not None:cmd+=['--decision',json.dumps(decision)]
+ work.mkdir(parents=True,exist_ok=True)
+ process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+ OCR_CHILDREN.add(process)
+ try:out,err=process.communicate()
+ finally:OCR_CHILDREN.discard(process)
+ for line in (err or '').splitlines()[-5:]:emit('log',message=line)
+ try:return json.loads(out.strip().splitlines()[-1])
+ except (ValueError,IndexError):return {'part':part,'scans':files,'verdict':'FOUT','why':[(err or 'no result').strip().splitlines()[-1] if (err or '').strip() else 'no result']}
+
+def feiten_file(result):
+ return {'path':result.get('path',''),'source':(result.get('scans') or [''])[0],'partial':False,'part':result.get('part','unknown'),
+         'verdict':result.get('verdict'),'why':result.get('why',[]),'choices':result.get('choices',[]),'scans':result.get('scans',[]),
+         'message':result.get('message'),'applied':result.get('applied')}
+
+def feiten_scan(req,rows,layout,work):
+ """Feitenroute: elk vak is één onderdeel; uitsnijden en rechtop op feiten, goed of twijfel."""
+ import concurrent.futures as CF
+ by_name={Path(r['path']).name:r['path'] for r in rows}
+ jobs=[]
+ for group in layout:
+  if group.get('part') not in PARTS:raise ValueError('Give every slot its part (Front, Back, Side A …) before processing.')
+  jobs.append((group['part'],[by_name[name] for name in group['files']]))
+ output=job_folder(req,'Scans');emit('destination',path=str(output))
+ done=0;results=[]
+ emit('progress',fraction=0,index=None,total=len(jobs),phase='Processing parts',scope='preparation',completedParts=0,activeParts=min(2,len(jobs)))
+ with CF.ThreadPoolExecutor(max_workers=2) as pool:
+  futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}'):part for i,(part,files) in enumerate(jobs)}
+  for future in CF.as_completed(futures):
+   result=future.result();done+=1;results.append(result)
+   emit('status',message=f'{futures[future]}: {result.get("verdict")} ({done} of {len(jobs)})')
+   emit('progress',fraction=done/len(jobs),index=None,total=len(jobs),phase='Processing parts',scope='preparation',completedParts=done,activeParts=min(2,len(jobs)-done))
+   if result.get('path'):emit('outputs',files=[feiten_file(result)])
+   for why in result.get('why',[]):emit('warning',message=f'{futures[future]}: {why}')
+ files=[feiten_file(r) for r in results if r.get('path')]
+ (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':results,'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
+ if not files:raise ValueError('No processed images were made. See the log.')
+ good=sum(r.get('verdict')=='GOED' for r in results);doubt=len(results)-good
+ emit('complete',message=f'{len(results)} parts processed: {good} good'+(f', {doubt} in doubt. Decide in the Final Check.' if doubt else '.'),path=str(output))
+
+def feiten_decide(req,work):
+ """Beslissing van de gebruiker voor één onderdeel: onthouden en dat onderdeel opnieuw maken."""
+ part=req.get('part');files=req.get('scans') or []
+ if part not in PARTS or not files:raise ValueError('Choose a part to decide on.')
+ choice=req.get('choice','');decision={}
+ if choice in ('keep','square'):decision['crop']=choice
+ elif choice.startswith('rotate'):decision['rotate']=int(choice[6:] or 0)
+ else:raise ValueError('Unknown choice.')
+ old=Path(req.get('path','')) if req.get('path') else None
+ output=old.parent if old else Path(req['output'])
+ result=feiten_part(req,part,files,output,work/'decide',decision)
+ if old and result.get('path') and Path(result['path'])!=old and old.exists():
+  shutil.move(result['path'],old);result['path']=str(old)
+ if result.get('path'):emit('outputs',files=[dict(feiten_file(result),replace=True)])
+ emit('complete',message=f'{part}: {result.get("verdict")}'+(f' ({result.get("applied")})' if result.get('applied') else ''))
+
+
 def scan(req,rows,work):
  import scan_naam as N
  selected=[row for row in rows if not row.get('reference')]
@@ -210,8 +272,9 @@ def scan(req,rows,work):
  profile=profile_for(rows)
  layout=layout_from_groups(rows)
  if layout and not req.get('rerunPart'):
-  # Jij hebt de scans in vakken gesleept: die indeling volgen, niets raden.
-  profile['scan_groups']=layout;remember_layout(rows,layout)
+  # Jij hebt de scans in vakken gesleept: die indeling volgen, niets raden, en uitsnijden op feiten.
+  remember_layout(rows,layout)
+  feiten_scan(req,rows,layout,work);return
  if req.get('rerunPart'):
   part=req['rerunPart']
   if part not in PARTS:raise ValueError('Choose a valid part.')
@@ -512,6 +575,7 @@ def main():
    finally:OCR_CHILDREN.discard(process)
   emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Release suggestions fetched.');return
  if action=='suggestGroups':suggest_groups(inputs(req));return
+ if action=='decide':feiten_decide(req,work);return
  if action=='references':reference_photos(req,work);emit('complete',message='Reference photos loaded. Choose the right photo.');return
  rows=inputs(req)
  CHECKING_AFTER_PROCESS=action in ('scan','colour','namesApply','manualCrop')

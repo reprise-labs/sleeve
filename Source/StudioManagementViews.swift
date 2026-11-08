@@ -86,6 +86,7 @@ struct StudioReviewCard:View {
             VStack(alignment:.leading,spacing:8) {
                 HStack{Text(partLabel(item.part)).font(.headline);Spacer();if record.completed && !item.partial {Label("Approved by you",systemImage:"checkmark.circle.fill").font(.caption).foregroundStyle(studioAccent)}}
                 Text(item.title).font(.caption).textSelection(.enabled)
+                StudioVerdictView(model:model,item:item)
                 if let audit=record.audit,!record.stale {
                     Label(audit.readable ? "File readable · \(audit.width) × \(audit.height) pixels" : "File not readable",systemImage:audit.readable ? "checkmark.circle" : "exclamationmark.circle").font(.caption)
                     if let round=audit.round {Label(round ? "Round crop measured" : "Round edge needs attention",systemImage:round ? "checkmark.circle" : "exclamationmark.circle").font(.caption).foregroundStyle(round ? studioAccent : .orange)}
@@ -102,5 +103,38 @@ struct StudioReviewCard:View {
                 TextField("Note (optional)",text:Binding(get:{record.notes},set:{v in model.updateReview(item){$0.notes=v}}),axis:.vertical).textFieldStyle(.roundedBorder).font(.caption).disabled(model.busy)
             }
         }.padding(16).background(Color(nsColor:.controlBackgroundColor),in:RoundedRectangle(cornerRadius:12))
+    }
+}
+
+func choiceLabel(_ choice:String)->String {
+    switch choice {
+    case "keep":return "Keep as it is"
+    case "square":return "Make it square"
+    case "rotate90":return "Turn 90° clockwise"
+    case "rotate180":return "Turn 180°"
+    case "rotate270":return "Turn 90° counterclockwise"
+    default:return choice
+    }
+}
+/// Feitenroute: GOED of TWIJFEL. Bij twijfel de reden en de keuzes; Sleeve onthoudt je keuze voor dit onderdeel.
+struct StudioVerdictView:View {
+    @ObservedObject var model:StudioModel
+    let item:MediaItem
+    var body:some View {
+        if let verdict=item.verdict {
+            VStack(alignment:.leading,spacing:6) {
+                if verdict=="GOED" {
+                    Label("Good on the facts"+(item.applied.map{" · your decision: \($0)"} ?? ""),systemImage:"checkmark.seal.fill").font(.caption).foregroundStyle(studioAccent)
+                } else {
+                    Label(verdict=="TWIJFEL" ? "In doubt: you decide" : "Not processed",systemImage:"questionmark.diamond.fill").font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                    ForEach(item.why ?? [],id:\.self){Text("• "+$0).font(.caption).foregroundStyle(.secondary)}
+                    if let message=item.message {Text(message).font(.caption).foregroundStyle(.secondary)}
+                    if let choices=item.choices,!choices.isEmpty {
+                        HStack {ForEach(choices,id:\.self){choice in Button(choiceLabel(choice)){model.decide(item,choice)}.font(.caption)}}
+                            .disabled(model.busy || model.queueRunning)
+                    }
+                }
+            }.padding(8).frame(maxWidth:.infinity,alignment:.leading).background((verdict=="GOED" ? studioAccent : Color.orange).opacity(0.08),in:RoundedRectangle(cornerRadius:8))
+        }
     }
 }

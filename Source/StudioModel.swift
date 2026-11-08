@@ -32,6 +32,13 @@ struct MediaItem: Identifiable, Hashable, Codable {
     var colourSource:URL? = nil
     // Vak in het indelingsscherm: scans met hetzelfde vak vormen samen één onderdeel.
     var group:String? = nil
+    // Feitenroute: oordeel per onderdeel, en bij twijfel de reden en de keuzes.
+    var verdict:String? = nil
+    var why:[String]? = nil
+    var choices:[String]? = nil
+    var scans:[String]? = nil
+    var message:String? = nil
+    var applied:String? = nil
     var title: String { url.lastPathComponent }
 }
 struct NameProposal: Codable, Identifiable {
@@ -42,7 +49,7 @@ struct NameProposal: Codable, Identifiable {
     var mtime: Int64
     var id: String { source }
 }
-struct BridgeFile: Decodable { var path: String; var source: String?; var title: String?; var partial: Bool?; var part: String? }
+struct BridgeFile: Decodable { var path: String; var source: String?; var title: String?; var partial: Bool?; var part: String?; var verdict:String?; var why:[String]?; var choices:[String]?; var scans:[String]?; var message:String?; var applied:String?; var replace:Bool? }
 struct BridgeEvent: Decodable {
     var event: String
     var message: String?
@@ -302,6 +309,10 @@ final class PipeReader: @unchecked Sendable {
         case .names:launch(action:"namesApply")
         }
     }
+    func decide(_ item:MediaItem,_ choice:String) {
+        guard let scans=item.scans,!scans.isEmpty else{errorMessage="This part has no scans recorded; process it again with slots.";return}
+        launch(action:"decide",rowsOverride:[item],extra:["part":item.part,"scans":scans,"choice":choice,"path":item.url.path])
+    }
     func cancel() {
         guard let p=process,p.isRunning else{return}
         queueRunning=false;cancelled=true;stateText="Stopping… results already made are kept";p.terminate()
@@ -408,10 +419,16 @@ final class PipeReader: @unchecked Sendable {
         case "outputs":
             for file in event.files ?? [] {
                 let url=URL(fileURLWithPath:file.path)
-                if !outputs.contains(where:{$0.url==url}){
+                if let i=outputs.firstIndex(where:{$0.url==url}),file.verdict != nil {
+                    // beslissing toegepast: zelfde bestand, nieuw oordeel (nieuwe id zodat het voorbeeld ververst)
+                    var item=outputs[i];item.id=UUID();item.verdict=file.verdict;item.why=file.why;item.choices=file.choices;item.message=file.message;item.applied=file.applied
+                    if let scans=file.scans {item.scans=scans}
+                    outputs[i]=item;reviews[url.path]=nil
+                } else if !outputs.contains(where:{$0.url==url}){
                     let source=file.source.flatMap{$0.isEmpty ? nil : URL(fileURLWithPath:$0)}
                     let part=file.part ?? inferredPart(url.lastPathComponent)
-                    let item=MediaItem(url:url,part:part,source:source,partial:file.partial ?? false)
+                    var item=MediaItem(url:url,part:part,source:source,partial:file.partial ?? false)
+                    item.verdict=file.verdict;item.why=file.why;item.choices=file.choices;item.scans=file.scans;item.message=file.message;item.applied=file.applied
                     if activeAction=="colour" {mergeColourOutput(item)} else {outputs.append(item)}
                 }
             }
