@@ -421,10 +421,13 @@ def main():
                 crop = big
         else:
             H, W = bgr.shape[:2]
+            # feit: de rand van een scan is geen hoesrand, ook niet bij het nauwkeurig meten
+            near_scan_edge = scan_border_mask(meta, (H, W), 1 / F, 2 * px_mm)
+            usable = (alpha & ~near_scan_edge).astype(np.uint8)
             def rotated(angle):
                 Rm = cv2.getRotationMatrix2D((W / 2, H / 2), angle, 1.0)
                 return (cv2.warpAffine(bgr, Rm, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE),
-                        cv2.warpAffine(alpha.astype(np.uint8), Rm, (W, H), flags=cv2.INTER_NEAREST) > 0)
+                        cv2.warpAffine(usable, Rm, (W, H), flags=cv2.INTER_NEAREST) > 0)
             # Feit: de randen van een hoes zijn recht en haaks. De hoek fijn bijstellen
             # tot de gemeten randen recht in het beeld liggen (grof zoeken: stappen van 0,25 graad).
             box0 = (x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k)
@@ -454,7 +457,9 @@ def main():
                 result.setdefault('why', []).append(f'not square: {wmm} x {hmm} mm; one side is probably a print edge, not the paper edge')
             print('verdict:', result['verdict'], result.get('why', ''))
             crop = full[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
-            covered = fa[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
+            Rm0 = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
+            fa_real = cv2.warpAffine(alpha.astype(np.uint8), Rm0, (W, H), flags=cv2.INTER_NEAREST) > 0
+            covered = fa_real[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
             missing_part(result, covered, px_mm)
             print('final verdict:', result['verdict'], result.get('why', ''))
             if F > 1.0:
@@ -467,11 +472,14 @@ def main():
             if a.overlay:
                 m = int(5 * px_mm); ym = int((T + B) / 2); xm = int((L + Rr) / 2); z = int(15 * px_mm)
                 def mark(tile, at):
-                    tile = tile.copy(); cv2.line(tile, (at, 0), (at, tile.shape[0]), (0, 0, 255), 1); return tile
-                left = mark(full[ym - z:ym + z, int(L) - m:int(L) + m], m); right = mark(full[ym - z:ym + z, int(Rr) - m:int(Rr) + m], m)
-                top = mark(cv2.rotate(full[int(T) - m:int(T) + m, xm - z:xm + z], cv2.ROTATE_90_CLOCKWISE), m)
-                bot = mark(cv2.rotate(full[int(B) - m:int(B) + m, xm - z:xm + z], cv2.ROTATE_90_CLOCKWISE), m)
-                cv2.imwrite(a.overlay.replace('.jpg', '_edges.jpg'), cv2.resize(np.hstack([left, right, top, bot]), None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST))
+                    tile = np.ascontiguousarray(tile).copy(); cv2.line(tile, (at, 0), (at, tile.shape[0]), (0, 0, 255), 1); return tile
+                try:
+                    left = mark(full[ym - z:ym + z, int(L) - m:int(L) + m], m); right = mark(full[ym - z:ym + z, int(Rr) - m:int(Rr) + m], m)
+                    top = mark(cv2.rotate(full[int(T) - m:int(T) + m, xm - z:xm + z], cv2.ROTATE_90_CLOCKWISE), m)
+                    bot = mark(cv2.rotate(full[int(B) - m:int(B) + m, xm - z:xm + z], cv2.ROTATE_90_CLOCKWISE), m)
+                    cv2.imwrite(a.overlay.replace('.jpg', '_edges.jpg'), cv2.resize(np.hstack([left, right, top, bot]), None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST))
+                except cv2.error:
+                    pass                                   # alleen een hulpbeeld; rand te dicht bij de beeldrand
         cv2.imwrite(a.out, crop)
         result['dpi'] = round(dpi * F, 2)
         json.dump(result, open(a.out + '.feiten.json', 'w'), indent=1)

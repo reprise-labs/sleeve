@@ -104,6 +104,10 @@ def main():
         save_decision(folder, a.scans, a.part, decision)
     feit_part = 'insert' if a.part.startswith('insert') else ('back' if a.part in ('inside', 'inlay') else a.part)
     raw = os.path.join(a.work, f'{a.part}_raw.png'); crop = os.path.join(a.work, f'{a.part}_crop.png')
+    up = os.path.join(a.work, f'{a.part}_up.png')
+    for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):   # nooit een oud tussenbestand gebruiken
+        if os.path.exists(f):
+            os.remove(f)
     result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
     if len(a.scans) == 1:
         # één scan: niets samen te voegen; de scan zelf is het hele beeld
@@ -119,7 +123,7 @@ def main():
             result['why'].append('the scan has no resolution (dpi) stored; 300 dpi assumed for the size facts')
     else:
         st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + a.scans + ['--vorm', 'ruw'], capture_output=True, text=True)
-    if not os.path.exists(raw):
+    if st.returncode != 0 or not os.path.exists(raw):
         result.update(verdict='FOUT', why=[(st.stderr or st.stdout).strip().splitlines()[-1] if (st.stderr or st.stdout).strip() else 'merging failed'])
         print(json.dumps(result)); return
     fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--out', crop], capture_output=True, text=True)
@@ -141,7 +145,6 @@ def main():
     # rechtop
     words = release_words(a.discogs) if a.discogs else []
     disc = feit_part.startswith('side')
-    up = os.path.join(a.work, f'{a.part}_up.png')
     if words:
         args = [PY, os.path.join(HERE, 'scan_rechtop.py'), crop, '--words', os.path.join(a.work, 'words.json'), '--out', up]
         json.dump(words, open(os.path.join(a.work, 'words.json'), 'w'))
@@ -199,6 +202,9 @@ def main():
         pass
     result['path'] = path; result['dpi'] = dpi
     result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
+    for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):   # tussenbestanden opruimen (1200 dpi: ±1,5 GB)
+        if os.path.exists(f):
+            os.remove(f)
     print(json.dumps(result, ensure_ascii=False))
 
 

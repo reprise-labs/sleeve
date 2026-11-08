@@ -177,7 +177,8 @@ def feiten_part(req,part,files,output,work,decision=None):
  process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
  OCR_CHILDREN.add(process)
  try:out,err=process.communicate()
- finally:OCR_CHILDREN.discard(process)
+ finally:
+  OCR_CHILDREN.discard(process);shutil.rmtree(work,ignore_errors=True)
  for line in (err or '').splitlines()[-5:]:emit('log',message=line)
  try:return json.loads(out.strip().splitlines()[-1])
  except (ValueError,IndexError):return {'part':part,'scans':files,'verdict':'FOUT','why':[(err or 'no result').strip().splitlines()[-1] if (err or '').strip() else 'no result']}
@@ -198,8 +199,14 @@ def feiten_scan(req,rows,layout,work):
  output=job_folder(req,'Scans');emit('destination',path=str(output))
  done=0;results=[]
  emit('progress',fraction=0,index=None,total=len(jobs),phase='Processing parts',scope='preparation',completedParts=0,activeParts=min(2,len(jobs)))
- with CF.ThreadPoolExecutor(max_workers=2) as pool:
-  futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}'):part for i,(part,files) in enumerate(jobs)}
+ # 1200 dpi: één onderdeel tegelijk (geheugen en tijdelijke schijfruimte); anders twee
+ def scan_dpi(path):
+  try:
+   with __import__('PIL.Image',fromlist=['Image']).open(path) as im:return float((im.info.get('dpi') or (300,))[0])
+  except Exception:return 300.0
+ workers=1 if max(scan_dpi(f) for _,files in jobs for f in files[:1])>=900 else 2
+ with CF.ThreadPoolExecutor(max_workers=workers) as pool:
+  futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}-{uuid.uuid4().hex[:8]}'):part for i,(part,files) in enumerate(jobs)}
   for future in CF.as_completed(futures):
    result=future.result();done+=1;results.append(result)
    emit('status',message=f'{futures[future]}: {result.get("verdict")} ({done} of {len(jobs)})')
@@ -222,7 +229,7 @@ def feiten_decide(req,work):
  else:raise ValueError('Unknown choice.')
  old=Path(req.get('path','')) if req.get('path') else None
  output=old.parent if old else Path(req['output'])
- result=feiten_part(req,part,files,output,work/'decide',decision)
+ result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision)
  if old and result.get('path') and Path(result['path'])!=old and old.exists():
   shutil.move(result['path'],old);result['path']=str(old)
  if result.get('path'):emit('outputs',files=[dict(feiten_file(result),replace=True)])
@@ -239,7 +246,7 @@ def scan(req,rows,work):
   if part not in PARTS:raise ValueError('Choose a valid part.')
   if any(row.get('reference') for row in rows):raise ValueError('Choose only the source images for this part.')
   output=job_folder(req,'Scans');emit('destination',path=str(output))
-  result=feiten_part(req,part,[row['path'] for row in rows],output,work/'rerun')
+  result=feiten_part(req,part,[row['path'] for row in rows],output,work/f'rerun-{uuid.uuid4().hex[:8]}')
   if not result.get('path'):raise ValueError('This part could not be made: '+'; '.join(result.get('why',[])))
   files=[feiten_file(result)];JOB_OUTPUTS[files[0]['path']]=files[0]
   emit('outputs',files=files)
