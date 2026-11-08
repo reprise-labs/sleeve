@@ -202,7 +202,10 @@ def disc_angle(path, words, px_mm):
             est = (float(np.median(((dirs - ref + 180) % 360) - 180)) + ref) % 360   # zoveel met de klok mee draaien
             fine, how = level_label(small, est, words)
             got = [w for w in words if any(found(norm(w), norm(l['text'])) for l in lines)]
-            return fine, {round(est, 1): len(use)}, got + ['direction from %d lines' % len(use), 'level: ' + how]
+            # Alleen artiest/titel gelezen, geen tracklist: een titel kan schuin ontworpen zijn
+            # (Set This Thing On Fire, kant B). Dan niet vertrouwen maar twijfelen.
+            note = [] if use is tracks and how.startswith('tracklist') else ['title only']
+            return fine, {round(est, 1): len(use)}, got + ['direction from %d lines' % len(use), 'level: ' + how] + note
     tried = {}
     def score_at(base):
         R = cv2.getRotationMatrix2D((r, r), -base, 1.0)              # met de klok mee draaien
@@ -235,6 +238,8 @@ def main():
         # tweede kandidaat: de beste score minstens 30 graden verderop
         far = [v for k, v in per_angle.items() if abs(((k - best + 180) % 360) - 180) >= 30]
         verdict = 'GOED' if top[0] > 0 and top[0] >= CLEAR * max(max(far, default=0), 1) else 'TWIJFEL'
+        if 'title only' in got:
+            verdict = 'TWIJFEL'                        # label alleen op de titel rechtgezet: jij kijkt
         result = {'rotate_clockwise': round(best, 1), 'known_text_best': top[0], 'next_best_elsewhere': max(far, default=0), 'read_upright': got, 'verdict': verdict}
         print(json.dumps(result, ensure_ascii=False))
         if a.out:
