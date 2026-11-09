@@ -158,6 +158,19 @@ def line_angle(view, box, around):
     return best[1]
 
 
+def label_lines(view, words):
+    """Regels op het label; vindt Vision geen tracklist, dan nog eens op dubbele grootte
+    lezen (kleine of omcirkelde cijfers) en de kaders terugschalen."""
+    lines = ocr_lines(view)
+    if sum(any(found(norm(w), norm(l['text'])) for w in words[2:]) for l in lines) >= 1:
+        return lines
+    big = cv2.resize(view, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    more = ocr_lines(big)
+    for l in more:
+        l['box'] = tuple(v / 2 for v in l['box']); l['height'] /= 2; l['width'] /= 2
+    return more if len(more) > len(lines) else lines
+
+
 def level_label(label, coarse, words):
     """Feit: de tracklist op een label staat recht. Draai het label naar de grove
     stand en zet de regels van de tracklist (bekend van Discogs) precies horizontaal.
@@ -168,7 +181,7 @@ def level_label(label, coarse, words):
     for _ in range(4):
         R = cv2.getRotationMatrix2D(c, -angle, 1.0)
         view = cv2.warpAffine(label, R, (n, n), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255))
-        lines = [l for l in ocr_lines(view) if len(re.findall(r'\w', l['text'])) >= 3]
+        lines = [l for l in label_lines(view, words) if len(re.findall(r'\w', l['text'])) >= 3]
         titles = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[:2])]
         tracks = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[2:])]
         # Feit (André, 8 nov): de tracklist staat op een label (bijna) altijd recht.
@@ -202,10 +215,10 @@ def disc_angle(path, words, px_mm):
     small = cv2.resize(label, (1240, 1240), interpolation=cv2.INTER_AREA) if label.shape[0] > 1300 else label
     # Vision leest tekst in elke stand en geeft de leesrichting per regel: de tracklist
     # (of anders artiest/titel) zegt dan meteen hoe het label gedraaid ligt.
-    lines = ocr_lines(small)
+    lines = label_lines(small, words)
     tracks = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[2:])]
     heads = [l for l in lines if any(found(norm(w), norm(l['text'])) for w in words[:2])]
-    use = tracks if len(tracks) >= 2 else heads
+    use = tracks if len(tracks) >= 2 else []          # alleen de tracklist geeft hier meteen de stand; anders rondgedraaid zoeken
     if use:
         dirs = np.array([l['direction'] for l in use])
         ref = dirs[0]; spread = np.abs(((dirs - ref + 180) % 360) - 180)

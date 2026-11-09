@@ -11,7 +11,7 @@ Gebruik (vanuit studio_bridge.py):
   [--decision '{"crop":"square","rotate":90}']
 Schrijft op stdout één JSON-regel met de uitkomst.
 """
-import argparse, json, os, re, subprocess, sys, tempfile
+import argparse, json, math, os, re, subprocess, sys, tempfile
 import numpy as np, cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -116,6 +116,41 @@ def already_cut(path, spec, release_dpi=0.0):
     return (img, {'mm': [round(w_mm, 1), round(h_mm, 1)], 'dpi': dpi, 'dpi_from_size': inferred}) if ok else None
 
 
+def discogs_orientation(img, discogs, disc=False):
+    """Feit: de Discogs-foto's van deze release laten zien hoe het onderdeel staat.
+    Overeenkomende punten (SIFT, draaiingsvrij) tussen ons beeld en elke foto; de
+    draaiing van de best passende foto is de stand. Hoes: op een kwartslag afgerond.
+    Geeft (graden met de klok mee, aantal punten) of None als niets duidelijk past."""
+    import scan_discogs as SD
+    try:
+        _, photos = SD.release_images(discogs)
+    except Exception:
+        return None
+    if not photos:
+        return None
+    base = img[:, :, :3] if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if img.ndim == 3 and img.shape[2] == 4:
+        a_ = img[:, :, 3:4] / 255.0
+        base = (img[:, :, :3] * a_ + 255 * (1 - a_)).astype(np.uint8)
+    k = 1200 / max(base.shape[:2])
+    small = cv2.resize(base, None, fx=k, fy=k, interpolation=cv2.INTER_AREA) if k < 1 else base
+    found = SD.matches(small, photos)
+    if not found:
+        return None
+    inliers, _, M = found[0]
+    if inliers < 40 or (len(found) > 1 and found[1][0] > .8 * inliers and abs(
+            math.degrees(math.atan2(found[1][2][1, 0], found[1][2][0, 0])) - math.degrees(math.atan2(M[1, 0], M[0, 0]))) > 10):
+        return None                                        # te weinig, of twee foto's die het oneens zijn
+    ang = math.degrees(math.atan2(M[1, 0], M[0, 0]))       # draaiing ons -> foto (beeldcoördinaten: met de klok mee)
+    ang = ang % 360
+    if not disc:
+        q = round(ang / 90) * 90 % 360
+        if abs(((ang - q + 180) % 360) - 180) > 12:
+            return None                                    # hoes ligt niet op een kwartslag: niet vertrouwen
+        ang = q
+    return ang, inliers
+
+
 def choices_for(why):
     """Welke keuzes horen bij een twijfel."""
     out = ['keep']
@@ -201,7 +236,25 @@ def main():
         if not dpi0:
             result['why'].append('the scan has no resolution (dpi) stored; 300 dpi assumed for the size facts')
     else:
-        st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + a.scans + ['--vorm', 'ruw'], capture_output=True, text=True)
+        scans_in = a.scans
+        import scan_dpi
+        d0 = scan_resolution(a.scans[0], a.release_dpi)
+        if len(a.scans) > 4 and d0 >= 900:
+            # veel scans op 1200 dpi (uitklap): samen te groot voor het geheugen. Rekenen op
+            # kopieën van 600 dpi; het eindbeeld wordt dan 600 dpi (melding in het resultaat).
+            from PIL import Image
+            Image.MAX_IMAGE_PIXELS = None
+            scans_in = []
+            for i, f in enumerate(a.scans):
+                q = os.path.join(a.work, f'half_{i}_' + os.path.splitext(os.path.basename(f))[0] + '.png')
+                with Image.open(f) as im:
+                    im.reduce(2).save(q, dpi=(d0 / 2, d0 / 2))
+                scans_in.append(q)
+            result['why_note'] = f'{len(a.scans)} scans at {d0:.0f} dpi do not fit in memory together; made at {d0 / 2:.0f} dpi'
+        st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'], capture_output=True, text=True)
+        for q in scans_in:
+            if q not in a.scans and os.path.exists(q):
+                os.remove(q)
     if not already and st.returncode == 0 and os.path.exists(raw + '.scans.json') and a.release_dpi:
         meta = json.load(open(raw + '.scans.json'))
         if not meta.get('dpi'):                            # samengevoegd zonder betrouwbare resolutie: die van de release
@@ -252,7 +305,21 @@ def main():
             elif 'title only' in (upright.get('read_upright') or []):
                 why.append('which way is up: the label was set straight on the title only (no tracklist read); a title can be printed at an angle')
             else:
-                why.append('which way is up: no known text of the release could be read')
+                # geen bekende tekst: de Discogs-foto van deze release bepaalt de stand
+                base = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
+                got = discogs_orientation(base, a.discogs, disc) if a.discogs else None
+                if got:
+                    ang_d, nk = got
+                    if disc:
+                        hh, ww = base.shape[:2]
+                        Rm = cv2.getRotationMatrix2D((ww / 2, hh / 2), -ang_d, 1.0)
+                        img = cv2.warpAffine(base, Rm, (ww, hh), flags=cv2.INTER_CUBIC, borderValue=(0, 0, 0, 0))
+                    else:
+                        img = cv2.rotate(base, ROTATE[int(ang_d)]) if int(ang_d) else base
+                    result['upright'] = {'rotate_clockwise': round(ang_d, 1), 'verdict': 'GOED', 'read_upright': [f'Discogs photo ({nk} matching points)']}
+                    result['applied'] = (result.get('applied', '') + ' upright from the Discogs photo').strip()
+                else:
+                    why.append('which way is up: no known text of the release could be read, and no Discogs photo matches clearly')
     else:
         why.append('which way is up: no Discogs release, so no known text to read')
     # kant op het label (feit) tegen het vak
@@ -268,6 +335,45 @@ def main():
         result['verdict'] = 'TWIJFEL'; result['why'] = why; result['choices'] = choices_for(why)
         if any(w.startswith('which way is up') for w in why):
             result['choices'] += ['rotate90', 'rotate180', 'rotate270']
+    # uitklap: in twee panelen splitsen (feit: twee gelijke helften naast elkaar)
+    panels = [(a.part, img)]
+    if a.part == 'inside' and fmt == 'vinyl' and img.shape[1] > 1.7 * img.shape[0]:
+        half = img.shape[1] // 2
+        panels = [('insert_left', img[:, :half]), ('insert_right', img[:, half:])]
+    elif a.part == 'inside' and fmt == 'vinyl' and img.shape[0] > 1.7 * img.shape[1]:
+        half = img.shape[0] // 2
+        panels = [('insert_left', img[:half]), ('insert_right', img[half:])]
+    if len(panels) > 1:
+        paths = []
+        for kant, pimg in panels:
+            nm = None
+            if a.discogs:
+                try:
+                    import scan_naam as N
+                    nm = N.naam(a.discogs, kant, a.variant)
+                except Exception:
+                    pass
+            nm = nm or f'{os.path.splitext(os.path.basename(a.scans[0]))[0]}_{kant}'
+            os.makedirs(a.out, exist_ok=True)
+            pth = os.path.join(a.out, nm + '.png'); n = 2
+            while os.path.exists(pth) and not a.decision:
+                pth = os.path.join(a.out, f'{nm}_{n}.png'); n += 1
+            cv2.imwrite(pth, pimg)
+            try:
+                from PIL import Image
+                with Image.open(pth) as im:
+                    im.load(); im.save(pth, dpi=(dpi, dpi))
+            except Exception:
+                pass
+            paths.append({'path': pth, 'part': kant, 'size_mm': [round(pimg.shape[1] / dpi * 25.4, 1), round(pimg.shape[0] / dpi * 25.4, 1)]})
+        result['path'] = paths[0]['path']; result['panels'] = paths; result['dpi'] = dpi
+        if result.get('why_note'):
+            result['applied'] = (result.get('applied', '') + ' ' + result['why_note']).strip()
+        result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
+        for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):
+            if os.path.exists(f):
+                os.remove(f)
+        print(json.dumps(result, ensure_ascii=False)); return
     # naam
     name = None
     if a.discogs:
@@ -289,6 +395,8 @@ def main():
     except Exception:
         pass
     result['path'] = path; result['dpi'] = dpi
+    if result.get('why_note'):
+        result['applied'] = (result.get('applied', '') + ' ' + result['why_note']).strip()
     result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
     for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):   # tussenbestanden opruimen (1200 dpi: ±1,5 GB)
         if os.path.exists(f):

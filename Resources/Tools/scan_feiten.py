@@ -22,9 +22,13 @@ import numpy as np, cv2
 # stand mag ook gedraaid liggen) of schijf (doorsnede (min, max), middengat in mm).
 SHAPES = {
     'vinyl': {
-        'front': ('rect', (307, 317), (307, 317), True), 'back': ('rect', (307, 317), (307, 317), True),
-        'inside': ('rect', (307, 317), (307, 317), True), 'inlay': ('rect', (307, 317), (307, 317), True),
-        'insert': ('rect', (290, 306), (290, 306), True),
+        # hoes ±31 cm (het laatste woord heeft de vergelijking voor- met achterkant, in de bridge)
+        'front': ('rect', (305, 318), (305, 318), True), 'back': ('rect', (305, 318), (305, 318), True),
+        'inlay': ('rect', (305, 318), (305, 318), True),
+        # uitklap (gatefold): twee panelen naast elkaar, 2 : 1
+        'inside': ('rect', (605, 640), (305, 318), False),
+        # insert/tekstvel: rechthoek, niet per se vierkant (Music On Vinyl: 303 x 308)
+        'insert': ('rect', (290, 312), (290, 312), False),
         'sidea': ('disc', (296, 304), 7.24), 'sideb': ('disc', (296, 304), 7.24),
         'sidec': ('disc', (296, 304), 7.24), 'sided': ('disc', (296, 304), 7.24),
     },
@@ -374,7 +378,8 @@ def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0):
     if lid_lab is None:
         return img, (0, 0, 0, 0)
     lab = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2LAB).astype(np.float32)
-    a, b = int(1.0 * px_mm), max(int(1.5 * px_mm), int(1.0 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
+    # het papier ernaast meten op 2-3 mm van de rand: een brede schaduw reikt tot ±1,5 mm
+    a, b = int(2.0 * px_mm), max(int(3.0 * px_mm), int(2.0 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
     def cut(rows):                                         # rows: Lab per rij/kolom vanaf de rand naar binnen
         paper = np.median(rows[a:b], 0)
         k = 0
@@ -619,9 +624,7 @@ def main():
             result['precise_mm'] = [round(v / px_mm, 1) for v in (L, T, Rr - L, B - T)]
             print('precise box (mm):', result['precise_mm'])
             wmm, hmm = result['precise_mm'][2:]
-            if square and abs(wmm - hmm) > SQUARE_MM:
-                result['verdict'] = 'TWIJFEL'
-                result.setdefault('why', []).append(f'not square: {wmm} x {hmm} mm; one side is probably a print edge, not the paper edge')
+            # (vierkant wordt niet meer geëist: voor- en achterkant worden in de bridge met elkaar vergeleken)
             print('verdict:', result['verdict'], result.get('why', ''))
             crop = full[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
             # kleur van de klep: een strook van 1-3 mm buiten het onderdeel, alleen gescande pixels

@@ -231,8 +231,35 @@ def feiten_scan(req,rows,layout,work):
    result=future.result();done+=1;results.append(result)
    emit('status',message=f'{futures[future]}: {result.get("verdict")} ({done} of {len(jobs)})')
    emit('progress',fraction=done/len(jobs),index=None,total=len(jobs),phase='Processing parts',scope='preparation',completedParts=done,activeParts=min(2,len(jobs)-done))
-   if result.get('path'):emit('outputs',files=[feiten_file(result)])
+   if result.get('panels'):emit('outputs',files=[dict(feiten_file(result),path=q['path'],part=q['part']) for q in result['panels']])
+   elif result.get('path'):emit('outputs',files=[feiten_file(result)])
    for why in result.get('why',[]):emit('warning',message=f'{futures[future]}: {why}')
+ # Feit: voor- en achterkant zijn dezelfde hoes, dus even groot; de inserts van één release
+ # zijn hetzelfde drukwerk, dus even groot. Wijkt er één af, dan twijfel (met de maten).
+ def dims(r):return sorted(r.get('size_mm') or [0,0])
+ changed=[]
+ def doubt(r,msg):
+  r['verdict']='TWIJFEL';r.setdefault('why',[]).append(msg)
+  if 'keep' not in (r.get('choices') or []):r['choices']=['keep']+list(r.get('choices') or [])
+  changed.append(r)
+ by_part={}
+ for r in results:
+  if r.get('path') and not r.get('panels'):by_part.setdefault(r.get('part'),[]).append(r)
+ fr,bk=(by_part.get('front') or [None])[0],(by_part.get('back') or [None])[0]
+ if fr and bk and fr.get('size_mm') and bk.get('size_mm'):
+  a,b=dims(fr),dims(bk)
+  if max(abs(a[0]-b[0]),abs(a[1]-b[1]))>1.5:
+   m=f'front {a[1]} x {a[0]} mm and back {b[1]} x {b[0]} mm differ; they are the same sleeve, so one side is cut at a print edge'
+   doubt(fr,m);doubt(bk,m)
+ ins=by_part.get('insert') or []
+ if len(ins)>1:
+  ref=dims(ins[0])
+  for r in ins[1:]:
+   d=dims(r)
+   if max(abs(d[0]-ref[0]),abs(d[1]-ref[1]))>1.5:
+    m=f'inserts differ in size ({ref[1]} x {ref[0]} and {d[1]} x {d[0]} mm); they are the same print'
+    doubt(ins[0],m);doubt(r,m)
+ if changed:emit('outputs',files=[feiten_file(r) for r in {id(r):r for r in changed}.values()])
  # Feit: kant A en B (C en D) zijn dezelfde plaat: kleurverschil van de scanner gelijktrekken
  made={r['part']:r['path'] for r in results if r.get('path') and r.get('part','').startswith('side')}
  for x,y in (('sidea','sideb'),('sidec','sided')):
@@ -240,7 +267,10 @@ def feiten_scan(req,rows,layout,work):
    emit('status',message=f'Same record, same colour: matching {x} and {y}')
    cp=subprocess.run([sys.executable,str(TOOLS/'scan_kleur_kanten.py'),made[x],made[y]],capture_output=True,text=True)
    for line in (cp.stdout+cp.stderr).splitlines()[-3:]:emit('log',message=line)
- files=[feiten_file(r) for r in results if r.get('path')]
+ files=[]
+ for r in results:
+  if r.get('panels'):files+=[dict(feiten_file(r),path=q['path'],part=q['part']) for q in r['panels']]
+  elif r.get('path'):files.append(feiten_file(r))
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':results,'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
  if not files:raise ValueError('No processed images were made. See the log.')
  good=sum(r.get('verdict')=='GOED' for r in results);doubt=len(results)-good
