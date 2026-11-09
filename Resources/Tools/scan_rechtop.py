@@ -137,7 +137,9 @@ def ocr_lines(view):
             # nauwkeurig lezen kan blijven hangen (Neural Engine bezet): kort wachten, dan snel lezen
             mode = '--boxes' if attempt < 2 else '--fast-boxes'
             try:
-                out = subprocess.run([OCR, p, mode], capture_output=True, text=True, timeout=20).stdout
+                # De eerste nauwkeurige herkenning na een tijd stil bereidt het model voor (gemeten
+                # ±60 s); daarna 0,5 s. Niet halverwege afbreken, anders begint elk onderdeel opnieuw.
+                out = subprocess.run([OCR, p, mode], capture_output=True, text=True, timeout=90 if attempt == 0 else 20).stdout
             except subprocess.TimeoutExpired:
                 out = ''
             if out.strip():
