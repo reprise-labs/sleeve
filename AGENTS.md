@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 9 nov 2026, versie 0.5.22 (tag `v0.5.22`, branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 9 nov 2026, versie 0.5.23 (tag `v0.5.23`, branch `feiten`, github.com/reprise-labs/sleeve).
 Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 
 ## Uitgangspunt: alleen feiten, geen regels
@@ -27,6 +27,7 @@ Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 Extra feiten:
 - **Al uitgesneden** geldt alleen bij transparantie rondom. Een gewone scan met de goede buitenmaat wordt eerst echt op randen doorzocht (wit hoesje op witte deksel).
 - **Gekleurd vlak**: alles wat gekleurd is hoort bij het kaartje; ligt de snede binnen het gekleurde vlak (drukrand, bv. Places To Go), dan wordt op de buitenrand van het gekleurde vlak gesneden (cd).
+- **Buitenste rand (cd)**: bij vierkante cd-kaartjes wint de buitenste rechte rand, ook een zwakke (wit kaartje op witte deksel); bij vinyl de binnenste (schaduw/karton valt buiten).
 - **CD-verpakking**: past een onderdeel niet bij een jewel case, dan bepaalt de gemeten vorm het (vierkant kaartje ±121 mm, kartonnen hoesje ±127 mm, digipak); dat staat in het resultaat. Een gekozen verpakking die niet bij de gemeten maat past, geeft twijfel.
 - **Vakken vooraf invullen** (`scan_vakken.py`, actie `suggestGroups`), alleen op feiten:
   - back: de barcode van de release staat op de scan;
@@ -61,3 +62,8 @@ Extra feiten:
 - **Super Jewel Box:** de maat van de achterkaart is onzeker.
 - **Digipak en kartonnen hoesje:** nog niet op echte scans getest.
 - **Andere promo's:** André zoekt nog waar de map met ruwe scans staat.
+- Promo-cd's (`~/Desktop/scans_2026`, 9 nov), nog fout:
+  - Feet on the Ground (2) front: het kaartje is ±124 mm, tussen de jewel- en cardsleeve-maat, met een wit kader. De snede valt op het drukwerk (118,8 mm), en `trim_edge_lines` haalt het witte kader weg.
+  - Dominique back: wit kaartje, 115,5 mm (te klein; de onderste tekst raakt de rand).
+  - Deena CD front: na de buitenste-rand-regel krijgt hij twijfel (8 mm² niet gescand); het beeld is wel goed.
+

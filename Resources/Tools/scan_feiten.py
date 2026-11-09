@@ -314,7 +314,7 @@ def hole_outline(img, hx, hy, r, n=72, outermost=False, top=1.7):
     return np.array([[hx + q * np.cos(a), hy + q * np.sin(a)] for q, (_, a) in zip(rs, pts)], np.float32)
 
 
-def precise_edges(img, alpha, L, T, R, B, reach, segments=False, candidates=False):
+def precise_edges(img, alpha, L, T, R, B, reach, segments=False, candidates=False, faint=False):
     """Elke zijde precies op de papierrand, op volle resolutie. Per zijde het
     gemiddelde helderheidsverloop dwars op de rand (middelste 80% van de zijde,
     alleen gescande pixels). De papierrand is de binnenste duidelijke sprong: een
@@ -347,7 +347,10 @@ def precise_edges(img, alpha, L, T, R, B, reach, segments=False, candidates=Fals
         d = np.abs(np.diff(prof)); d = np.nan_to_num(d, nan=0.0); d[:2] = 0; d[-2:] = 0
         if d.max() <= 0 or np.isnan(prof).mean() > .5:
             return [pos] if candidates else pos            # niets te meten: het grove kader blijft staan
-        peaks = [i for i in range(1, len(d) - 1) if d[i] >= d[i - 1] and d[i] >= d[i + 1] and d[i] >= .5 * d.max()]
+        # duidelijke sprongen: minstens half zo sterk als de sterkste. Met faint (cd-kaartje): ook een
+        # zwakke maar rechte rand langs de hele zijde (wit kaartje op witte deksel), ruim boven de ruis.
+        floor = max(4 * float(np.median(d[d > 0])) if (d > 0).any() else 0, .08 * d.max()) if faint else .5 * d.max()
+        peaks = [i for i in range(1, len(d) - 1) if d[i] >= d[i - 1] and d[i] >= d[i + 1] and d[i] >= floor]
         # het grove kader (hele zijde op een rand, ±0,5 mm) is het bewijs; binnen ±1,2 mm daarvan
         # de binnenste sprong (een schaduw valt buiten het papier); anders de binnenste overall
         if candidates:                                     # alle duidelijke randen (de feiten kiezen er later uit)
@@ -627,7 +630,11 @@ def main():
             if square:
                 # feit: een hoes is vierkant. Uit de duidelijke randen per zijde de combinatie kiezen
                 # waarvan breedte en hoogte het best gelijk zijn (bij gelijke stand: de binnenste)
-                cl, ct, cr, cb = precise_edges(full, fa, x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k, 3 * px_mm, candidates=True)
+                # Feit (cd): een cd-kaartje heeft geen kartonrand of schaduw zoals een platenhoes; alles
+                # binnen de buitenste rechte rand is drukwerk. Dus daar de buitenste rand (ook een zwakke:
+                # wit kaartje op witte deksel); bij vinyl de binnenste (schaduw valt buiten het papier).
+                outer = fmt.startswith('cd')
+                cl, ct, cr, cb = precise_edges(full, fa, x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k, (4 if outer else 3) * px_mm, candidates=True, faint=outer)
                 best_c = None
                 for l_ in cl:
                     for r_ in cr:
@@ -636,7 +643,7 @@ def main():
                                 w_, h_ = r_ - l_, b_ - t_
                                 if not (wlo * px_mm <= w_ <= whi * px_mm and hlo * px_mm <= h_ <= hhi * px_mm):
                                     continue
-                                key = (0 if abs(w_ - h_) <= 1.0 * px_mm else abs(w_ - h_), w_ + h_)   # vierkant binnen 1 mm; dan de binnenste randen
+                                key = (0 if abs(w_ - h_) <= 1.0 * px_mm else abs(w_ - h_), -(w_ + h_) if outer else w_ + h_)   # vierkant binnen 1 mm; dan buitenste (cd) / binnenste (vinyl)
                                 if best_c is None or key < best_c[0]:
                                     best_c = (key, (l_, t_, r_, b_))
                 if best_c:
