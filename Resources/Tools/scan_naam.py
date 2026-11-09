@@ -43,7 +43,7 @@ def fetch(url):
         return r.stdout
 
 
-def naam(url, kant, extra=''):
+def naam(url, kant, extra='', year=''):
     m = re.search(r'/release/(\d+)', url)
     if not m:
         mm = re.search(r'/master/(\d+)', url)
@@ -58,7 +58,7 @@ def naam(url, kant, extra=''):
         raise ValueError('This Discogs link is for vinyl, but the scan is a CD. Use the link of the CD release.')
     if kant.startswith('side') and formats.intersection({'cd','cdr'}) and 'vinyl' not in formats:
         raise ValueError('This Discogs link is for a CD, but the scan is vinyl. Use the link of the vinyl release.')
-    jaar = str(r.get('year') or (r.get('released') or '0000')[:4])
+    jaar = str(year).strip() if str(year or '').strip().isdigit() else str(r.get('year') or (r.get('released') or '0000')[:4])   # jaartal kan de gebruiker verbeteren
     titel = slug(r.get('title'))
     fm = (r.get('formats') or [{}])[0]
     fname = (fm.get('name') or '').lower()

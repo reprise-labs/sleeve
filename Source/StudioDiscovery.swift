@@ -66,6 +66,7 @@ extension StudioModel {
     func chooseRelease(_ candidate:ReleaseCandidate) {
         guard !busy,let url=URL(string:candidate.url),url.scheme=="https",url.host=="www.discogs.com",url.path=="/release/\(candidate.id)" else{return}
         discogs=candidate.url;references=[];referenceURL=nil;proposals=[];if panel == .advice {panel=nil}
+        if panel == .release {loadReleaseInfo()}
         adviceStatus="Chosen: \(candidate.title). Check the release on Discogs."
     }
     var discogsSearchURL:URL? {

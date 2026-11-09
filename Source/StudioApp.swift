@@ -91,6 +91,7 @@ struct StudioView: View {
             case .crop:if let item=model.cropTarget{StudioCircleView(model:model,target:item)}
             case .retry:if let item=model.retryTarget{StudioRetryView(model:model,target:item)}
             case .arrange:StudioArrangeView(model:model)
+            case .release:ReleaseConfirmSheet(model:model)
             }
         }
         .onDrop(of:["public.file-url"],isTargeted:nil) {providers in
@@ -197,6 +198,17 @@ struct StudioView: View {
             HStack{Text(model.projectURL?.lastPathComponent ?? "Project not saved yet").lineLimit(1).truncationMode(.middle);Spacer();if model.projectURL != nil {Image(systemName:"externaldrive.badge.checkmark")}}.font(.caption).foregroundStyle(.secondary)
             if model.projectURL != nil {Text(model.projectSaveText).font(.caption).foregroundStyle(.secondary)}
             sectionTitle("01", "Release & reference")
+            if model.mode == .scans {
+                VStack(alignment:.leading,spacing:6) {
+                    if let info=model.releaseInfo,model.releaseConfirmed {
+                        Text("\(info.artist) – \(info.title)").font(.system(size:13,weight:.semibold))
+                        Text([model.releaseYear,info.country,info.formatText,packagingChoices.first{$0.0==model.packaging}?.1 ?? ""].filter{!$0.isEmpty}.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text(model.releaseConfirmed ? "No Discogs release – choose the format and packaging below." : "No release confirmed yet.").font(.caption).foregroundStyle(model.releaseConfirmed ? Color.secondary : Color.orange)
+                    }
+                    Button(model.releaseInfo==nil ? "Choose Release…" : "Change Release…"){model.panel = .release}.disabled(model.busy || model.inputs.isEmpty)
+                }.padding(10).frame(maxWidth:.infinity,alignment:.leading).background(studioAccent.opacity(0.07),in:RoundedRectangle(cornerRadius:8))
+            }
             TextField("Discogs link (optional for scans)",text:$model.discogs).textFieldStyle(.roundedBorder).disabled(model.busy)
                 .onChange(of:model.discogs){ model.cancelReleaseAdvice();model.proposals=[];model.references=[];if model.referenceFromDiscogs {model.referenceURL=nil}}
             if model.mode == .scans {
@@ -204,6 +216,10 @@ struct StudioView: View {
                 Picker("Format",selection:$model.mediaFormat){Text("Automatic").tag("auto");Text("CD").tag("cd");Text("Vinyl").tag("vinyl")}
                     .pickerStyle(.segmented).labelsHidden().disabled(model.busy)
                 Text(model.mediaFormat=="auto" ? "From the Discogs link, or CD when there is a CD slot." : "You chose \(model.mediaFormat=="cd" ? "CD" : "vinyl"): Sleeve cuts to those sizes, with or without Discogs.").font(.caption).foregroundStyle(.secondary)
+                Picker("Packaging",selection:$model.packaging) {
+                    Text("From Discogs").tag("auto")
+                    ForEach(packagingChoices,id:\.0) {Text($0.1).tag($0.0)}
+                }.disabled(model.busy)
                 Text("Use of Discogs").font(.system(size:12,weight:.semibold))
                 Toggle("Use file names",isOn:$model.useNames)
                 Toggle("Rotate cover and record correctly",isOn:$model.useStand)

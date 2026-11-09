@@ -173,6 +173,7 @@ def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0)
  if req.get('discogs'):cmd+=['--discogs',release_url(req['discogs'])]
  if req.get('variant'):cmd+=['--variant',req['variant']]
  if decision is not None:cmd+=['--decision',json.dumps(decision)]
+ if str(req.get('year') or '').strip().isdigit():cmd+=['--year',str(req['year']).strip()]
  if fmt:cmd+=['--format',fmt]
  if release_dpi:cmd+=['--release-dpi',str(release_dpi)]
  work.mkdir(parents=True,exist_ok=True)
@@ -226,6 +227,13 @@ def feiten_scan(req,rows,layout,work):
  with CF.ThreadPoolExecutor(max_workers=workers) as pool:
   # feit: alle onderdelen van één release hebben hetzelfde formaat; een cd-vak = een cd
   fmt=req.get('format') if req.get('format') in ('cd','vinyl') else ('cd' if any(part.startswith('cd') for part,_ in jobs) else '')
+  # feit: de verpakking (Discogs of jouw keuze) bepaalt de maten bij een cd
+  pk=req.get('packaging') or ''
+  if pk in ('','auto') and req.get('discogs'):
+   try:
+    import scan_release as RI;pk=RI.info(release_url(req['discogs'])).get('packaging','')
+   except Exception as e:emit('log',message=f'Packaging not read from Discogs: {e}')
+  if pk in ('slimjewel','superjewel','digipak','cardsleeve') and (fmt=='cd' or req.get('format')=='cd' or (not fmt and req.get('mediaKind')=='cd')):fmt='cd-'+pk
   futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}-{uuid.uuid4().hex[:8]}',None,fmt,release_dpi):part for i,(part,files) in enumerate(jobs)}
   for future in CF.as_completed(futures):
    result=future.result();done+=1;results.append(result)
@@ -246,7 +254,8 @@ def feiten_scan(req,rows,layout,work):
  for r in results:
   if r.get('path') and not r.get('panels'):by_part.setdefault(r.get('part'),[]).append(r)
  fr,bk=(by_part.get('front') or [None])[0],(by_part.get('back') or [None])[0]
- if fr and bk and fr.get('size_mm') and bk.get('size_mm'):
+ is_cd=str(fmt).startswith('cd') or any(str(p).startswith('cd') for p in by_part)
+ if fr and bk and fr.get('size_mm') and bk.get('size_mm') and not is_cd:   # cd: boekje en achterkant zijn niet even groot
   a,b=dims(fr),dims(bk)
   if max(abs(a[0]-b[0]),abs(a[1]-b[1]))>1.5:
    m=f'front {a[1]} x {a[0]} mm and back {b[1]} x {b[0]} mm differ; they are the same sleeve, so one side is cut at a print edge'
@@ -566,6 +575,17 @@ def main():
   emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Release suggestions fetched.');return
  if action=='suggestGroups':raise ValueError('Sleeve no longer guesses the layout. Drag the scans into slots yourself.')
  if action=='decide':feiten_decide(req,work);return
+ if action=='releaseInfo':
+  import scan_release as RI,scan_naam as N
+  emit('status',message='Fetching the release from Discogs…')
+  info=RI.info(release_url(req.get('discogs','')))
+  thumbs=[]
+  for i,u in enumerate(info.get('images') or []):
+   try:
+    p=work/f'thumb{i}.jpg';p.write_bytes(N.fetch(u));thumbs.append(str(p))
+   except Exception:pass
+  info['thumbs']=thumbs
+  emit('releaseInfo',info=info);emit('complete',message='Release loaded. Check the details.');return
  if action=='references':reference_photos(req,work);emit('complete',message='Reference photos loaded. Choose the right photo.');return
  rows=inputs(req)
  CHECKING_AFTER_PROCESS=action in ('scan','colour','namesApply','manualCrop')

@@ -197,7 +197,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('scans', nargs='+'); p.add_argument('--part', required=True)
     p.add_argument('--discogs', default=''); p.add_argument('--out', required=True); p.add_argument('--work', required=True)
-    p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default=''); p.add_argument('--release-dpi', type=float, default=0.0)
+    p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default=''); p.add_argument('--release-dpi', type=float, default=0.0); p.add_argument('--year', default='')
     a = p.parse_args()
     folder = os.path.dirname(os.path.abspath(a.scans[0]))
     decision = json.loads(a.decision) if a.decision else load_decisions(folder).get(key_for(a.scans), {}).get('decision', {})
@@ -239,7 +239,10 @@ def main():
         scans_in = a.scans
         import scan_dpi
         d0 = scan_resolution(a.scans[0], a.release_dpi)
-        if len(a.scans) > 4 and d0 >= 900:
+        from PIL import Image as _PI
+        _PI.MAX_IMAGE_PIXELS = None
+        total_px = sum(_PI.open(f).size[0] * _PI.open(f).size[1] for f in a.scans)
+        if total_px > 700e6:                               # samen meer dan ±700 Mpx (bv. uitklap, 6 x 1200 dpi): past niet in het geheugen
             # veel scans op 1200 dpi (uitklap): samen te groot voor het geheugen. Rekenen op
             # kopieën van 600 dpi; het eindbeeld wordt dan 600 dpi (melding in het resultaat).
             from PIL import Image
@@ -250,7 +253,7 @@ def main():
                 with Image.open(f) as im:
                     im.reduce(2).save(q, dpi=(d0 / 2, d0 / 2))
                 scans_in.append(q)
-            result['why_note'] = f'{len(a.scans)} scans at {d0:.0f} dpi do not fit in memory together; made at {d0 / 2:.0f} dpi'
+            result['why_note'] = f'{len(a.scans)} scans ({total_px / 1e6:.0f} Mpx) do not fit in memory together; made at {d0 / 2:.0f} dpi'
         st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'], capture_output=True, text=True)
         for q in scans_in:
             if q not in a.scans and os.path.exists(q):
@@ -350,7 +353,7 @@ def main():
             if a.discogs:
                 try:
                     import scan_naam as N
-                    nm = N.naam(a.discogs, kant, a.variant)
+                    nm = N.naam(a.discogs, kant, a.variant, a.year)
                 except Exception:
                     pass
             nm = nm or f'{os.path.splitext(os.path.basename(a.scans[0]))[0]}_{kant}'
@@ -379,7 +382,7 @@ def main():
     if a.discogs:
         try:
             import scan_naam as N
-            name = N.naam(a.discogs, a.part, a.variant)
+            name = N.naam(a.discogs, a.part, a.variant, a.year)
         except Exception as e:                             # geen verbinding e.d.: neutrale naam
             result['name_note'] = str(e)
     name = name or f'{os.path.splitext(os.path.basename(a.scans[0]))[0]}_{a.part}'

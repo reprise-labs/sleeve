@@ -39,6 +39,26 @@ SHAPES = {
         'cd': ('disc', (117, 122), 15.0), 'cd1': ('disc', (117, 122), 15.0), 'cd2': ('disc', (117, 122), 15.0),
     },
 }
+# Andere cd-verpakkingen (standaardmaten van fabrikanten; per fabriek een paar mm verschil,
+# daarom een bereik - Sleeve meet de echte rand daarbinnen):
+#  - slim jewel case: boekje 120 x 120, geen achterkaart in de lade
+#  - Super Jewel Box: zelfde buitenmaat als een jewel case (142 x 125); boekje 120 x 120,
+#    achterkaart afwijkend en niet eenduidig gepubliceerd: ruim bereik
+#  - digipak/digifile: dicht ±139-142 x 125, opengeklapt twee panelen
+#  - kartonnen hoesje (cd-wallet): ±5 inch = 127 x 127
+_DISC = ('disc', (117, 122), 15.0)
+_BOOKLET = ('rect', (117, 123), (117, 123), True)
+SHAPES['cd-slimjewel'] = {'front': _BOOKLET, 'back': _BOOKLET, 'insert': _BOOKLET, 'inside': _BOOKLET,
+                          'cd': _DISC, 'cd1': _DISC, 'cd2': _DISC}
+SHAPES['cd-superjewel'] = {'front': _BOOKLET, 'insert': _BOOKLET, 'inside': _BOOKLET,
+                           'back': ('rect', (118, 152), (114, 127), False), 'inlay': ('rect', (118, 152), (114, 127), False),
+                           'cd': _DISC, 'cd1': _DISC, 'cd2': _DISC}
+SHAPES['cd-digipak'] = {'front': ('rect', (136, 144), (122, 128), False), 'back': ('rect', (136, 144), (122, 128), False),
+                        'inside': ('rect', (268, 290), (122, 128), False), 'insert': _BOOKLET,
+                        'cd': _DISC, 'cd1': _DISC, 'cd2': _DISC}
+SHAPES['cd-cardsleeve'] = {'front': ('rect', (123, 131), (123, 131), True), 'back': ('rect', (123, 131), (123, 131), True),
+                           'insert': _BOOKLET, 'inside': ('rect', (123, 131), (123, 131), True),
+                           'cd': _DISC, 'cd1': _DISC, 'cd2': _DISC}
 PART_SHAPE = {k: ('disc' if v[0] == 'disc' else 'sleeve') for f in SHAPES.values() for k, v in f.items()}
 WORK_PX_MM = 2.0                 # rekenschaal voor het zoeken
 ON_CIRCLE = 0.9                  # zoveel van de gemeten richtingen moet op de cirkel liggen
@@ -428,7 +448,7 @@ def main():
     sa = cv2.resize(alpha.astype(np.uint8), (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
     border = scan_border_mask(meta, sa.shape, s / F, max(2, 2 * SCAN_EDGE_MM * WORK_PX_MM))   # strook langs elke scanrand
     fmt = a.format or ('cd' if a.part.startswith('cd') else 'vinyl')
-    spec = SHAPES[fmt].get(a.part) or SHAPES['vinyl'][a.part]
+    spec = SHAPES[fmt].get(a.part) or SHAPES['cd' if fmt.startswith('cd') else 'vinyl'].get(a.part) or SHAPES['vinyl'][a.part]
     shape = 'disc' if spec[0] == 'disc' else 'sleeve'
     if shape == 'disc':
         lo, hi = spec[1][0] * WORK_PX_MM, spec[1][1] * WORK_PX_MM; hole_mm = spec[2]
@@ -475,7 +495,7 @@ def main():
     if a.out:
         k = 1 / s                                          # rekenschaal -> volle resolutie
         if shape == 'disc':
-            X, Y, rr, dev = precise_circle(bgr, alpha, cx * k, cy * k, r * k, 3 * px_mm, ROUND_MM * px_mm, inner=(fmt == 'cd'), outermost=(fmt == 'cd'))   # cd: de buitenste sprong is de rand tegen de klep
+            X, Y, rr, dev = precise_circle(bgr, alpha, cx * k, cy * k, r * k, 3 * px_mm, ROUND_MM * px_mm, inner=(fmt.startswith('cd')), outermost=(fmt.startswith('cd')))   # cd: de buitenste sprong is de rand tegen de klep
             off = [d for d in dev if d is not None and abs(d) > ROUND_MM * px_mm]
             result['precise_diameter_mm'] = round(2 * rr / px_mm, 2)
             # keuze André (8 nov): de afgeronde rand niet tonen. Feit: waar het vlakke vinyl
@@ -483,13 +503,13 @@ def main():
             # feit: de afgeronde rand is rondom even breed, dus hetzelfde midden als de buitenrand
             # feit: een plaat heeft een afgeronde rand, een cd een doorzichtige onbedrukte rand;
             # in beide gevallen snijden waar het vlakke, bedrukte deel ophoudt
-            if fmt == 'cd':
+            if fmt.startswith('cd'):
                 # cd: de doorzichtige rand van buiten naar binnen; drukwerk (ringtekst) ligt daarbinnen
                 # de doorzichtige rand is een donkere band van ±1-1,5 mm; vanaf het drukwerk naar buiten de eerste sprong
                 _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 1.0 * px_mm, 0.9 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True, outermost=False, median=True)
             else:
                 _, _, ri, _ = precise_circle(bgr, alpha, X, Y, rr - 0.8 * px_mm, 1.2 * px_mm, ROUND_MM * px_mm, inner=True, fixed_centre=True)
-            if rr - (2.2 if fmt == 'cd' else 2) * DISC_EDGE_MM * px_mm < ri < rr:
+            if rr - (2.2 if fmt.startswith('cd') else 2) * DISC_EDGE_MM * px_mm < ri < rr:
                 rr = ri - RIM_CUT_MM * px_mm
             else:
                 rr -= DISC_EDGE_MM * px_mm
@@ -522,7 +542,7 @@ def main():
             # duidelijke sprong (waar de schijf begint, ook voorbij een lichte binnenwand), een
             # cirkel erdoor (losse punten tellen niet) en die cirkel uitsnijden.
             def fit_hole(outer):
-                Pq = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm, outermost=outer, top=(1.7 if fmt == 'cd' else 2.2)).astype(np.float64)
+                Pq = hole_outline(crop[:, :, :3], hx, hy, hole_mm / 2 * px_mm, outermost=outer, top=(1.7 if fmt.startswith('cd') else 2.2)).astype(np.float64)
                 use = np.ones(len(Pq), bool); cx_, cy_, r_ = hx, hy, 0.0
                 for _ in range(6):
                     A_ = np.c_[Pq[use], np.ones(use.sum())]; D_, E_, F_ = np.linalg.lstsq(A_, -(Pq[use] ** 2).sum(1), rcond=None)[0]
@@ -536,9 +556,9 @@ def main():
                 # het hele gat weg: tot de buitenkant van de gemeten rand (90e percentiel), niet het gemiddelde
                 return cx_, cy_, float(np.percentile(dist, 90)) if len(dist) else r_, int(use.sum())
             # feit: door het gat (en een doorzichtige naaf of een groter labelgat) zie je de klep
-            top = (1.62 if fmt == 'cd' else 2.1) * hole_mm / 2 * px_mm; low = 0.8 * hole_mm / 2 * px_mm
+            top = (1.62 if fmt.startswith('cd') else 2.1) * hole_mm / 2 * px_mm; low = 0.8 * hole_mm / 2 * px_mm
             hcx = hcy = hr = None
-            for outer in ((True, False) if fmt == 'cd' else (False, True)):
+            for outer in ((True, False) if fmt.startswith('cd') else (False, True)):
                 c_ = fit_hole(outer)
                 if low < c_[2] < top and c_[3] >= 24:
                     hcx, hcy, hr = c_[0], c_[1], c_[2]; break

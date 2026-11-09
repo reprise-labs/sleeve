@@ -67,6 +67,7 @@ struct BridgeEvent: Decodable {
     var activeParts:Int?
     var detail:String?
     var advice: ReleaseAdvice?
+    var info: ReleaseInfo?
     var audits: [ImageAudit]?
     var groups: [SuggestedGroup]?
 }
@@ -99,6 +100,13 @@ final class PipeReader: @unchecked Sendable {
     @Published var useStand = true
     // Feit van de gebruiker: cd of vinyl ("auto" = uit Discogs, of cd als er een cd-vak is).
     @Published var mediaFormat = "auto"
+    // Bevestigde release (Discogs): gegevens, verbeterd jaartal en verpakking
+    @Published var releaseInfo: ReleaseInfo? = nil
+    @Published var releaseYear = ""
+    @Published var packaging = "auto"
+    @Published var releaseLoading = false
+    @Published var releaseStatus = ""
+    @Published var releaseConfirmed = false
     // Kept for decoding older projects; scan requests always disable reference colour.
     @Published var useColour = false
     @Published var discovering = false
@@ -224,6 +232,7 @@ final class PipeReader: @unchecked Sendable {
         saveExistingProject();restoringProject=true;defer{restoringProject=false}
         panel=nil;projectID=UUID();projectURL=nil;editionTitle="";runs=[];reviews=[:];projectSaveText="Not saved yet"
         errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];emptySlots=[];suggestStatus="";selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Ready for a new release";lastJobFolder=nil
+        releaseInfo=nil;releaseYear="";packaging="auto";releaseConfirmed=false;releaseStatus="";mediaFormat="auto"
     }
     func pickImages() {
         guard !busy else{return}
@@ -263,6 +272,7 @@ final class PipeReader: @unchecked Sendable {
         if outputFolder==nil {outputFolder=files[0].deletingLastPathComponent()}
         stateText="\(inputCount) source images · \(inputs.filter{$0.reference}.count) references"
         if mode == .colour {resetColourSelection()}
+        if mode == .scans {offerReleaseConfirmation()}
         scheduleReleaseAdvice()
     }
     func inferredPart(_ name:String)->String {
@@ -345,7 +355,7 @@ final class PipeReader: @unchecked Sendable {
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Jobs/"+UUID().uuidString)
         do {
             try FileManager.default.createDirectory(at:cache,withIntermediateDirectories:true)
-            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? "","group":$0.group ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":false,"strength":strength,"scope":colourScope,"format":mediaFormat]
+            var req: [String:Any] = ["action":action,"inputs":rows.map{["path":$0.url.path,"part":$0.part,"reference":$0.reference,"partial":$0.partial,"source":$0.source?.path ?? "","group":$0.group ?? ""]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"variant":variant,"useNames":useNames,"useStand":useStand,"useColour":false,"strength":strength,"scope":colourScope,"format":mediaFormat,"year":releaseYear,"packaging":packaging]
             if let folder=outputFolder{req["output"]=folder.path}
             if let ref=referenceURL{req["reference"]=ref.path}
             if action=="namesApply" {req["proposals"]=try JSONSerialization.jsonObject(with:JSONEncoder().encode(proposals))}
