@@ -56,6 +56,17 @@ Extra feiten:
   - Deena-hoes GOED: de uitklap staat in twee panelen; de front heeft een melding van 0,1% niet gescand.
   - Deena CD en TA CD 4/5 GOED: de inlay zonder tekst is TWIJFEL.
   - Pretending-promo 3/3 GOED.
+  - Promo-cd's in `~/Desktop/scans_2026`: 30 cd-onderdelen (7 promo's plus Pretending, Deena CD en TA CD), allemaal schoon uitgesneden.
+
+## Ook 9 nov (middag, 0.5.18–0.5.24)
+- **Snelheid:**
+  - Het nauwkeurige tekstmodel (Neural Engine) mag maximaal 8 s duren. Hangt het, dan leest Sleeve 10 minuten lang snel; dat wordt onthouden in een vlagbestand in de tijdelijke map.
+  - De bridge warmt het model op de achtergrond op.
+  - Een cd met front, back en cd duurt op de Mac mini ±1,5 minuut.
+- **Voortgang:** de route schrijft `SLEEVE_STEP <tekst>` naar stderr; de bridge toont dat als status per onderdeel.
+- **Release-geheugen:** per set scans (bestandsnamen) in `.sleeve-release.json`, niet meer per map.
+- **Bestandsnaam:** het laatste woord van de naam (na `_`, `-` of een spatie) is het onderdeel, bv. `2015_hold_me_back.png` → back. Die bestanden gaan meteen in het vak.
+- **Afspraak met André:** elke verbetering is een feit voor álle releases, nooit een uitzondering voor één release.
 
 ## Open
 - **Witte platen op de witte deksel** (Queen A/B, Deena A/B/C): André scant ze opnieuw met een donker vel. Hier geen tijd meer aan besteden.
@@ -63,4 +74,3 @@ Extra feiten:
 - **Super Jewel Box:** de maat van de achterkaart is onzeker.
 - **Digipak en kartonnen hoesje:** nog niet op echte scans getest.
 - **Andere promo's:** André zoekt nog waar de map met ruwe scans staat.
-- Promo-cd's in `~/Desktop/scans_2026` (30 cd-onderdelen, 9 nov): allemaal schoon uitgesneden.
