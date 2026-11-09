@@ -580,7 +580,6 @@ def main():
     os.killpg(process.pid,signal.SIGKILL);process.communicate();raise
    finally:OCR_CHILDREN.discard(process)
   emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Release suggestions fetched.');return
- if action=='suggestGroups':raise ValueError('Sleeve no longer guesses the layout. Drag the scans into slots yourself.')
  if action=='decide':feiten_decide(req,work);return
  if action=='suggestGroups':
   # vakken vooraf invullen op feiten (barcode, Discogs-hoesfoto, cd van 120 mm); de rest blijft leeg
