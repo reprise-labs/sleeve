@@ -113,7 +113,7 @@ def already_cut(path, spec, release_dpi=0.0):
     else:
         (wl, wh), (hl, hh) = spec[1], spec[2]
         ok = (wl <= w_mm <= wh and hl <= h_mm <= hh) or (wl <= h_mm <= wh and hl <= w_mm <= hh)
-    return (img, {'mm': [round(w_mm, 1), round(h_mm, 1)], 'dpi': dpi, 'dpi_from_size': inferred}) if ok else None
+    return (img, {'mm': [round(w_mm, 1), round(h_mm, 1)], 'dpi': dpi, 'dpi_from_size': inferred, 'transparent': bool(cut_out)}) if ok else None
 
 
 def discogs_orientation(img, discogs, disc=False):
@@ -215,6 +215,12 @@ def main():
             os.remove(f)
     result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
     already = already_cut(a.scans[0], SF.SHAPES[fmt][feit_part], a.release_dpi) if len(a.scans) == 1 else None
+    # Feit: alleen transparantie rondom bewijst dat een beeld al uitgesneden is. Een gewone scan
+    # met de juiste buitenmaat kan nog deksel rondom hebben (wit hoesje op witte deksel, scheef
+    # gelegd): eerst echt randen zoeken; vindt dat niets, dan pas 'al uitgesneden'.
+    opaque_fallback = None
+    if already and not already[1].get('transparent'):
+        opaque_fallback, already = already, None
     if already:
         # Feit: dit beeld heeft al precies de maat van dit onderdeel: het is al uitgesneden.
         img0, note = already
@@ -269,6 +275,34 @@ def main():
     try:
         facts = json.load(open(crop + '.feiten.json'))
     except (OSError, ValueError):
+        facts = None
+    # Feit: een cd-onderdeel heeft de maat van zijn verpakking. Past het niet bij de jewel case
+    # (bv. de 'back' is een vierkant kaartje zonder zijflappen, zoals bij een promo), dan bepaalt
+    # de gemeten vorm welke verpakking het is: slim jewel (kaartje ±121), kartonnen hoesje (±127),
+    # digipak. De eerste die echt past, telt; in het resultaat staat welke.
+    if not already and fmt == 'cd' and (facts is None or facts.get('verdict') == 'FOUT'):
+        for alt in ('cd-slimjewel', 'cd-cardsleeve', 'cd-digipak'):
+            if feit_part not in SF.SHAPES[alt] or SF.SHAPES[alt][feit_part] == SF.SHAPES['cd'].get(feit_part):
+                continue
+            subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', alt, '--out', crop], capture_output=True, text=True)
+            try:
+                f2 = json.load(open(crop + '.feiten.json'))
+            except (OSError, ValueError):
+                continue
+            if f2.get('verdict') != 'FOUT':
+                facts, fmt = f2, alt
+                label = {'cd-slimjewel': 'a square card of a slim jewel case (no side flaps)', 'cd-cardsleeve': 'a cardboard sleeve',
+                         'cd-digipak': 'a digipak panel'}[alt]
+                result['applied'] = (result.get('applied', '') + f' measured as {label}, not a jewel case part').strip()
+                break
+    if opaque_fallback and (facts is None or facts.get('verdict') == 'FOUT'):
+        # geen rand gevonden en de hele scan heeft al de maat van dit onderdeel: al uitgesneden
+        img0, note = opaque_fallback
+        cv2.imwrite(crop, img0)
+        facts = {'verdict': 'GOED', 'why': [], 'dpi': note['dpi'], 'already_cut': note}
+        json.dump(facts, open(crop + '.feiten.json', 'w'))
+        result['applied'] = f'already cut ({note["mm"][0]} x {note["mm"][1]} mm matches the facts, no edge found inside); not cropped again'
+    if facts is None:
         result.update(verdict='FOUT', why=[fe.stderr.strip().splitlines()[-1] if fe.stderr.strip() else 'cropping failed'])
         print(json.dumps(result)); return
     if facts.get('verdict') == 'FOUT':
@@ -284,6 +318,15 @@ def main():
         why = [w for w in why if not w.startswith('not square')]
         result['applied'] = f'square ({weak} side moved in)'
         cv2.imwrite(crop, img)
+    # Feit: de gemeten maat moet bij de verpakking passen (de randen kunnen na het grove zoeken
+    # nog naar binnen schuiven). Past hij niet, dan klopt de verpakkingskeuze of de rand niet.
+    spec = SF.SHAPES[fmt][feit_part]
+    if spec[0] == 'rect' and img is not None:
+        wm, hm = img.shape[1] / dpi * 25.4, img.shape[0] / dpi * 25.4
+        (wl, wh), (hl, hh) = spec[1], spec[2]
+        fits = lambda W, H: wl - 1 <= W <= wh + 1 and hl - 1 <= H <= hh + 1
+        if not (fits(wm, hm) or fits(hm, wm)):
+            why.append(f'measured {wm:.1f} x {hm:.1f} mm, but this packaging is {wl}-{wh} x {hl}-{hh} mm: check the packaging choice')
     # rechtop
     words = release_words(a.discogs) if a.discogs else []
     disc = SF.SHAPES[fmt][feit_part][0] == 'disc'

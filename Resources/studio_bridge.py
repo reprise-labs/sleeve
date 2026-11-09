@@ -21,6 +21,10 @@ OCR_CHILDREN=set()
 try:os.setpgid(0,0)
 except OSError:pass
 
+# Feit: dezelfde hoes twee keer scannen gaf tot ~2 mm verschil (Fire-back, twee rondes: 312,1 en
+# 310,4 mm; karton ligt niet elke keer even plat). Kleinere verschillen zijn meetruis, geen snijfout.
+SAME_PRINT_MM=2.5
+
 def emit(event,**kwargs):
  global PENDING_COMPLETION
  if event=='outputs':
@@ -257,7 +261,7 @@ def feiten_scan(req,rows,layout,work):
  is_cd=str(fmt).startswith('cd') or any(str(p).startswith('cd') for p in by_part)
  if fr and bk and fr.get('size_mm') and bk.get('size_mm') and not is_cd:   # cd: boekje en achterkant zijn niet even groot
   a,b=dims(fr),dims(bk)
-  if max(abs(a[0]-b[0]),abs(a[1]-b[1]))>1.5:
+  if max(abs(a[0]-b[0]),abs(a[1]-b[1]))>SAME_PRINT_MM:
    m=f'front {a[1]} x {a[0]} mm and back {b[1]} x {b[0]} mm differ; they are the same sleeve, so one side is cut at a print edge'
    doubt(fr,m);doubt(bk,m)
  ins=by_part.get('insert') or []
@@ -265,7 +269,7 @@ def feiten_scan(req,rows,layout,work):
   ref=dims(ins[0])
   for r in ins[1:]:
    d=dims(r)
-   if max(abs(d[0]-ref[0]),abs(d[1]-ref[1]))>1.5:
+   if max(abs(d[0]-ref[0]),abs(d[1]-ref[1]))>SAME_PRINT_MM:
     m=f'inserts differ in size ({ref[1]} x {ref[0]} and {d[1]} x {d[0]} mm); they are the same print'
     doubt(ins[0],m);doubt(r,m)
  if changed:emit('outputs',files=[feiten_file(r) for r in {id(r):r for r in changed}.values()])
