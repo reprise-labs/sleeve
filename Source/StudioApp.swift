@@ -8,7 +8,9 @@ import AppKit
         WindowGroup("Sleeve") {
             // Feit (André): de donkere modus is onleesbaar; Sleeve is ontworpen op licht.
             StudioView(model:model).frame(minWidth:1100,minHeight:720).preferredColorScheme(.light)
-                .onAppear { NSApp.appearance=NSAppearance(named:.aqua); delegate.onQuit = {model.prepareForQuit()}; if CommandLine.arguments.contains("--demo") && model.inputs.isEmpty {model.loadDemo()} }
+                .onAppear { NSApp.appearance=NSAppearance(named:.aqua); delegate.onQuit = {model.prepareForQuit()}; if CommandLine.arguments.contains("--demo") && model.inputs.isEmpty {model.loadDemo()}
+                    // test: --scans <map> laadt die scans meteen (zoals inslepen)
+                    if let i=CommandLine.arguments.firstIndex(of:"--scans"),i+1<CommandLine.arguments.count,model.inputs.isEmpty {model.addURLs([URL(fileURLWithPath:CommandLine.arguments[i+1])])} }
         }.defaultSize(width:1380,height:900)
         .commands {
             CommandGroup(replacing:.newItem) {

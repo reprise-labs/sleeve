@@ -32,7 +32,7 @@ extension StudioModel {
     var arrangedCount:Int { inputs.filter{!$0.reference && !($0.group ?? "").isEmpty}.count }
     var arrangementSummary:String {
         let filled=slots.filter{!$0.items.isEmpty}.count
-        if arrangedCount==0 {return "Not arranged · Sleeve groups the scans itself"}
+        if arrangedCount==0 {return "Not arranged yet · drag the scans into the slots"}
         let rest=unassignedInputs.count
         return "\(filled) slot\(filled==1 ? "" : "s") · \(arrangedCount) scan\(arrangedCount==1 ? "" : "s")"+(rest>0 ? " · \(rest) not in a slot" : "")
     }

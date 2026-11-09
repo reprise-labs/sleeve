@@ -37,7 +37,7 @@ struct StudioArrangeView: View {
             HStack {
                 Text(model.arrangementSummary).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text("Scans without a slot are grouped by Sleeve itself.").font(.caption).foregroundStyle(.secondary)
+                Text("Scans without a slot are not used.").font(.caption).foregroundStyle(.secondary)
             }.padding(.horizontal,18).padding(.vertical,10)
         }.frame(minWidth:900,minHeight:620).disabled(model.busy)
     }

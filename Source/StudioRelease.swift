@@ -75,14 +75,22 @@ extension StudioModel {
         if info.format=="vinyl" && packaging=="gatefold" && !parts.contains("inside") {parts.insert("inside",at:min(2,parts.count))}
         if info.format=="vinyl" && packaging != "gatefold" {parts.removeAll{$0=="inside"}}
         let existing=Set(slots.map{$0.part})
-        if arrangedCount==0 {for part in parts where !existing.contains(part) {addSlot(part:part)}}
+        if arrangedCount==0 {
+            for part in parts where !existing.contains(part) {
+                let slot=addSlot(part:part)
+                // een scan die al naar dit onderdeel heet (front.jpeg, cd.png …) gaat meteen in dit vak
+                if let item=unassignedInputs.first(where:{$0.url.deletingPathExtension().lastPathComponent.lowercased()==part}) {assign(item.id,to:slot)}
+            }
+        }
         releaseConfirmed=true;panel=nil
         releaseStatus="Release confirmed: \(info.artist) – \(info.title) (\(releaseYear))"
         if let url=releaseMemoryURL {
             let saved=SavedRelease(discogs:discogs,year:releaseYear,packaging:packaging,format:mediaFormat,info:info)
             try? JSONEncoder().encode(saved).write(to:url)
         }
-        if arrangedCount==0 && !inputs.isEmpty {panel = .arrange}   // meteen de scans in de vakken slepen
+        if !unassignedInputs.isEmpty {   // meteen de overige scans in de vakken slepen
+            DispatchQueue.main.asyncAfter(deadline:.now()+0.5) {[weak self] in if self?.panel==nil {self?.panel = .arrange}}
+        }
     }
     func rejectRelease() {releaseInfo=nil;discogs="";releaseStatus="Choose another release.";findReleaseAdvice(recognize:false)}
     func skipRelease() {releaseConfirmed=true;panel=nil;releaseStatus="No Discogs release. Choose CD or vinyl and the packaging yourself."}
