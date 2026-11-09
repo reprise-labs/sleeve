@@ -375,24 +375,24 @@ def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0):
     in dezelfde scan), of de schaduw ervan (donkerder en kleurlozer dan het drukwerk), is
     klep en geen drukwerk. Per zijde de buitenste rijen weghalen zolang ze dichter bij de
     klep liggen dan bij het drukwerk ernaast; hooguit max_mm."""
-    if lid_lab is None:
-        return img, (0, 0, 0, 0)
     lab = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2LAB).astype(np.float32)
     # het papier ernaast meten op 2-3 mm van de rand: een brede schaduw reikt tot ±1,5 mm
-    a, b = int(2.0 * px_mm), max(int(3.0 * px_mm), int(2.0 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
+    a, b = int(3.0 * px_mm), max(int(4.0 * px_mm), int(3.0 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
+    m_shadow = int(2.5 * px_mm)                          # feit: de kartonrand van een hoes is ±2-3 mm en geen voorkant
     def cut(rows):                                         # rows: Lab per rij/kolom vanaf de rand naar binnen
         paper = np.median(rows[a:b], 0)
         k = 0
-        while k < m:
+        while k < m_shadow:
             r = rows[k]
-            to_lid, to_paper = np.linalg.norm(r - lid_lab), np.linalg.norm(r - paper)
+            to_paper = np.linalg.norm(r - paper)
+            to_lid = np.linalg.norm(r - lid_lab) if lid_lab is not None else 1e9   # klep onbekend: alleen de schaduw telt
             shadow = r[0] < paper[0] - 10 and np.hypot(r[1] - 128, r[2] - 128) < np.hypot(paper[1] - 128, paper[2] - 128)
             # een mengsel van klep en papier (de rand loopt over in de klep): ligt op de lijn papier-klep
-            d = lid_lab - paper; nd = float(d @ d)
+            d = (lid_lab - paper) if lid_lab is not None else np.zeros(3, np.float32); nd = float(d @ d)
             tt = float((r - paper) @ d) / nd if nd > 1 else 0.0
             blend = nd > 100 and tt > .12 and np.linalg.norm(r - (paper + tt * d)) < 10
             # alleen wat duidelijk anders is dan het papier ernaast (een grijze hoes op een grijze klep blijft heel)
-            if to_paper > 8 and (to_lid < to_paper or blend or shadow):
+            if to_paper > 8 and ((k < m and (to_lid < to_paper or blend)) or shadow):
                 k += 1
             else:
                 break
@@ -636,6 +636,7 @@ def main():
             ring &= cv2.warpAffine(alpha.astype(np.uint8), Rk, (W, H), flags=cv2.INTER_NEAREST) > 0   # gescand (ook vlak bij de scanrand)
             ring[:2] = ring[-2:] = False; ring[:, :2] = ring[:, -2:] = False
             lid_lab = np.median(cv2.cvtColor(full, cv2.COLOR_BGR2LAB)[ring].astype(np.float32), 0) if ring.sum() > 100 else None
+            print('lid colour (Lab):', None if lid_lab is None else [round(float(x)) for x in lid_lab], 'from', int(ring.sum()), 'px')
             Rm0 = cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0)
             fa_real = cv2.warpAffine(alpha.astype(np.uint8), Rm0, (W, H), flags=cv2.INTER_NEAREST) > 0
             covered = fa_real[int(round(T)):int(round(B)), int(round(L)):int(round(Rr))]
