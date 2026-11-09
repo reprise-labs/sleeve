@@ -88,7 +88,8 @@ extension StudioModel {
             let saved=SavedRelease(discogs:discogs,year:releaseYear,packaging:packaging,format:mediaFormat,info:info)
             try? JSONEncoder().encode(saved).write(to:url)
         }
-        if !unassignedInputs.isEmpty {   // meteen de overige scans in de vakken slepen
+        if !unassignedInputs.isEmpty {   // Sleeve vult op feiten in wat vaststaat; de rest sleep je zelf
+            suggestArrangement()
             DispatchQueue.main.asyncAfter(deadline:.now()+0.5) {[weak self] in if self?.panel==nil {self?.panel = .arrange}}
         }
     }

@@ -84,8 +84,11 @@ extension StudioModel {
             let paths=Set(group.files.map{URL(fileURLWithPath:$0).resolvingSymlinksInPath().standardizedFileURL.path})
             let free=inputs.indices.filter{!inputs[$0].reference && (inputs[$0].group ?? "").isEmpty && paths.contains(inputs[$0].url.resolvingSymlinksInPath().standardizedFileURL.path)}
             guard !free.isEmpty else{continue}
-            let slot=UUID().uuidString;let part=slotParts.contains(group.part) ? group.part : "unknown"
+            let part=slotParts.contains(group.part) ? group.part : "unknown"
+            // een leeg vak voor dit onderdeel (uit de release) vullen; anders een nieuw vak
+            let slot=emptySlots.first(where:{$0.part==part})?.id ?? UUID().uuidString
             for i in free {inputs[i].group=slot;inputs[i].part=part}
+            emptySlots.removeAll{$0.id==slot}
         }
     }
 
@@ -94,7 +97,7 @@ extension StudioModel {
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Arrange/"+UUID().uuidString)
         do {
             try FileManager.default.createDirectory(at:cache,withIntermediateDirectories:true)
-            let request:[String:Any]=["action":"suggestGroups","inputs":unassignedInputs.map{["path":$0.url.path,"part":$0.part,"reference":false]}]
+            let request:[String:Any]=["action":"suggestGroups","inputs":unassignedInputs.map{["path":$0.url.path,"part":$0.part,"reference":false]},"discogs":discogs.trimmingCharacters(in:.whitespacesAndNewlines),"format":mediaFormat,"slots":emptySlots.map{$0.part}]
             let path=cache.appendingPathComponent("request.json");try JSONSerialization.data(withJSONObject:request).write(to:path)
             let process=Process()
             let runtime=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("com.repriselabs.Sleeve/Runtime/bin/python3")
@@ -107,7 +110,7 @@ extension StudioModel {
                 if let groups=event.groups {self.applySuggestion(groups)}
                 if event.event=="complete" || event.event=="error" || event.event=="status" {self.suggestStatus=event.message ?? self.suggestStatus}
             }}
-            suggesting=true;suggestStatus="Grouping scans…";suggestProcess=process
+            suggesting=true;suggestStatus="Filling in slots on facts…";suggestProcess=process
             try process.run()
             DispatchQueue.global(qos:.utility).async {[weak self] in
                 while true {let data=pipe.fileHandleForReading.availableData;if data.isEmpty{break};reader.accept(data)}
@@ -116,7 +119,7 @@ extension StudioModel {
                     try? FileManager.default.removeItem(at:cache)
                     guard let self else{return}
                     self.suggesting=false;self.suggestProcess=nil
-                    if process.terminationStatus != 0 && self.suggestStatus=="Grouping scans…" {self.suggestStatus="The suggestion didn’t finish. You can drag the scans into slots yourself."}
+                    if process.terminationStatus != 0 && self.suggestStatus=="Filling in slots on facts…" {self.suggestStatus="The suggestion didn’t finish. You can drag the scans into slots yourself."}
                 }
             }
         } catch {suggesting=false;suggestStatus="The suggestion couldn’t be started.";try? FileManager.default.removeItem(at:cache)}

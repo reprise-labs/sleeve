@@ -582,6 +582,18 @@ def main():
   emit('releaseAdvice',advice=A.advice(req,inputs(req),recognize_command));emit('complete',message='Release suggestions fetched.');return
  if action=='suggestGroups':raise ValueError('Sleeve no longer guesses the layout. Drag the scans into slots yourself.')
  if action=='decide':feiten_decide(req,work);return
+ if action=='suggestGroups':
+  # vakken vooraf invullen op feiten (barcode, Discogs-hoesfoto, cd van 120 mm); de rest blijft leeg
+  files=[r['path'] for r in req.get('inputs',[]) if not r.get('reference')]
+  if not req.get('discogs') or not files:emit('complete',message='Drag the scans into the slots.');return
+  emit('status',message='Looking for facts: barcode, Discogs cover photo, disc…')
+  cmd=[sys.executable,str(TOOLS/'scan_vakken.py'),release_url(req['discogs']),str(req.get('format') or ''),','.join(req.get('slots') or []),*files]
+  out=subprocess.run(cmd,capture_output=True,text=True)
+  try:res=json.loads(out.stdout.strip().splitlines()[-1])
+  except (ValueError,IndexError):emit('complete',message='No slots filled in. Drag the scans into the slots.');return
+  emit('groups',groups=res.get('groups',[]))
+  done=[f"{g['part']}: {Path(f).name} ({res['why'].get(f,'')})" for g in res.get('groups',[]) for f in g['files']]
+  emit('complete',message=('Filled in on facts: '+'; '.join(done)+'. Check them and drag the rest.') if done else 'No facts found to fill in slots. Drag the scans into the slots.');return
  if action=='releaseInfo':
   import scan_release as RI,scan_naam as N
   emit('status',message='Fetching the release from Discogs…')
