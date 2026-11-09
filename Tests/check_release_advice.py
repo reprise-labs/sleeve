@@ -1,3 +1,4 @@
+import shutil
 """Release suggestions: identifiers, ambiguous pressings, network failure, old scan settings."""
 from pathlib import Path
 from unittest.mock import patch
@@ -71,7 +72,8 @@ chosen=A.sample_rows(rows);assert len(chosen)==6 and rows[0] not in chosen and r
 sys.path.insert(0,str(root/'Resources'));import studio_bridge as B
 with tempfile.TemporaryDirectory(dir=work) as folder:
  folder=Path(folder);output=folder/'output';output.mkdir();staging=folder/'work';staging.mkdir()
- sample=root/'Resources/Samples/Voorbeeld_sidea.png'
+ # naam zonder onderdeel (Voorbeeld_sidea.png zou als 'sidea' herkend worden: dat is een feit)
+ sample=folder/'Voorbeeld.png';shutil.copy(root/'Resources/Samples/Voorbeeld_sidea.png',sample)
  try:
   B.scan({'output':str(output),'discogs':'https://www.discogs.com/release/33664818','useColour':True},[{'path':str(sample),'part':'sidea'}],staging);raise AssertionError('scan without slots must refuse')
  except ValueError as e:assert 'slots' in str(e)

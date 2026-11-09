@@ -1,0 +1,11 @@
+{
+ "scan_groups": [
+  {
+   "part": "sidea",
+   "files": [
+    "Voorbeeld_sidea.png"
+   ]
+  }
+ ],
+ "reference_files": []
+}

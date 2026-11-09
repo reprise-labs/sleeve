@@ -364,7 +364,8 @@ def scan(req,rows,work):
   # Feit: heet elk bestand naar zijn onderdeel (front, back, cd, inlay …), dan is elke scan
   # zijn eigen vak (bijvoorbeeld een cd: elk onderdeel past in één scan).
   named=[r for r in rows if not r.get('reference')]
-  stems=[Path(r['path']).stem.lower() for r in named]
+  # laatste woord van de naam: 'front', '2015_hold_me_front', 'Deena cd' …
+  stems=[re.split(r'[_\- ]',Path(r['path']).stem.lower())[-1] for r in named]
   if named and all(stem in PARTS for stem in stems) and len(set(stems))==len(stems):
    layout=[{'part':stem,'files':[Path(r['path']).name]} for stem,r in zip(stems,named)]
    for r,stem in zip(named,stems):r['group']=stem;r['part']=stem

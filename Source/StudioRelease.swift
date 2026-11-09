@@ -81,7 +81,7 @@ extension StudioModel {
             for part in parts where !existing.contains(part) {
                 let slot=addSlot(part:part)
                 // een scan die al naar dit onderdeel heet (front.jpeg, cd.png …) gaat meteen in dit vak
-                if let item=unassignedInputs.first(where:{$0.url.deletingPathExtension().lastPathComponent.lowercased()==part}) {assign(item.id,to:slot)}
+                if let item=unassignedInputs.first(where:{partFromName($0.url)==part}) {assign(item.id,to:slot)}
             }
         }
         releaseConfirmed=true;panel=nil
@@ -100,6 +100,14 @@ extension StudioModel {
     }
     func rejectRelease() {releaseInfo=nil;discogs="";releaseStatus="Choose another release.";findReleaseAdvice(recognize:false)}
     func skipRelease() {releaseConfirmed=true;panel=nil;releaseStatus="No Discogs release. Choose CD or vinyl and the packaging yourself."}
+}
+
+/// Onderdeel uit de bestandsnaam (feit): 'front.png', '2015_hold_me_front.png', 'Deena cd.jpg' …
+/// Het laatste woord van de naam (na _ - of spatie) moet precies een onderdeel zijn.
+func partFromName(_ url:URL)->String? {
+    let stem=url.deletingPathExtension().lastPathComponent.lowercased()
+    let last=stem.split(whereSeparator:{"_- ".contains($0)}).last.map(String.init) ?? stem
+    return slotParts.contains(last) && last != "unknown" ? last : nil
 }
 
 struct SavedRelease: Codable {var discogs:String;var year:String;var packaging:String;var format:String;var info:ReleaseInfo?;var files:[String]?}
