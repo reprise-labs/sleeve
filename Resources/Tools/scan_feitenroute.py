@@ -165,6 +165,28 @@ def choices_for(why):
     return out
 
 
+def print_outside(raw, facts):
+    """Ligt er tussen de gevonden snede en de beeldrand (aan minstens één zijde, strook van
+    minstens 0,3 mm) duidelijk drukwerk in plaats van effen lichte deksel?"""
+    im = cv2.imread(raw, cv2.IMREAD_UNCHANGED)
+    if im is None:
+        return False
+    dpi = facts.get('dpi') or 300.0
+    k = min(1.0, 300.0 / dpi); pm = dpi * k / 25.4
+    im = cv2.resize(im[:, :, :3], None, fx=k, fy=k, interpolation=cv2.INTER_AREA) if k < 1 else im[:, :, :3]
+    lab = cv2.cvtColor(im, cv2.COLOR_BGR2LAB).astype(np.float32)
+    L = lab[:, :, 0] * 100 / 255; C = np.hypot(lab[:, :, 1] - 128, lab[:, :, 2] - 128)
+    lid = (L > 85) & (C < 10)
+    x, y, w, h = (facts.get('precise_mm') or facts.get('box_mm'))[:4]
+    H, W = lid.shape; m = int(.3 * pm)
+    x0, y0, x1, y1 = int(x * pm), int(y * pm), int((x + w) * pm), int((y + h) * pm)
+    bands = [lid[y0:y1, :max(0, x0 - 1)], lid[y0:y1, min(W, x1 + 1):], lid[:max(0, y0 - 1), x0:x1], lid[min(H, y1 + 1):, x0:x1]]
+    for b in bands:
+        if b.size and min(b.shape) >= m and (~b).mean() > .5:
+            return True
+    return False
+
+
 def colour_extent(raw, dpi, cut, fmt, part):
     """Feit: alles wat gekleurd is, hoort bij het kaartje; het kaartje is nooit kleiner dan zijn
     gekleurde vlak. Steekt het gekleurde vlak duidelijk (>= 2 mm) buiten de gevonden snede en past
@@ -343,10 +365,14 @@ def main():
         return (b[2], b[3]) if b and len(b) >= 4 else None
     if not already and fmt == 'cd' and SF.SHAPES['cd'][feit_part][0] == 'rect':
         first = box_of(facts) if facts and facts.get('verdict') != 'FOUT' else None
-        if first:
+        # vierkante delen zoeken al zelf tot 131 mm (buitenste rand); alleen als niets gevonden is
+        # de andere maten proberen. Niet-vierkante delen (achterkaart 150 mm) wel altijd vergelijken.
+        if first and SF.SHAPES['cd'][feit_part][3]:
+            first = 'keep'
+        if first and first != 'keep':
             os.replace(crop, crop + '.jewel.png'); os.replace(crop + '.feiten.json', crop + '.jewel.json')
         chosen = None
-        for alt in ('cd-slimjewel', 'cd-cardsleeve', 'cd-digipak'):
+        for alt in ([] if first == 'keep' else ('cd-slimjewel', 'cd-cardsleeve', 'cd-digipak')):
             if feit_part not in SF.SHAPES[alt] or SF.SHAPES[alt][feit_part] == SF.SHAPES['cd'].get(feit_part):
                 continue
             step('measuring against other CD packagings')
@@ -363,12 +389,40 @@ def main():
                          'cd-digipak': 'a digipak panel'}[alt]
                 result['applied'] = (result.get('applied', '') + f' measured as {label}, not a jewel case part').strip()
                 break
-        if first:
+        if first and first != 'keep':
             if chosen is None:                             # de jewel-maat bleef de buitenste echte rand
                 os.replace(crop + '.jewel.png', crop); os.replace(crop + '.jewel.json', crop + '.feiten.json')
                 facts = json.load(open(crop + '.feiten.json'))
             else:
                 os.remove(crop + '.jewel.png'); os.remove(crop + '.jewel.json')
+    def fits_cd(wh):
+        # past deze maat op een cd-verpakking voor dit onderdeel (±1 mm)?
+        for f in ('cd', 'cd-slimjewel', 'cd-cardsleeve', 'cd-digipak'):
+            sp = SF.SHAPES[f].get(feit_part)
+            if sp and sp[0] == 'rect':
+                (wl, wh_), (hl, hh) = sp[1], sp[2]
+                W, H = wh
+                if (wl - 1 <= W <= wh_ + 1 and hl - 1 <= H <= hh + 1) or (wl - 1 <= H <= wh_ + 1 and hl - 1 <= W <= hh + 1):
+                    return True
+        return False
+    if opaque_fallback is None and len(a.scans) == 1 and fmt.startswith('cd') and SF.SHAPES['cd'].get(feit_part, ('',))[0] == 'rect':
+        # het hele beeld tegen alle cd-maten (niet alleen de gekozen verpakking)
+        for f in ('cd', 'cd-slimjewel', 'cd-cardsleeve', 'cd-digipak'):
+            if feit_part in SF.SHAPES[f]:
+                got = already_cut(a.scans[0], SF.SHAPES[f][feit_part], a.release_dpi)
+                if got and not got[1].get('transparent'):
+                    opaque_fallback = got; break
+    # Feit: past de gevonden snede op geen enkele cd-maat, maar het hele beeld wel, dan is het beeld
+    # al uitgesneden (wit kaartje tot de beeldrand: Dominique-achterkant 121 mm, snede op 115 mm).
+    if (opaque_fallback and fmt.startswith('cd') and facts and facts.get('verdict') != 'FOUT'
+            and box_of(facts) and not fits_cd(box_of(facts))):
+        facts = {'verdict': 'FOUT'}
+    # Feit: buiten het kaartje ligt de deksel (effen en licht). Ligt er tussen de gevonden snede en
+    # de beeldrand nog drukwerk, dan loopt het kaartje door tot de beeldrand: het beeld was al
+    # uitgesneden (Deena-boekje 119,7 mm: de snede viel in de foto).
+    if (opaque_fallback and fmt.startswith('cd') and facts and facts.get('verdict') != 'FOUT'
+            and (facts.get('precise_mm') or facts.get('box_mm')) and print_outside(raw, facts)):
+        facts = {'verdict': 'FOUT'}
     if opaque_fallback and (facts is None or facts.get('verdict') == 'FOUT'):
         # geen rand gevonden en de hele scan heeft al de maat van dit onderdeel: al uitgesneden
         img0, note = opaque_fallback

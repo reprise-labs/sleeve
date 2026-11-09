@@ -314,6 +314,30 @@ def hole_outline(img, hx, hy, r, n=72, outermost=False, top=1.7):
     return np.array([[hx + q * np.cos(a), hy + q * np.sin(a)] for q, (_, a) in zip(rs, pts)], np.float32)
 
 
+def edge_coverage(g, ok, horizontal, pos, a0, a1, px_mm, segs=10):
+    """Feit: een echte rand loopt recht over de hele zijde. In hoeveel van de stukken langs de
+    zijde staat op deze plek (±0,4 mm) een trap van minstens 3 grijswaarden (gemiddeld over
+    0,25 mm aan elke kant)? Een vlek of kras haalt dat maar in één of twee stukken."""
+    kk = max(2, int(.25 * px_mm)); tol = max(2, int(.4 * px_mm)); hits = n = 0
+    cuts = np.linspace(a0 + .05 * (a1 - a0), a1 - .05 * (a1 - a0), segs + 1)
+    for c0, c1 in zip(cuts[:-1], cuts[1:]):
+        lo, hi = int(pos) - tol - kk - 1, int(pos) + tol + kk + 2
+        if lo < 0 or hi > (g.shape[0] if horizontal else g.shape[1]):
+            continue
+        if horizontal:
+            band = g[lo:hi, int(c0):int(c1)]; m = ok[lo:hi, int(c0):int(c1)]; ax = 1
+        else:
+            band = g[int(c0):int(c1), lo:hi]; m = ok[int(c0):int(c1), lo:hi]; ax = 0
+        if m.mean() < .5:
+            continue
+        prof = (band * m).sum(ax) / np.maximum(m.sum(ax), 1); n += 1
+        best = 0.0
+        for j in range(kk, len(prof) - kk):
+            best = max(best, abs(prof[j:j + kk].mean() - prof[j - kk:j].mean()))
+        hits += best >= 3
+    return hits / n if n else 0.0
+
+
 def precise_edges(img, alpha, L, T, R, B, reach, segments=False, candidates=False, faint=False):
     """Elke zijde precies op de papierrand, op volle resolutie. Per zijde het
     gemiddelde helderheidsverloop dwars op de rand (middelste 80% van de zijde,
@@ -345,11 +369,21 @@ def precise_edges(img, alpha, L, T, R, B, reach, segments=False, candidates=Fals
     def edge(horizontal, pos, a0, a1, inward, whole=False):
         lo, prof = profile(horizontal, pos, a0, a1, whole)
         d = np.abs(np.diff(prof)); d = np.nan_to_num(d, nan=0.0); d[:2] = 0; d[-2:] = 0
+        if faint and len(prof) > 8:
+            # zwakke rand (wit kaartje op witte deksel): de trap tussen ±0,25 mm links en rechts,
+            # over de hele zijde gemiddeld; ruis is dan klein, een echte rand blijft staan
+            kk = max(2, int(reach / 16)); pv = np.nan_to_num(prof, nan=float(np.nanmedian(prof)))
+            cs = np.concatenate([[0], np.cumsum(pv)])
+            step_ = np.zeros(len(pv) - 1)
+            for i in range(kk, len(pv) - kk):
+                step_[i - 1] = abs((cs[i + kk] - cs[i]) - (cs[i] - cs[i - kk])) / kk
+            d = np.maximum(d, step_); d[:2] = 0; d[-2:] = 0
         if d.max() <= 0 or np.isnan(prof).mean() > .5:
             return [pos] if candidates else pos            # niets te meten: het grove kader blijft staan
         # duidelijke sprongen: minstens half zo sterk als de sterkste. Met faint (cd-kaartje): ook een
         # zwakke maar rechte rand langs de hele zijde (wit kaartje op witte deksel), ruim boven de ruis.
-        floor = max(4 * float(np.median(d[d > 0])) if (d > 0).any() else 0, .08 * d.max()) if faint else .5 * d.max()
+        noise = float(np.median(np.abs(np.diff(np.nan_to_num(prof, nan=0.0))))) if len(prof) > 2 else 0.0
+        floor = max(3.0, 6 * noise) if faint else .5 * d.max()
         peaks = [i for i in range(1, len(d) - 1) if d[i] >= d[i - 1] and d[i] >= d[i + 1] and d[i] >= floor]
         # het grove kader (hele zijde op een rand, ±0,5 mm) is het bewijs; binnen ±1,2 mm daarvan
         # de binnenste sprong (een schaduw valt buiten het papier); anders de binnenste overall
@@ -393,7 +427,7 @@ def missing_part(result, covered, px_mm):
                          'or fill it in yourself, for example in Photoshop. Sleeve does not invent image.')
 
 
-def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0):
+def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0, shadow_mm=2.5):
     """Feit: wat langs de rand de kleur van de klep heeft (gemeten vlak buiten het onderdeel
     in dezelfde scan), of de schaduw ervan (donkerder en kleurlozer dan het drukwerk), is
     klep en geen drukwerk. Per zijde de buitenste rijen weghalen zolang ze dichter bij de
@@ -401,7 +435,7 @@ def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0):
     lab = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2LAB).astype(np.float32)
     # het papier ernaast meten op 2-3 mm van de rand: een brede schaduw reikt tot ±1,5 mm
     a, b = int(3.0 * px_mm), max(int(4.0 * px_mm), int(3.0 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
-    m_shadow = int(2.5 * px_mm)                          # feit: de kartonrand van een hoes is ±2-3 mm en geen voorkant
+    m_shadow = int(shadow_mm * px_mm)                    # feit: de kartonrand van een hoes is ±2-3 mm en geen voorkant
     def cut(rows):                                         # rows: Lab per rij/kolom vanaf de rand naar binnen
         paper = np.median(rows[a:b], 0)
         k = 0
@@ -636,12 +670,29 @@ def main():
                 outer = fmt.startswith('cd')
                 cl, ct, cr, cb = precise_edges(full, fa, x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k, (4 if outer else 3) * px_mm, candidates=True, faint=outer)
                 best_c = None
-                for l_ in cl:
+                if outer:
+                    # Feit: de scanrand is geen kaartrand: kandidaten binnen 1 mm van de beeldrand tellen niet.
+                    # Dan per zijde de buitenste echte rand (geen vierkant-voorkeur: een kaartje mag 1-2 mm
+                    # afwijken; de vierkant-voorkeur trok een zijde naar de scanrand).
+                    Hf, Wf = full.shape[:2]; e1 = 1.0 * px_mm
+                    gq = cv2.cvtColor(full, cv2.COLOR_BGR2GRAY).astype(np.float32); okq = fa.astype(np.float32)
+                    X0, Y0, X1, Y1 = x0 * k, y0 * k, (x0 + Sx) * k, (y0 + Sy) * k
+                    whole = lambda v, hor: edge_coverage(gq, okq, hor, v, *((X0, X1) if hor else (Y0, Y1)), px_mm) >= .7
+                    cl2 = [v for v in cl if v > e1 and whole(v, False)]; ct2 = [v for v in ct if v > e1 and whole(v, True)]
+                    cr2 = [v for v in cr if v < Wf - e1 and whole(v, False)]; cb2 = [v for v in cb if v < Hf - e1 and whole(v, True)]
+                    if cl2 and ct2 and cr2 and cb2:
+                        l_, t_, r_, b_ = min(cl2), min(ct2), max(cr2), max(cb2)
+                        w_, h_ = r_ - l_, b_ - t_
+                        if wlo * px_mm <= w_ <= max(whi, 131) * px_mm and hlo * px_mm <= h_ <= max(hhi, 131) * px_mm:
+                            best_c = ((0, 0), (l_, t_, r_, b_))
+                for l_ in ([] if best_c else cl):
                     for r_ in cr:
                         for t_ in ct:
                             for b_ in cb:
                                 w_, h_ = r_ - l_, b_ - t_
-                                if not (wlo * px_mm <= w_ <= whi * px_mm and hlo * px_mm <= h_ <= hhi * px_mm):
+                                # cd: elk cd-kaartje (boekje 117-123, kaartje/hoesje tot 131) mag; welke het is, volgt uit de maat
+                                wmax, hmax = (max(whi, 131), max(hhi, 131)) if outer else (whi, hhi)
+                                if not (wlo * px_mm <= w_ <= wmax * px_mm and hlo * px_mm <= h_ <= hmax * px_mm):
                                     continue
                                 key = (0 if abs(w_ - h_) <= 1.0 * px_mm else abs(w_ - h_), -(w_ + h_) if outer else w_ + h_)   # vierkant binnen 1 mm; dan buitenste (cd) / binnenste (vinyl)
                                 if best_c is None or key < best_c[0]:
@@ -702,7 +753,8 @@ def main():
             l0 = next((k for k in range(m_) if not gone(acrop[:, k].mean())), m_)
             r0 = next((k for k in range(m_) if not gone(acrop[:, w_ - 1 - k].mean())), m_)
             crop = crop[t0:crop.shape[0] - b0, l0:crop.shape[1] - r0]
-            crop, trimmed = trim_edge_lines(crop, px_mm * F, lid_lab)
+            # cd: geen kartonrand; alleen een haarlijn (±0,3 mm) mag eraf, een wit kader blijft
+            crop, trimmed = trim_edge_lines(crop, px_mm * F, lid_lab, *((0.3, 0.3) if fmt.startswith('cd') else ()))
             trimmed = tuple(x + y for x, y in zip(trimmed, (t0, r0, b0, l0)))
             if any(trimmed):
                 result['edge_lines_trimmed_px'] = trimmed
