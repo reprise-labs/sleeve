@@ -7,7 +7,7 @@ Lees het onderdeel in alle vier de standen met de tekstherkenning van macOS; in 
 stand waarin die bekende tekst terug te lezen is, staat het rechtop. Is er geen
 duidelijke winnaar: TWIJFEL, de gebruiker beslist.
 """
-import argparse, difflib, json, math, os, re, subprocess, sys, tempfile
+import argparse, difflib, json, math, os, re, subprocess, sys, tempfile, time
 import numpy as np, cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +38,12 @@ def read_rotations(path):
     small = cv2.resize(im, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else im
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, small)
-        out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=120).stdout
+        out = ''
+        for attempt in range(4):                           # zie ocr_lines: Vision geeft soms niets terug
+            out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=120).stdout
+            if out.strip():
+                break
+            time.sleep(0.3 * (attempt + 1))
     lines = {0: [], 90: [], 180: [], 270: []}
     for line in out.splitlines():
         try:
@@ -67,7 +72,12 @@ ROTATE = {0: None, 90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.RO
 def read_image(im):
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, im)
-        out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=120).stdout
+        out = ''
+        for attempt in range(4):                           # zie ocr_lines: Vision geeft soms niets terug
+            out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=120).stdout
+            if out.strip():
+                break
+            time.sleep(0.3 * (attempt + 1))
     lines = {0: [], 90: [], 180: [], 270: []}
     for line in out.splitlines():
         try:
@@ -104,10 +114,11 @@ def ocr_lines(view):
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, view)
         out = ''
-        for _ in range(2):                                 # Vision geeft af en toe niets terug: één keer opnieuw
+        for attempt in range(4):                           # Vision geeft soms (vaak de eerste keer) niets terug: opnieuw
             out = subprocess.run([OCR, p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
             if out.strip():
                 break
+            time.sleep(0.3 * (attempt + 1))
     h, w = view.shape[:2]; lines = []
     for row in out.splitlines():
         try:
@@ -163,14 +174,14 @@ def level_label(label, coarse, words):
         # Feit (André, 8 nov): de tracklist staat op een label (bijna) altijd recht.
         # Die is leidend; alleen als er geen tracklist te lezen is, de grootste tekst
         # (artiest of titel).
-        if len(tracks) >= 2:
+        # een tracktitel die ook de albumtitel is (bv. 'Set This Thing On Fire') telt niet als tracklistregel
+        tracks = [l for l in tracks if l not in titles or len(tracks) == 1 and not titles]
+        if tracks:
             off = float(np.median([line_angle(view, l['box'], 0.0) for l in tracks]))
             how = 'tracklist (%d lines)' % len(tracks)
         elif titles:
             big = max(titles, key=lambda l: l['height'])
             off, how = line_angle(view, big['box'], 0.0), 'largest text: ' + big['text']
-        elif tracks:
-            off, how = line_angle(view, tracks[0]['box'], 0.0), 'tracklist (1 line)'
         else:
             break
         angle = (angle - off) % 360

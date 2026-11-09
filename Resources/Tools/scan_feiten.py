@@ -386,7 +386,8 @@ def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0):
             d = lid_lab - paper; nd = float(d @ d)
             tt = float((r - paper) @ d) / nd if nd > 1 else 0.0
             blend = nd > 100 and tt > .12 and np.linalg.norm(r - (paper + tt * d)) < 10
-            if to_lid < to_paper or blend or (shadow and to_paper > 8):
+            # alleen wat duidelijk anders is dan het papier ernaast (een grijze hoes op een grijze klep blijft heel)
+            if to_paper > 8 and (to_lid < to_paper or blend or shadow):
                 k += 1
             else:
                 break
@@ -539,6 +540,7 @@ def main():
             if hr is None:
                 hcx, hcy, hr = hx, hy, hole_mm / 2 * px_mm
                 result.setdefault('why', []).append('centre hole: edge not clearly measured; cut at the standard size')
+            hr = max(hr, hole_mm / 2 * px_mm)               # feit: het gat is nooit kleiner dan de norm (7,24 mm / cd 15 mm)
             outline = np.float32([[hcx + hr * math.cos(t), hcy + hr * math.sin(t)] for t in np.linspace(0, 2 * math.pi, 180, endpoint=False)])
             hole = np.zeros((n, n), np.uint8)
             cv2.circle(hole, (int(round(hcx * 16)), int(round(hcy * 16))), int(round((hr + .1 * px_mm) * 16)), 255, -1, cv2.LINE_AA, 4)

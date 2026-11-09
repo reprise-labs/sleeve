@@ -144,7 +144,12 @@ def side_on_label(img, dpi):
         lab = cv2.resize(lab, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'l.png'); cv2.imwrite(p, lab)
-        out = subprocess.run([os.path.join(HERE, 'sleeve_ocr'), p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
+        out = ''
+        for attempt in range(4):                           # Vision geeft soms niets terug: opnieuw
+            out = subprocess.run([os.path.join(HERE, 'sleeve_ocr'), p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
+            if out.strip():
+                break
+            import time; time.sleep(0.3 * (attempt + 1))
     words = {'one': 'a', 'two': 'b', 'three': 'c', 'four': 'd'}
     for line in out.splitlines():
         m = re.search(r'\bside\s*([abcd]|one|two|three|four)\b', line.split('\t')[1] if '\t' in line else line, re.I)
