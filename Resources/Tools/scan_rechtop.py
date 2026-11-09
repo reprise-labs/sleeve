@@ -54,6 +54,25 @@ def read_rotations(path):
     return lines
 
 
+
+def readable_text_score(lines):
+    """Per stand: hoeveel echte woorden Vision leest (ook tekst die niet van de release is).
+    Feit: tekst leest alleen als woorden (Hoofdletter+kleine letters, of alles hoofdletters, met
+    een klinker) als hij rechtop staat; ondersteboven of gekanteld wordt het een mengsel als 'aJaAas'."""
+    score, hits = {}, {}
+    for deg, texts in lines.items():
+        good = []
+        for t in texts:
+            n = sum(len(tok) for tok in t.split() if WORD.match(tok) and re.search('[aeiouyAEIOUY]', tok))
+            if n:
+                good.append((n, t))
+        hits[deg] = [t for _, t in sorted(good, reverse=True)]; score[deg] = sum(n for n, _ in good)
+    return score, hits
+
+
+WORD = re.compile(r'^[(\'"]?(?:[A-Z]?[a-z]{2,}|[A-Z]{3,})[.,;:!?)\'"]?$')
+
+
 def known_text_score(lines, words):
     """Per stand: welke bekende woorden terug te lezen zijn, en hun totale lengte."""
     score, hits = {}, {}
@@ -294,11 +313,20 @@ def main():
         verdict = 'GOED' if votes[best] >= CLEAR * max(second, 1) else 'TWIJFEL'
         result = {'rotate_clockwise': best, 'known_text_per_rotation': votes, 'read_upright': [l['text'] for l in known][:12] + ['direction from Vision'], 'verdict': verdict}
     else:
-        score, hits = known_text_score(read_rotations(a.image), words)
+        rot = read_rotations(a.image)
+        score, hits = known_text_score(rot, words)
         ranked = sorted(score, key=score.get, reverse=True)
         best, second = ranked[0], ranked[1]
         verdict = 'GOED' if score[best] > 0 and score[best] >= CLEAR * max(score[second], 1) else 'TWIJFEL'
         result = {'rotate_clockwise': best, 'known_text_per_rotation': score, 'read_upright': hits[best], 'verdict': verdict}
+        if score[best] == 0:
+            # geen tekst van de release: dan de stand waarin Vision andere tekst duidelijk leest
+            rs, rh = readable_text_score(rot)
+            ranked = sorted(rs, key=rs.get, reverse=True)
+            best, second = ranked[0], ranked[1]
+            if rs[best] >= 40 and rs[best] >= CLEAR * max(rs[second], 1):
+                result = {'rotate_clockwise': best, 'readable_text_per_rotation': rs,
+                          'read_upright': rh[best][:8] + ['readable text (not of the release)'], 'verdict': 'LEESBAAR'}
     print(json.dumps(result, ensure_ascii=False))
     if a.out:
         im = cv2.imread(a.image, cv2.IMREAD_UNCHANGED)

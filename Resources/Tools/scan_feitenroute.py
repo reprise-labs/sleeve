@@ -321,8 +321,12 @@ def main():
                         img = cv2.rotate(base, ROTATE[int(ang_d)]) if int(ang_d) else base
                     result['upright'] = {'rotate_clockwise': round(ang_d, 1), 'verdict': 'GOED', 'read_upright': [f'Discogs photo ({nk} matching points)']}
                     result['applied'] = (result.get('applied', '') + ' upright from the Discogs photo').strip()
+                elif upright.get('verdict') == 'LEESBAAR':
+                    # feit: andere tekst op dit onderdeel leest duidelijk in één stand (img is al zo gedraaid)
+                    result['upright'] = {'rotate_clockwise': upright.get('rotate_clockwise'), 'verdict': 'GOED', 'read_upright': upright.get('read_upright')}
+                    result['applied'] = (result.get('applied', '') + ' upright from readable text').strip()
                 else:
-                    why.append('which way is up: no known text of the release could be read, and no Discogs photo matches clearly')
+                    why.append('which way is up: no text could be read clearly, and no Discogs photo matches clearly')
     else:
         why.append('which way is up: no Discogs release, so no known text to read')
     # kant op het label (feit) tegen het vak
