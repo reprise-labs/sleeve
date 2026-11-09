@@ -1,6 +1,9 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
 Stand: 9 nov 2026, versie 0.5.24 (tag `v0.5.24`, branch `feiten`, github.com/reprise-labs/sleeve).
+
+> **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
+> Controleer bij de start: `git checkout feiten && git pull origin feiten`.
 Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 
 ## Uitgangspunt: alleen feiten, geen regels
