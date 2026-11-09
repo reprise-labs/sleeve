@@ -73,9 +73,12 @@ private struct SlotCard: View {
     var body: some View {
         VStack(alignment:.leading,spacing:10) {
             HStack {
-                Picker("Part",selection:Binding(get:{slot.part},set:{model.setSlotPart(slot.id,$0)})) {
-                    ForEach(slotParts,id:\.self){Text(partLabel($0)).tag($0)}
-                }.labelsHidden().frame(width:150)
+                // Menu met knoppen i.p.v. een Picker: een Picker in een lijst die van volgorde verandert
+                // (vak gevuld -> leeg vak verdwijnt) kon zelf een waarde terugschrijven naar een ander vak
+                // (cd werd 'inlay', twee vakken 'Side A'). Een knop doet alleen iets als jij klikt.
+                Menu(partLabel(slot.part)) {
+                    ForEach(slotParts,id:\.self){part in Button(partLabel(part)){model.setSlotPart(slot.id,part)}}
+                }.frame(width:150)
                 Text(slot.part.hasPrefix("side") || slot.part.hasPrefix("cd") ? "record" : slot.part=="unknown" ? "Sleeve decides" : "cover").font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 Button {model.removeSlot(slot.id)} label:{Image(systemName:"trash")}.buttonStyle(.plain).foregroundStyle(.secondary).help("Remove slot (its scans go back to ‘Not in a slot’)")

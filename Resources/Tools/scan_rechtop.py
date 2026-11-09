@@ -40,7 +40,10 @@ def read_rotations(path):
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, small)
         out = ''
         for attempt in range(4):                           # zie ocr_lines: Vision geeft soms niets terug
-            out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=120).stdout
+            try:
+                out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=60).stdout
+            except subprocess.TimeoutExpired:
+                out = ''
             if out.strip():
                 break
             time.sleep(0.3 * (attempt + 1))
@@ -93,7 +96,10 @@ def read_image(im):
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, im)
         out = ''
         for attempt in range(4):                           # zie ocr_lines: Vision geeft soms niets terug
-            out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=120).stdout
+            try:
+                out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=60).stdout
+            except subprocess.TimeoutExpired:
+                out = ''
             if out.strip():
                 break
             time.sleep(0.3 * (attempt + 1))

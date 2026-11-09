@@ -319,10 +319,15 @@ def feiten_scan(req,rows,layout,work):
   if r.get('panels'):files+=[dict(feiten_file(r),path=q['path'],part=q['part']) for q in r['panels']]
   elif r.get('path'):files.append(feiten_file(r))
  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':results,'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
- if not files:raise ValueError('No processed images were made. See the log.')
- good=sum(r.get('verdict')=='GOED' for r in results);doubt=len(results)-good
+ if not files:raise ValueError('No processed images were made: '+' '.join(f"{r.get('part')}: {'; '.join(r.get('why') or ['no reason'])}." for r in results))
+ # Een onderdeel dat niet gemaakt kon worden, heeft geen bestand en staat dus niet in de eindcontrole:
+ # daarom hier hardop melden, met de reden (nooit stil laten verdwijnen).
+ failed=[r for r in results if not r.get('path') and not r.get('panels')]
+ good=sum(r.get('verdict')=='GOED' for r in results);doubt=len(results)-good-len(failed)
  note=(' Missing according to Discogs: side '+', '.join(x.upper() for x in missing)+'.') if missing else ''
- emit('complete',message=f'{len(results)} parts processed: {good} good'+(f', {doubt} in doubt. Decide in the Final Check.' if doubt else '.')+note,path=str(output))
+ fail_note=''.join(f" NOT MADE: {r.get('part')} – {'; '.join(r.get('why') or ['no reason given'])}." for r in failed)
+ for r in failed:emit('warning',message=f"NOT MADE: {r.get('part')} – {'; '.join(r.get('why') or ['no reason given'])}")
+ emit('complete',message=f'{len(results)} parts processed: {good} good'+(f', {doubt} in doubt' if doubt else '')+(f', {len(failed)} not made' if failed else '')+('. Decide in the Final Check.' if doubt else '.')+fail_note+note,path=str(output))
 
 def feiten_decide(req,work):
  """Beslissing van de gebruiker voor één onderdeel: onthouden en dat onderdeel opnieuw maken."""
@@ -365,6 +370,18 @@ def scan(req,rows,work):
   (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':[result],'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
   emit('complete',message=f'{part}: {result.get("verdict")}',path=str(output));return
  layout=layout_from_groups(rows)
+ # Feit: elk onderdeel bestaat één keer (twee vakken 'Side A' of twee keer 'CD' kan niet; inserts wel)
+ seen={}
+ for g in layout:
+  if g['part'] and g['part'] not in ('insert','unknown') and g['part'] in seen:
+   raise ValueError(f"Two slots are both '{g['part']}' ({', '.join(seen[g['part']])} and {', '.join(g['files'])}). Check the slots in Arrange Scans.")
+  seen.setdefault(g['part'],g['files'])
+ # Feit: heet een scan naar een onderdeel (…_cd.png) en ligt hij in een vak van een ander onderdeel, melden
+ for g in layout:
+  for f in g['files']:
+   last=re.split(r'[_\- ]',Path(f).stem.lower())[-1]
+   if last in PARTS and g['part'] and last!=g['part'] and not (last.startswith('insert') and g['part'].startswith('insert')):
+    emit('warning',message=f"{f} is named '{last}' but lies in the slot '{g['part']}'. Check the slots.")
  if not layout:
   # Feit: heet elk bestand naar zijn onderdeel (front, back, cd, inlay …), dan is elke scan
   # zijn eigen vak (bijvoorbeeld een cd: elk onderdeel past in één scan).

@@ -446,6 +446,8 @@ final class PipeReader: @unchecked Sendable {
             }
         case "error":reportedError=true;stateText=cancelled ? "Stopped" : "Stopped on an error";if !cancelled{errorMessage=event.message}
         case "complete":receivedComplete=true;stateText=event.message ?? "Finished"
+            // een onderdeel dat niet gemaakt kon worden, staat niet in de eindcontrole: meteen laten zien
+            if let message=event.message,message.contains("NOT MADE") {errorMessage=message}
         default:break
         }
     }

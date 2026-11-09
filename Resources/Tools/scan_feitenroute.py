@@ -252,17 +252,16 @@ def side_on_label(img, dpi):
     s = 1600 / max(lab.shape[:2])
     if s < 1:
         lab = cv2.resize(lab, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
-    with tempfile.TemporaryDirectory() as tmp:
-        p = os.path.join(tmp, 'l.png'); cv2.imwrite(p, lab)
+    # zelfde veilige tekstherkenning als bij rechtop zetten (nauwkeurig hooguit 8 s, anders snel;
+    # vroeger 4 x 120 s wachten, en bij hangen viel de hele kant om: 'maar 1 LP gedaan')
+    import scan_rechtop as R
+    try:
+        out = '\n'.join(l['text'] for l in R.ocr_lines(lab))
+    except Exception:
         out = ''
-        for attempt in range(4):                           # Vision geeft soms niets terug: opnieuw
-            out = subprocess.run([os.path.join(HERE, 'sleeve_ocr'), p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
-            if out.strip():
-                break
-            import time; time.sleep(0.3 * (attempt + 1))
     words = {'one': 'a', 'two': 'b', 'three': 'c', 'four': 'd'}
     for line in out.splitlines():
-        m = re.search(r'\bside\s*([abcd]|one|two|three|four)\b', line.split('\t')[1] if '\t' in line else line, re.I)
+        m = re.search(r'\bside\s*([abcd]|one|two|three|four)\b', line, re.I)
         if m:
             v = m[1].lower(); return words.get(v, v)
     return None

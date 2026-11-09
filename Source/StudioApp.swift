@@ -10,7 +10,25 @@ import AppKit
             StudioView(model:model).frame(minWidth:1100,minHeight:720).preferredColorScheme(.light)
                 .onAppear { NSApp.appearance=NSAppearance(named:.aqua); delegate.onQuit = {model.prepareForQuit()}; if CommandLine.arguments.contains("--demo") && model.inputs.isEmpty {model.loadDemo()}
                     // test: --scans <map> laadt die scans meteen (zoals inslepen)
-                    if let i=CommandLine.arguments.firstIndex(of:"--scans"),i+1<CommandLine.arguments.count,model.inputs.isEmpty {model.addURLs([URL(fileURLWithPath:CommandLine.arguments[i+1])])} }
+                    if let i=CommandLine.arguments.firstIndex(of:"--scans"),i+1<CommandLine.arguments.count,model.inputs.isEmpty {model.addURLs(CommandLine.arguments[i+1].split(separator:"|").map{URL(fileURLWithPath:String($0))})}
+                    // test: --discogs <link> --dump <bestand>: release laden en bevestigen, daarna elke 5 s de indeling wegschrijven
+                    if let i=CommandLine.arguments.firstIndex(of:"--discogs"),i+1<CommandLine.arguments.count {
+                        let link=CommandLine.arguments[i+1]
+                        DispatchQueue.main.asyncAfter(deadline:.now()+2){model.discogs=link;model.loadReleaseInfo()}
+                        func waitConfirm(_ n:Int){DispatchQueue.main.asyncAfter(deadline:.now()+1){ if model.releaseInfo != nil && !model.releaseLoading {model.confirmRelease()} else if n<60 {waitConfirm(n+1)} }}
+                        waitConfirm(0)
+                    }
+                    if let i=CommandLine.arguments.firstIndex(of:"--dump"),i+1<CommandLine.arguments.count {
+                        let path=CommandLine.arguments[i+1]
+                        func dump(_ n:Int){DispatchQueue.main.asyncAfter(deadline:.now()+5){
+                            let rows=model.inputs.map{["file":$0.url.lastPathComponent,"part":$0.part,"group":$0.group ?? "","reference":$0.reference ? "yes":"no"]}
+                            let slots=model.slots.map{["id":$0.id,"part":$0.part,"files":$0.items.map{$0.url.lastPathComponent}.joined(separator:",")]}
+                            let all:[String:Any]=["t":n*5,"inputs":rows,"slots":slots,"suggest":model.suggestStatus,"release":model.releaseStatus]
+                            if let d=try? JSONSerialization.data(withJSONObject:all,options:.prettyPrinted){try? d.write(to:URL(fileURLWithPath:path+"_\(n*5)s.json"))}
+                            if n<24 {dump(n+1)}
+                        }}
+                        dump(1)
+                    } }
         }.defaultSize(width:1380,height:900)
         .commands {
             CommandGroup(replacing:.newItem) {
