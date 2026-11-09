@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 9 nov 2026, versie 0.5.18 (tag `v0.5.18`, branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 9 nov 2026, versie 0.5.19 (tag `v0.5.19`, branch `feiten`, github.com/reprise-labs/sleeve).
 Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 
 ## Uitgangspunt: alleen feiten, geen regels

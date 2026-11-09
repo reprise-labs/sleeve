@@ -128,20 +128,41 @@ def text_level(label, angle, r_px, hole_px):
     return best[1]
 
 
+SLOW_FLAG = os.path.join(tempfile.gettempdir(), 'sleeve-accurate-ocr-slow')
+
+
+def accurate_is_slow():
+    """Hing het nauwkeurige lezen de afgelopen 10 minuten? (gedeeld tussen alle onderdelen)"""
+    try:
+        return time.time() - os.path.getmtime(SLOW_FLAG) < 600
+    except OSError:
+        return False
+
+
+def mark_accurate_slow():
+    try:
+        open(SLOW_FLAG, 'w').close()
+    except OSError:
+        pass
+
+
 def ocr_lines(view):
     """Gelezen regels met hun kader in pixels (x0, y0, x1, y1), via sleeve_ocr --boxes."""
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, view)
         out = ''
+        slow = accurate_is_slow()
         for attempt in range(4):                           # Vision geeft soms (vaak de eerste keer) niets terug: opnieuw
-            # nauwkeurig lezen kan blijven hangen (Neural Engine bezet): kort wachten, dan snel lezen
-            mode = '--boxes' if attempt < 2 else '--fast-boxes'
+            # Nauwkeurig lezen draait op de Neural Engine: normaal 0,5 s, maar het kan minuten
+            # hangen als die bezet is of zijn model nog voorbereidt (Mac mini: 4,5 min voor één cd).
+            # Daarom kort proberen; hangt het, dan 10 minuten lang meteen snel lezen (CPU).
+            mode = '--fast-boxes' if (slow or attempt >= 2) else '--boxes'
             try:
-                # De eerste nauwkeurige herkenning na een tijd stil bereidt het model voor (gemeten
-                # ±60 s); daarna 0,5 s. Niet halverwege afbreken, anders begint elk onderdeel opnieuw.
-                out = subprocess.run([OCR, p, mode], capture_output=True, text=True, timeout=90 if attempt == 0 else 20).stdout
+                out = subprocess.run([OCR, p, mode], capture_output=True, text=True, timeout=8 if mode == '--boxes' else 20).stdout
             except subprocess.TimeoutExpired:
                 out = ''
+                if mode == '--boxes':
+                    mark_accurate_slow(); slow = True
             if out.strip():
                 break
             time.sleep(0.3 * (attempt + 1))

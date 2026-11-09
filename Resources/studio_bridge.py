@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local job adapter for Sleeve. JSON lines on stdout; no AI calls."""
-import contextlib,ctypes,datetime,functools,io,json,os,re,shutil,signal,subprocess,sys,traceback,urllib.parse,uuid
+import contextlib,ctypes,threading,datetime,functools,io,json,os,re,shutil,signal,subprocess,sys,traceback,urllib.parse,uuid
 from pathlib import Path
 TOOLS=Path(__file__).parent/'Tools'
 try:
@@ -183,9 +183,18 @@ def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0)
  work.mkdir(parents=True,exist_ok=True)
  process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
  OCR_CHILDREN.add(process)
- try:out,err=process.communicate()
+ err_lines=[]
+ def read_err():
+  # stap voor stap laten zien wat er gebeurt (SLEEVE_STEP-regels van de route)
+  for line in process.stderr:
+   if line.startswith('SLEEVE_STEP '):
+    emit('status',message=f'{part}: {line[12:].strip()}…')
+   else:err_lines.append(line)
+ reader=threading.Thread(target=read_err,daemon=True);reader.start()
+ try:out=process.stdout.read();process.wait();reader.join()
  finally:
   OCR_CHILDREN.discard(process);shutil.rmtree(work,ignore_errors=True)
+ err=''.join(err_lines)
  for line in (err or '').splitlines()[-5:]:emit('log',message=line)
  try:return json.loads(out.strip().splitlines()[-1])
  except (ValueError,IndexError):return {'part':part,'scans':files,'verdict':'FOUT','why':[(err or 'no result').strip().splitlines()[-1] if (err or '').strip() else 'no result']}
@@ -195,8 +204,28 @@ def feiten_file(result):
          'verdict':result.get('verdict'),'why':result.get('why',[]),'choices':result.get('choices',[]),'scans':result.get('scans',[]),
          'message':result.get('message'),'applied':result.get('applied')}
 
+def warm_up_text_recognition(work):
+ """Het nauwkeurige tekstmodel van macOS op de achtergrond laten voorbereiden (de eerste keer
+ ±1 minuut) terwijl het samenvoegen en uitsnijden lopen. Lukt het, dan mag de route het weer gebruiken."""
+ def run():
+  try:
+   import numpy as np,cv2,tempfile
+   img=np.full((80,400,3),255,np.uint8);cv2.putText(img,'Sleeve warm up',(10,55),0,1.2,(0,0,0),2)
+   p=work/'warmup.png';cv2.imwrite(str(p),img)
+   process=subprocess.Popen([str(TOOLS/'sleeve_ocr'),str(p),'--boxes'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+   OCR_CHILDREN.add(process)
+   try:
+    if process.wait(timeout=180)==0:
+     with contextlib.suppress(OSError):os.remove(os.path.join(tempfile.gettempdir(),'sleeve-accurate-ocr-slow'))
+   except subprocess.TimeoutExpired:process.kill()
+   finally:OCR_CHILDREN.discard(process)
+  except Exception:pass
+ threading.Thread(target=run,daemon=True).start()
+
+
 def feiten_scan(req,rows,layout,work):
  """Feitenroute: elk vak is één onderdeel; uitsnijden en rechtop op feiten, goed of twijfel."""
+ warm_up_text_recognition(work)
  import concurrent.futures as CF
  by_name={Path(r['path']).name:r['path'] for r in rows}
  jobs=[]

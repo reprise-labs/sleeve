@@ -21,6 +21,11 @@ DECISIONS = '.sleeve-beslissingen.json'
 ROTATE = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
 
 
+def step(text):
+    """Wat er nu gebeurt, voor de voortgang in de app (via de bridge)."""
+    print('SLEEVE_STEP ' + text, file=sys.stderr, flush=True)
+
+
 def key_for(scans):
     """Een onderdeel herken je aan zijn scans (namen, gesorteerd)."""
     return '|'.join(sorted(os.path.basename(s) for s in scans))
@@ -260,6 +265,7 @@ def main():
                     im.reduce(2).save(q, dpi=(d0 / 2, d0 / 2))
                 scans_in.append(q)
             result['why_note'] = f'{len(a.scans)} scans ({total_px / 1e6:.0f} Mpx) do not fit in memory together; made at {d0 / 2:.0f} dpi'
+        step(f'merging {len(scans_in)} scans')
         st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'], capture_output=True, text=True)
         for q in scans_in:
             if q not in a.scans and os.path.exists(q):
@@ -271,6 +277,8 @@ def main():
     if not already and (st.returncode != 0 or not os.path.exists(raw)):
         result.update(verdict='FOUT', why=[(st.stderr or st.stdout).strip().splitlines()[-1] if (st.stderr or st.stdout).strip() else 'merging failed'])
         print(json.dumps(result)); return
+    if not already:
+        step('finding the edges and cutting out')
     fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', fmt, '--out', crop], capture_output=True, text=True) if not already else subprocess.CompletedProcess([], 0, '', '')
     try:
         facts = json.load(open(crop + '.feiten.json'))
@@ -284,6 +292,7 @@ def main():
         for alt in ('cd-slimjewel', 'cd-cardsleeve', 'cd-digipak'):
             if feit_part not in SF.SHAPES[alt] or SF.SHAPES[alt][feit_part] == SF.SHAPES['cd'].get(feit_part):
                 continue
+            step('measuring against other CD packagings')
             subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', alt, '--out', crop], capture_output=True, text=True)
             try:
                 f2 = json.load(open(crop + '.feiten.json'))
@@ -335,6 +344,7 @@ def main():
         json.dump(words, open(os.path.join(a.work, 'words.json'), 'w'))
         if disc:
             args += ['--disc', '--dpi', str(dpi)]
+        step('reading text to set it upright (macOS text recognition)' + (' and straightening the label' if disc else ''))
         ro = subprocess.run(args, capture_output=True, text=True)
         try:
             upright = json.loads(ro.stdout.strip().splitlines()[-1])
