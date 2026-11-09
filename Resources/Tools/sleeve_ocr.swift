@@ -3,12 +3,12 @@ import Vision
 import AppKit
 import ImageIO
 if CommandLine.arguments.count < 2 { exit(1) }
-if CommandLine.arguments.contains("--boxes") {
+if CommandLine.arguments.contains("--boxes") || CommandLine.arguments.contains("--fast-boxes") {
   // gebruik: sleeve_ocr <png> --boxes -> per regel: zekerheid \t tekst \t hoeken (tl,tr,br,bl; genormaliseerd, oorsprong linksonder)
   let url = URL(fileURLWithPath: CommandLine.arguments[1])
   guard let img = NSImage(contentsOf: url), let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { exit(1) }
   let req = VNRecognizeTextRequest()
-  req.recognitionLevel = .accurate
+  req.recognitionLevel = CommandLine.arguments.contains("--fast-boxes") ? .fast : .accurate
   req.usesLanguageCorrection = false
   try? VNImageRequestHandler(cgImage: cg, orientation: .up, options: [:]).perform([req])
   for r in (req.results ?? []) {

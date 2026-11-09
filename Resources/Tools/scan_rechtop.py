@@ -115,7 +115,12 @@ def ocr_lines(view):
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, view)
         out = ''
         for attempt in range(4):                           # Vision geeft soms (vaak de eerste keer) niets terug: opnieuw
-            out = subprocess.run([OCR, p, '--boxes'], capture_output=True, text=True, timeout=120).stdout
+            # nauwkeurig lezen kan blijven hangen (Neural Engine bezet): kort wachten, dan snel lezen
+            mode = '--boxes' if attempt < 2 else '--fast-boxes'
+            try:
+                out = subprocess.run([OCR, p, mode], capture_output=True, text=True, timeout=20).stdout
+            except subprocess.TimeoutExpired:
+                out = ''
             if out.strip():
                 break
             time.sleep(0.3 * (attempt + 1))
@@ -232,8 +237,9 @@ def disc_angle(path, words, px_mm):
             return fine, {round(est, 1): len(use)}, got + ['direction from %d lines' % len(use), 'level: ' + how] + note
     tried = {}
     def score_at(base):
-        R = cv2.getRotationMatrix2D((r, r), -base, 1.0)              # met de klok mee draaien
-        view = cv2.warpAffine(label, R, (2 * r, 2 * r), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255))
+        n_ = small.shape[0]                                       # op ±300 dpi zoeken: snel, en Vision leest daar goed
+        R = cv2.getRotationMatrix2D((n_ / 2, n_ / 2), -base, 1.0)    # met de klok mee draaien
+        view = cv2.warpAffine(small, R, (n_, n_), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255))
         sc, hits = known_text_score(read_image(view), words)
         for q, v in sc.items():
             tried[(base + q) % 360] = (v, hits[q])
