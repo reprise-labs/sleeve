@@ -220,6 +220,8 @@ def rigid_fit(src, dst):
     return np.vstack([M, [0, 0, 1]]), int(k.sum()), r
 
 
+STRETCH_GAIN = 0.8    # rekcorrectie alleen bij minstens 20% betere passing
+
 def scanner_stretch(pairs):
     """Een flatbed rekt de ene richting net iets anders dan de andere (~0,1-0,5%).
     Liggen stukken 90 graden gedraaid, dan past alleen schuiven/draaien niet meer
@@ -311,6 +313,11 @@ def place(n, feats):
                 if pm is not None:
                     pairs[(i, j)] = pm
     sy, r0, r1 = scanner_stretch(pairs)
+    # Feit, geen schatting: alleen corrigeren als de scans er aantoonbaar beter door passen.
+    # Zonder winst is de gevonden rek ruis (Fire-back: +0,40% en -0,23% op dezelfde scanner)
+    # en zou hij de hoes 1-2 mm hoger of lager maken.
+    if not (r1 <= STRETCH_GAIN * r0 and r0 - r1 >= 0.15):
+        sy, r1 = 1.0, r0
     D = np.array([1.0, sy], np.float32)
     T = {}; W = np.zeros((n, n), int)
     for (i, j), (src, dst) in pairs.items():
