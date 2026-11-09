@@ -19,9 +19,11 @@ extension StudioModel {
     func offerReleaseConfirmation() {
         guard !inputs.isEmpty,!restoringProject,!queueRunning else{return}
         if releaseConfirmed {return}
-        if let url=releaseMemoryURL,let data=try? Data(contentsOf:url),let saved=try? JSONDecoder().decode(SavedRelease.self,from:data) {
+        // per set scans onthouden: een map kan meerdere releases bevatten (bv. promo's in één map)
+        let names=Set(inputs.filter{!$0.reference}.map{$0.url.lastPathComponent})
+        if let saved=savedReleases().first(where:{!names.isEmpty && names.isSubset(of:Set($0.files ?? []))}) {
             discogs=saved.discogs;releaseYear=saved.year;packaging=saved.packaging;mediaFormat=saved.format;releaseInfo=saved.info;releaseConfirmed=true
-            releaseStatus="Release remembered for this folder: \(saved.info?.title ?? saved.discogs)"
+            releaseStatus="Release remembered for these scans: \(saved.info?.title ?? saved.discogs)"
             if emptySlots.isEmpty && arrangedCount==0, let parts=saved.info?.slots {for part in parts {addSlot(part:part)}}
             return
         }
@@ -85,8 +87,11 @@ extension StudioModel {
         releaseConfirmed=true;panel=nil
         releaseStatus="Release confirmed: \(info.artist) – \(info.title) (\(releaseYear))"
         if let url=releaseMemoryURL {
-            let saved=SavedRelease(discogs:discogs,year:releaseYear,packaging:packaging,format:mediaFormat,info:info)
-            try? JSONEncoder().encode(saved).write(to:url)
+            let files=inputs.filter{!$0.reference}.map{$0.url.lastPathComponent}
+            let saved=SavedRelease(discogs:discogs,year:releaseYear,packaging:packaging,format:mediaFormat,info:info,files:files)
+            // andere sets in dezelfde map blijven bewaard; een set met (deels) dezelfde scans wordt vervangen
+            let others=savedReleases().filter{Set($0.files ?? []).isDisjoint(with:Set(files))}
+            try? JSONEncoder().encode(others+[saved]).write(to:url)
         }
         if !unassignedInputs.isEmpty {   // Sleeve vult op feiten in wat vaststaat; de rest sleep je zelf
             suggestArrangement()
@@ -97,4 +102,12 @@ extension StudioModel {
     func skipRelease() {releaseConfirmed=true;panel=nil;releaseStatus="No Discogs release. Choose CD or vinyl and the packaging yourself."}
 }
 
-struct SavedRelease: Codable {var discogs:String;var year:String;var packaging:String;var format:String;var info:ReleaseInfo?}
+struct SavedRelease: Codable {var discogs:String;var year:String;var packaging:String;var format:String;var info:ReleaseInfo?;var files:[String]?}
+
+extension StudioModel {
+    /// Bevestigde releases in de map van de scans (oude opslag zonder bestandenlijst telt niet mee).
+    func savedReleases()->[SavedRelease] {
+        guard let url=inputs.first.map({$0.url.deletingLastPathComponent().appendingPathComponent(".sleeve-release.json")}),let data=try? Data(contentsOf:url) else{return []}
+        return (try? JSONDecoder().decode([SavedRelease].self,from:data)) ?? []
+    }
+}

@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 9 nov 2026, versie 0.5.19 (tag `v0.5.19`, branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 9 nov 2026, versie 0.5.20 (tag `v0.5.20`, branch `feiten`, github.com/reprise-labs/sleeve).
 Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 
 ## Uitgangspunt: alleen feiten, geen regels
@@ -36,7 +36,7 @@ Extra feiten:
 
 ## App (Swift, `Source/`)
 - Na het inslepen van de scans verschijnt een venster "Which release is this?" (`StudioRelease*.swift`): een Discogs-link plakken of laten zoeken.
-- In dat venster: gegevens controleren, het jaar aanpassen en de verpakking kiezen. De vakken komen van Discogs en worden per map onthouden in `.sleeve-release.json`.
+- In dat venster: gegevens controleren, het jaar aanpassen en de verpakking kiezen. De vakken komen van Discogs en worden per set scans onthouden in `.sleeve-release.json` (een map kan meerdere releases bevatten).
 - In de eindcontrole betekent "Keep as it is" klaar: het bestand blijft onaangeroerd.
 - Altijd lichte modus.
 
