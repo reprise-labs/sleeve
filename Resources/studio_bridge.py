@@ -18,6 +18,7 @@ JOB_OUTPUTS={}
 JOB_WARNINGS=[]
 child=None
 OCR_CHILDREN=set()
+EMIT_LOCK=threading.Lock()
 try:os.setpgid(0,0)
 except OSError:pass
 
@@ -32,7 +33,11 @@ def emit(event,**kwargs):
  if event=='warning':JOB_WARNINGS.append(kwargs.get('message',''))
  if event=='complete' and CHECKING_AFTER_PROCESS:
   PENDING_COMPLETION=kwargs;return
- print(json.dumps({'event':event,**kwargs},ensure_ascii=False),file=EVENT_STREAM,flush=True)
+ # één schrijfactie per bericht, onder een slot: onderdelen lopen parallel en mogen hun regels
+ # niet door elkaar schrijven (dan kan de app het bericht niet lezen en mist er een onderdeel)
+ line=json.dumps({'event':event,**kwargs},ensure_ascii=False)+'\n'
+ with EMIT_LOCK:
+  EVENT_STREAM.write(line);EVENT_STREAM.flush()
 
 def cancel(signum,frame):
  signal.signal(signal.SIGTERM,signal.SIG_IGN)
