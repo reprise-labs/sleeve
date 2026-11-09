@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 9 nov 2026, versie 0.5.21 (tag `v0.5.21`, branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 9 nov 2026, versie 0.5.22 (tag `v0.5.22`, branch `feiten`, github.com/reprise-labs/sleeve).
 Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 
 ## Uitgangspunt: alleen feiten, geen regels
@@ -26,6 +26,7 @@ Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 
 Extra feiten:
 - **Al uitgesneden** geldt alleen bij transparantie rondom. Een gewone scan met de goede buitenmaat wordt eerst echt op randen doorzocht (wit hoesje op witte deksel).
+- **Gekleurd vlak**: alles wat gekleurd is hoort bij het kaartje; ligt de snede binnen het gekleurde vlak (drukrand, bv. Places To Go), dan wordt op de buitenrand van het gekleurde vlak gesneden (cd).
 - **CD-verpakking**: past een onderdeel niet bij een jewel case, dan bepaalt de gemeten vorm het (vierkant kaartje ±121 mm, kartonnen hoesje ±127 mm, digipak); dat staat in het resultaat. Een gekozen verpakking die niet bij de gemeten maat past, geeft twijfel.
 - **Vakken vooraf invullen** (`scan_vakken.py`, actie `suggestGroups`), alleen op feiten:
   - back: de barcode van de release staat op de scan;

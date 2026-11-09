@@ -165,6 +165,54 @@ def choices_for(why):
     return out
 
 
+def colour_extent(raw, dpi, cut, fmt, part):
+    """Feit: alles wat gekleurd is, hoort bij het kaartje; het kaartje is nooit kleiner dan zijn
+    gekleurde vlak. Steekt het gekleurde vlak duidelijk (>= 2 mm) buiten de gevonden snede en past
+    het zelf op een maat van deze verpakking, dan is de snede een drukrand: snij op het gekleurde
+    vlak. (Places To Go: geel kader tot vlak bij de beeldrand, oranje vlak erbinnen.)
+    Wit kaartje op witte deksel: alleen de bedrukking is gekleurd en die ligt binnen de snede."""
+    import scan_feiten as SF
+    full = cv2.imread(raw, cv2.IMREAD_UNCHANGED)
+    if full is None:
+        return None
+    if full.ndim == 2:
+        full = cv2.cvtColor(full, cv2.COLOR_GRAY2BGR)
+    bgr = full[:, :, :3]
+    k = min(1.0, 300.0 / dpi)
+    small = cv2.resize(bgr, None, fx=k, fy=k, interpolation=cv2.INTER_AREA) if k < 1 else bgr
+    pm = dpi * k / 25.4
+    lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
+    L = lab[:, :, 0] * 100 / 255; C = np.hypot(lab[:, :, 1] - 128, lab[:, :, 2] - 128)
+    mask = ((C > 18) | (L < 60)).astype(np.uint8)                   # duidelijk gekleurd of donker
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((max(3, int(pm)),) * 2, np.uint8))
+    n, lab_, stats, _ = cv2.connectedComponentsWithStats(mask)
+    if n < 2:
+        return None
+    big = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    pts = cv2.findNonZero((lab_ == big).astype(np.uint8))
+    (cx, cy), (rw, rh), ang = cv2.minAreaRect(pts)
+    if ang > 45:
+        ang -= 90; rw, rh = rh, rw
+    wm, hm = rw / pm, rh / pm
+    cw, ch = cut.shape[1] / dpi * 25.4, cut.shape[0] / dpi * 25.4
+    if not (min(wm, hm) >= min(cw, ch) + 2 and max(wm, hm) >= max(cw, ch) + 2):
+        return None
+    for f in [fmt] + [x for x in ('cd', 'cd-slimjewel', 'cd-cardsleeve', 'cd-digipak') if x != fmt]:
+        spec = SF.SHAPES[f].get(part)
+        if spec and spec[0] == 'rect':
+            (wl, wh), (hl, hh) = spec[1], spec[2]
+            if (wl - 1 <= wm <= wh + 1 and hl - 1 <= hm <= hh + 1) or (wl - 1 <= hm <= wh + 1 and hl - 1 <= wm <= hh + 1):
+                break
+    else:
+        return None
+    s = 1 / k                                                        # terug naar volle resolutie
+    R = cv2.getRotationMatrix2D((cx * s, cy * s), ang, 1.0)
+    W, H = int(round(rw * s)), int(round(rh * s))
+    R[0, 2] += W / 2 - cx * s; R[1, 2] += H / 2 - cy * s
+    out = cv2.warpAffine(full, R, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return out, (wm, hm)
+
+
 def square_up(img, sides):
     """Beslissing 'vierkant': de zijde met het zwakste randbewijs schuift in."""
     h, w = img.shape[:2]; k = abs(h - w)
@@ -287,8 +335,17 @@ def main():
     # Feit: een cd-onderdeel heeft de maat van zijn verpakking. Past het niet bij de jewel case
     # (bv. de 'back' is een vierkant kaartje zonder zijflappen, zoals bij een promo), dan bepaalt
     # de gemeten vorm welke verpakking het is: slim jewel (kaartje ±121), kartonnen hoesje (±127),
-    # digipak. De eerste die echt past, telt; in het resultaat staat welke.
-    if not already and fmt == 'cd' and (facts is None or facts.get('verdict') == 'FOUT'):
+    # digipak. En: de echte rand is de buitenste. Een drukrand binnen een groter kaartje (Places
+    # To Go: geel kader om een oranje vlak) kan toevallig op de jewel-maat passen; vindt een andere
+    # cd-maat een rand die er duidelijk omheen ligt, dan is dat de echte rand.
+    def box_of(f):
+        b = (f or {}).get('precise_mm') or (f or {}).get('box_mm')
+        return (b[2], b[3]) if b and len(b) >= 4 else None
+    if not already and fmt == 'cd' and SF.SHAPES['cd'][feit_part][0] == 'rect':
+        first = box_of(facts) if facts and facts.get('verdict') != 'FOUT' else None
+        if first:
+            os.replace(crop, crop + '.jewel.png'); os.replace(crop + '.feiten.json', crop + '.jewel.json')
+        chosen = None
         for alt in ('cd-slimjewel', 'cd-cardsleeve', 'cd-digipak'):
             if feit_part not in SF.SHAPES[alt] or SF.SHAPES[alt][feit_part] == SF.SHAPES['cd'].get(feit_part):
                 continue
@@ -298,12 +355,20 @@ def main():
                 f2 = json.load(open(crop + '.feiten.json'))
             except (OSError, ValueError):
                 continue
-            if f2.get('verdict') != 'FOUT':
-                facts, fmt = f2, alt
-                label = {'cd-slimjewel': 'a square card of a slim jewel case (no side flaps)', 'cd-cardsleeve': 'a cardboard sleeve',
+            b2 = box_of(f2)
+            outside = first is None or (b2 is not None and min(b2) >= min(first) + 2 and max(b2) >= max(first) + 2)
+            if f2.get('verdict') != 'FOUT' and outside:
+                chosen = alt; facts, fmt = f2, alt
+                label = {'cd-slimjewel': 'a square card of a slim jewel case (no side flaps)', 'cd-cardsleeve': 'a cardboard sleeve or larger card',
                          'cd-digipak': 'a digipak panel'}[alt]
                 result['applied'] = (result.get('applied', '') + f' measured as {label}, not a jewel case part').strip()
                 break
+        if first:
+            if chosen is None:                             # de jewel-maat bleef de buitenste echte rand
+                os.replace(crop + '.jewel.png', crop); os.replace(crop + '.jewel.json', crop + '.feiten.json')
+                facts = json.load(open(crop + '.feiten.json'))
+            else:
+                os.remove(crop + '.jewel.png'); os.remove(crop + '.jewel.json')
     if opaque_fallback and (facts is None or facts.get('verdict') == 'FOUT'):
         # geen rand gevonden en de hele scan heeft al de maat van dit onderdeel: al uitgesneden
         img0, note = opaque_fallback
@@ -322,6 +387,13 @@ def main():
     if facts.get('message'):
         result['message'] = facts['message']
     img = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
+    if not already and fmt.startswith('cd') and SF.SHAPES[fmt][feit_part][0] == 'rect' and img is not None:
+        better = colour_extent(raw, dpi, img, fmt, feit_part)
+        if better is not None:
+            img, mm = better
+            cv2.imwrite(crop, img)
+            why = [w for w in why if not w.startswith('not square')]
+            result['applied'] = (result.get('applied', '') + f' cut on the outer edge of the coloured card ({mm[0]:.1f} x {mm[1]:.1f} mm): the found edge lay inside the print').strip()
     if why and decision.get('crop') == 'square' and 'sides' in facts:
         img, weak = square_up(img, facts['sides'])
         why = [w for w in why if not w.startswith('not square')]
