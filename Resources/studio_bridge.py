@@ -295,6 +295,13 @@ def feiten_decide(req,work):
  elif choice.startswith('rotate'):decision['rotate']=int(choice[6:] or 0)
  else:raise ValueError('Unknown choice.')
  old=Path(req.get('path','')) if req.get('path') else None
+ if choice=='keep' and old and old.exists():
+  # "Zo laten" = klaar: het bestaande bestand blijft precies zoals het is, niets opnieuw maken.
+  sys.path.insert(0,str(TOOLS));import scan_feitenroute as FR
+  FR.save_decision(os.path.dirname(files[0]),files,part,decision)
+  result={'path':str(old),'part':part,'scans':files,'verdict':'GOED','why':[],'choices':[],'applied':'kept as it is (your decision)'}
+  emit('outputs',files=[dict(feiten_file(result),replace=True)])
+  emit('complete',message=f'{part}: kept as it is. Nothing changed.');return
  output=old.parent if old else Path(req['output'])
  result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision,req.get('format') if req.get('format') in ('cd','vinyl') else ('cd' if part.startswith('cd') else ''))
  if old and result.get('path') and Path(result['path'])!=old and old.exists():

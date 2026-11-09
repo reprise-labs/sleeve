@@ -333,7 +333,7 @@ def main():
             why.append(f'the label says side {letter.upper()}, the slot says {a.part[4:].upper()}')
     if why and decision.get('crop') == 'keep':
         result['applied'] = (result.get('applied', '') + ' kept as it is').strip()
-        why = [w for w in why if w.startswith('which way is up') or w.startswith('the label says')]
+        why = []                                           # jouw beslissing 'zo laten' = klaar
     if why:
         result['verdict'] = 'TWIJFEL'; result['why'] = why; result['choices'] = choices_for(why)
         if any(w.startswith('which way is up') for w in why):
