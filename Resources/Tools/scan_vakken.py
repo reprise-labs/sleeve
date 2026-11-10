@@ -37,7 +37,7 @@ def thumb(path, work):
 
 def barcodes(path):
     try:
-        r = subprocess.run([OCR, path, '--identify'], capture_output=True, text=True, timeout=60)
+        r = subprocess.run([OCR, path, '--identify'], capture_output=True, text=True, timeout=20)
         return [re.sub(r'\D', '', c) for c in json.loads(r.stdout).get('barcodes', [])]
     except Exception:
         return []

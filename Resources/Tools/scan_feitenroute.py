@@ -469,7 +469,9 @@ def main():
         json.dump(words, open(os.path.join(a.work, 'words.json'), 'w'))
         if disc:
             args += ['--disc', '--dpi', str(dpi)]
-        step('reading text to set it upright (macOS text recognition)' + (' and straightening the label' if disc else ''))
+        import scan_rechtop as _R
+        step('macOS text recognition is not answering: setting it upright with the Discogs photo' if _R.ocr_unavailable()
+             else 'reading text to set it upright (macOS text recognition)' + (' and straightening the label' if disc else ''))
         ro = subprocess.run(args, capture_output=True, text=True)
         try:
             upright = json.loads(ro.stdout.strip().splitlines()[-1])

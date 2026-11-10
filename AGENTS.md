@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 9 nov 2026, versie 0.5.25 (tag `v0.5.25`, branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 9 nov 2026, versie 0.5.26 (tag `v0.5.26`, branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -69,7 +69,8 @@ Extra feiten:
 - **Voortgang:** de route schrijft `SLEEVE_STEP <tekst>` naar stderr; de bridge toont dat als status per onderdeel.
 - **Release-geheugen:** per set scans (bestandsnamen) in `.sleeve-release.json`, niet meer per map.
 - **Bestandsnaam:** het laatste woord van de naam (na `_`, `-` of een spatie) is het onderdeel, bv. `2015_hold_me_back.png` → back. Die bestanden gaan meteen in het vak.
-- **Tekstherkenning altijd via `scan_rechtop.ocr_lines`**: nauwkeurig hooguit 8 s, anders snel. Een eigen aanroep die wacht (zoals vroeger de kantletter met 4 × 120 s) laat een onderdeel op de Mac mini mislukken.
+- **Tekstherkenning reageert soms helemaal niet** (Mac mini, ook als het scherm vergrendeld is): `run_ocr` geeft elke aanroep een harde tijdgrens (nauwkeurig 8 s, snel 15 s). Hangt ook snel lezen, dan wordt 10 minuten lang geen tekst meer gelezen (vlagbestand `sleeve-ocr-unavailable`); de stand komt dan van de Discogs-foto.
+- **Tekstherkenning altijd via `scan_rechtop.ocr_lines` of `run_ocr`**: nauwkeurig hooguit 8 s, anders snel. Een eigen aanroep die wacht (zoals vroeger de kantletter met 4 × 120 s) laat een onderdeel op de Mac mini mislukken.
 - **Een mislukt onderdeel wordt altijd gemeld**: 'NOT MADE: <onderdeel> – <reden>' in het eindbericht en als melding in de app.
 - **Vakken in de app**: het onderdeel van een vak kies je via een menu met knoppen. Een Picker schreef soms zelf een waarde naar een ander vak, waardoor de cd 'inlay' werd. De bridge weigert twee vakken met hetzelfde onderdeel, en meldt het als een bestand naar een ander onderdeel heet dan het vak.
 - **Testmodus van de app**: `Sleeve --scans "a.png|b.png" --discogs <link> --dump /tmp/x`. Die bevestigt de release en schrijft elke 5 s de indeling naar `/tmp/x_<t>s.json`.

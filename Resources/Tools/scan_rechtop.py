@@ -28,6 +28,34 @@ def found(known, line):
     return best >= MATCH
 
 
+DEAD_FLAG = os.path.join(tempfile.gettempdir(), 'sleeve-ocr-unavailable')
+
+
+def ocr_unavailable():
+    """Reageerde de tekstherkenning van macOS de afgelopen 10 minuten helemaal niet (ook snel niet)?"""
+    try:
+        return time.time() - os.path.getmtime(DEAD_FLAG) < 600
+    except OSError:
+        return False
+
+
+def run_ocr(args, timeout):
+    """Eén aanroep van sleeve_ocr met een harde tijdgrens. Reageert ook het snelle lezen niet
+    (Mac mini: minutenlang niets), dan 10 minuten lang geen tekst meer lezen: dan bepalen de
+    Discogs-foto of jouw keuze de stand, in plaats van dat elk onderdeel minuten wacht."""
+    if ocr_unavailable():
+        return ''
+    try:
+        return subprocess.run([OCR] + args, capture_output=True, text=True, timeout=timeout).stdout
+    except subprocess.TimeoutExpired:
+        if '--boxes' not in args:                          # snel lezen hing: tekstherkenning is er niet
+            try:
+                open(DEAD_FLAG, 'w').close()
+            except OSError:
+                pass
+        return ''
+
+
 def read_rotations(path):
     """Per stand (graden dat het beeld met de klok mee moet): de gelezen regels."""
     im = cv2.imread(path, cv2.IMREAD_UNCHANGED)
@@ -39,14 +67,11 @@ def read_rotations(path):
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, small)
         out = ''
-        for attempt in range(4):                           # zie ocr_lines: Vision geeft soms niets terug
-            try:
-                out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=60).stdout
-            except subprocess.TimeoutExpired:
-                out = ''
-            if out.strip():
+        for attempt in range(2):                           # Vision geeft soms (de eerste keer) niets terug
+            out = run_ocr([p], 15)
+            if out.strip() or ocr_unavailable():
                 break
-            time.sleep(0.3 * (attempt + 1))
+            time.sleep(0.3)
     lines = {0: [], 90: [], 180: [], 270: []}
     for line in out.splitlines():
         try:
@@ -95,14 +120,11 @@ def read_image(im):
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, im)
         out = ''
-        for attempt in range(4):                           # zie ocr_lines: Vision geeft soms niets terug
-            try:
-                out = subprocess.run([OCR, p], capture_output=True, text=True, timeout=60).stdout
-            except subprocess.TimeoutExpired:
-                out = ''
-            if out.strip():
+        for attempt in range(2):                           # Vision geeft soms (de eerste keer) niets terug
+            out = run_ocr([p], 15)
+            if out.strip() or ocr_unavailable():
                 break
-            time.sleep(0.3 * (attempt + 1))
+            time.sleep(0.3)
     lines = {0: [], 90: [], 180: [], 270: []}
     for line in out.splitlines():
         try:
@@ -158,18 +180,16 @@ def ocr_lines(view):
         p = os.path.join(tmp, 'x.png'); cv2.imwrite(p, view)
         out = ''
         slow = accurate_is_slow()
-        for attempt in range(4):                           # Vision geeft soms (vaak de eerste keer) niets terug: opnieuw
+        for attempt in range(3):                           # Vision geeft soms (vaak de eerste keer) niets terug: opnieuw
             # Nauwkeurig lezen draait op de Neural Engine: normaal 0,5 s, maar het kan minuten
             # hangen als die bezet is of zijn model nog voorbereidt (Mac mini: 4,5 min voor één cd).
             # Daarom kort proberen; hangt het, dan 10 minuten lang meteen snel lezen (CPU).
-            mode = '--fast-boxes' if (slow or attempt >= 2) else '--boxes'
-            try:
-                out = subprocess.run([OCR, p, mode], capture_output=True, text=True, timeout=8 if mode == '--boxes' else 20).stdout
-            except subprocess.TimeoutExpired:
-                out = ''
-                if mode == '--boxes':
-                    mark_accurate_slow(); slow = True
-            if out.strip():
+            mode = '--fast-boxes' if (slow or attempt >= 1) else '--boxes'
+            t0 = time.time()
+            out = run_ocr([p, mode], 8 if mode == '--boxes' else 15)
+            if mode == '--boxes' and not out.strip() and time.time() - t0 >= 7.5:
+                mark_accurate_slow(); slow = True
+            if out.strip() or ocr_unavailable():
                 break
             time.sleep(0.3 * (attempt + 1))
     h, w = view.shape[:2]; lines = []
