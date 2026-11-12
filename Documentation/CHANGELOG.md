@@ -1,3 +1,18 @@
+# 0.5.28 — Scans on a coloured sheet: blank corners, faint print, clean edges; blue vinyl keeps its white label
+
+Found on the first releases scanned with a purple sheet behind them (Urban Solitude green, blue and white, 12 November).
+
+- **A scan without print is no longer left out.** A corner of a sleeve with nothing printed on it had nothing to be matched on and was dropped; the result then said "not scanned". Sleeve now places such a scan on its paper edges (`scan_edges.py`): the edges run straight on from the neighbouring scans, which fixes position and rotation. If the edges are not visible either, the result says which scan was left out and why.
+- **Faint print is used.** When a scan fits nowhere, Sleeve looks again with raised contrast (for matching only). A page with very light lettering is now merged.
+- **The shadow along the edge of each scan is measured, per side** (`shading_widths`): from the scan border to where the colour becomes flat, or to just before a jump (a paper edge). On a coloured sheet that shadow is up to 2 mm wide and was taken for the paper edge; sheets came out 4 to 10 mm too wide with a strip of background.
+- **A sheet with a band of print along its edge is cut on the paper edge.** When two frames lie equally well on edges, the outer one wins, provided it is clearly larger (3 mm or more) and background is scanned outside all four of its sides. A black band along a sheet was cut off before.
+- **White vinyl on a coloured sheet:** the background shines through the thin rim. Sleeve cuts where that tint ends. Only with a coloured background; on the white lid the cut is unchanged.
+- **Blue vinyl no longer gets a blue-green label.** Matching the colour of side A and B divided two near-zero numbers for a colour channel in which the vinyl is black, and multiplied the whole image, label included, by the result. Such a channel is now left alone, and a correction larger than a scanner can explain (15 to 18%) is not applied at all.
+- **Inserts of different sizes in one release** (a 29 cm booklet and a 30 cm sheet) no longer give doubt. Doubt only when two inserts are almost the same size (2.5 to 6 mm apart).
+- **Inside with a single sheet in it** is cut as a sheet, with a note; the error text says to use Insert slots.
+- **Adjust Color:** the record is located in your own photo by its label, and the label (the same paper in scan and photo) is used to match the photo's exposure to the scan. The colour is applied up to the measured edge of the label, so no dark ring remains.
+- Insert size range 288 to 312 mm (was 290).
+
 # 0.5.27 — A part that hangs no longer hangs the app; Discogs fetched once; a fixed reference test
 
 - **No more hanging.** Each part has a time limit (15 minutes plus 1.5 s per megapixel of scans). A part that passes it is stopped with everything it started and reported as `NOT MADE: <part> – stopped after N minutes`; the other parts go on. Filling in the slots and matching the colour of side A and B have a time limit too.

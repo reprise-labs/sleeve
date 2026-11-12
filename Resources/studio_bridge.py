@@ -25,6 +25,9 @@ except OSError:pass
 # Feit: dezelfde hoes twee keer scannen gaf tot ~2 mm verschil (Fire-back, twee rondes: 312,1 en
 # 310,4 mm; karton ligt niet elke keer even plat). Kleinere verschillen zijn meetruis, geen snijfout.
 SAME_PRINT_MM=2.5
+# Feit: inserts van één release zijn soms verschillende vellen (boekje 291 mm, los vel 300 mm: 9 mm verschil).
+# Scheelt het minder dan dit, dan is het eerder hetzelfde vel dat anders gesneden is.
+SAME_SHEET_MM=6.0
 
 def emit(event,**kwargs):
  global PENDING_COMPLETION
@@ -332,14 +335,17 @@ def feiten_scan(req,rows,layout,work):
   if max(abs(a[0]-b[0]),abs(a[1]-b[1]))>SAME_PRINT_MM:
    m=f'front {a[1]} x {a[0]} mm and back {b[1]} x {b[0]} mm differ; they are the same sleeve, so one side is cut at a print edge'
    doubt(fr,m);doubt(bk,m)
+ # Feit: twee kanten van hetzelfde vel zijn even groot; verschillende vellen (een boekje van 29 cm en
+ # een los vel van 30 cm) hoeven dat niet te zijn. Twijfel alleen als twee inserts bíjna even groot
+ # zijn (verschil tussen de meetruis en SAME_SHEET_MM): dan is het hetzelfde vel, anders gesneden.
  ins=by_part.get('insert') or []
- if len(ins)>1:
-  ref=dims(ins[0])
-  for r in ins[1:]:
-   d=dims(r)
-   if max(abs(d[0]-ref[0]),abs(d[1]-ref[1]))>SAME_PRINT_MM:
-    m=f'inserts differ in size ({ref[1]} x {ref[0]} and {d[1]} x {d[0]} mm); they are the same print'
-    doubt(ins[0],m);doubt(r,m)
+ for i,r in enumerate(ins):
+  d=dims(r)
+  if any(max(abs(d[0]-o[0]),abs(d[1]-o[1]))<=SAME_PRINT_MM for o in (dims(x) for j,x in enumerate(ins) if j!=i)):continue   # er is een insert van dezelfde maat
+  near=[x for j,x in enumerate(ins) if j!=i and max(abs(d[0]-dims(x)[0]),abs(d[1]-dims(x)[1]))<=SAME_SHEET_MM]
+  if near:
+   o=dims(near[0])
+   doubt(r,f'this insert is {d[1]} x {d[0]} mm, another is {o[1]} x {o[0]} mm: almost the same, so probably the same sheet cut differently')
  if changed:emit('outputs',files=[feiten_file(r) for r in {id(r):r for r in changed}.values()])
  # Feit: kant A en B (C en D) zijn dezelfde plaat: kleurverschil van de scanner gelijktrekken
  made={r['part']:r['path'] for r in results if r.get('path') and r.get('part','').startswith('side')}
@@ -414,7 +420,8 @@ def scan(req,rows,work):
  seen={}
  for g in layout:
   if g['part'] and g['part'] not in ('insert','unknown') and g['part'] in seen:
-   raise ValueError(f"Two slots are both '{g['part']}' ({', '.join(seen[g['part']])} and {', '.join(g['files'])}). Check the slots in Arrange Scans.")
+   hint=' Inside is one opened gatefold sleeve; for loose sheets or booklet pages use Insert slots (as many as you need).' if g['part']=='inside' else ''
+   raise ValueError(f"Two slots are both '{g['part']}' ({', '.join(seen[g['part']])} and {', '.join(g['files'])}). Check the slots in Arrange Scans."+hint)
   seen.setdefault(g['part'],g['files'])
  # Feit: heet een scan naar een onderdeel (…_cd.png) en ligt hij in een vak van een ander onderdeel, melden
  for g in layout:

@@ -192,6 +192,13 @@ def features(im, valid):
     return pts, des
 
 
+def faint_print(im):
+    """Feit: ook flauw drukwerk is drukwerk (lichte letters op wit papier). Het plaatselijke contrast
+    oprekken maakt het zichtbaar voor het zoeken naar overeenkomsten; het beeld zelf verandert niet."""
+    L = cv2.cvtColor(im[:, :, :3], cv2.COLOR_BGR2LAB)[:, :, 0]
+    return cv2.cvtColor(cv2.createCLAHE(clipLimit=8.0, tileGridSize=(8, 8)).apply(L), cv2.COLOR_GRAY2BGR)
+
+
 def pair_matches(fa, fb):
     """Overeenkomende punten (src in b, dst in a) of None."""
     pa, da = fa; pb, db = fb
@@ -1058,13 +1065,32 @@ def main_with_resources(resources,lease=None):
     progress('Aligning partial scans precisely')
     H, ref, W, missing = place(len(imgs), feats)
     if missing:
+        # Een deelscan past nergens op. Eerst: staat er flauw drukwerk dat pas met meer contrast te zien is?
+        feats2 = [features(faint_print(im), fmask(im, v)) for im, v in zip(imgs, valid)]
+        H2, ref2, W2, missing2 = place(len(imgs), feats2)
+        if len(missing2) < len(missing):
+            print('NOTE: aligned on faint print (contrast raised for matching only): ' + ', '.join(os.path.basename(a.delen[k]) for k in missing if k not in missing2), flush=True)
+            H, ref, W, missing = H2, ref2, W2, missing2
+        feats2 = None
+    if missing and a.vorm == 'ruw' and len(H) >= 2:
+        # Dan: geen drukwerk gemeen, maar wel de papierranden (scan_edges): die lopen recht door over de deelscans.
+        import scan_edges
+        try:
+            on_edges = scan_edges.place_on_edges(imgs, H, missing, px_mm, log=lambda text: None)
+        except Exception as error:                         # geen feit gevonden: de deelscan blijft weg, met de melding hieronder
+            on_edges = {}; print(f'edge placement not possible: {error}', flush=True)
+        for k, Hk in on_edges.items():
+            H[k] = Hk
+            print('NOTE: placed on its paper edges (no print in common with the other scans): ' + os.path.basename(a.delen[k]), flush=True)
+        missing = [k for k in missing if k not in H]
+    if missing:
         unresolved = []
         for k in missing:
             gray = cv2.cvtColor(imgs[k],cv2.COLOR_BGR2GRAY).astype(np.float32)
             h,w = gray.shape; gray = gray[int(.15*h):int(.85*h),int(.15*w):int(.85*w)]
             detail = gray-cv2.GaussianBlur(gray,(0,0),3)
             if (np.abs(detail)>8).mean() < .001:
-                print('NOTE: empty scan without reliable alignment skipped: '+a.delen[k])
+                print('NOTE: left out, no print in common and no paper edge to place it on: '+os.path.basename(a.delen[k]))
             else:
                 unresolved.append(k)
         if unresolved or len(H)<2:

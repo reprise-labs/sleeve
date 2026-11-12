@@ -78,5 +78,23 @@ assert B.run_facts(run) == ('cd-cardsleeve', 1200.0)
 (run / 'Studio-verwerking.json').write_text(json.dumps({'action': 'colour'}))
 assert B.run_facts(run) is None
 
-checks = {'discogs_remembered_and_retried': True, 'side_letter_spellings': True, 'hanging_part_stopped_and_reported': True, 'decision_uses_first_run_facts': True}
+# --- 5. matching two sides never tints the label ------------------------------------------------
+import numpy as np, cv2
+def disc(vinyl_bgr, path):
+    im = np.zeros((600, 600, 4), np.uint8); yy, xx = np.ogrid[:600, :600]; r = np.hypot(xx - 300, yy - 300)
+    im[r < 298] = (*vinyl_bgr, 255); im[r < 100] = (236, 234, 236, 255); cv2.imwrite(str(path), im)
+sa, sb = work / 'blue_sidea.png', work / 'blue_sideb.png'
+disc((170, 70, 2), sa); disc((160, 66, 0), sb)             # saturated blue vinyl: the red channel is (almost) black
+subprocess.run([sys.executable, str(root / 'Resources/Tools/scan_kleur_kanten.py'), str(sa), str(sb)], check=True, capture_output=True)
+for f in (sa, sb):
+    label = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)[300, 300, :3].astype(int)
+    assert label.max() - label.min() <= 12 and label.min() >= 215, ('label tinted', f.name, label)
+va, vb = cv2.imread(str(sa), cv2.IMREAD_UNCHANGED)[300, 520, :3].astype(int), cv2.imread(str(sb), cv2.IMREAD_UNCHANGED)[300, 520, :3].astype(int)
+assert abs(va[0] - vb[0]) <= 2 and abs(va[1] - vb[1]) <= 2, ('vinyl not matched', va, vb)
+disc((170, 70, 2), sa); disc((60, 160, 30), sb)             # really different sides: nothing is changed
+before = sb.read_bytes()
+subprocess.run([sys.executable, str(root / 'Resources/Tools/scan_kleur_kanten.py'), str(sa), str(sb)], check=True, capture_output=True)
+assert sb.read_bytes() == before
+
+checks = {'two_sides_matched_without_tinting_the_label': True, 'discogs_remembered_and_retried': True, 'side_letter_spellings': True, 'hanging_part_stopped_and_reported': True, 'decision_uses_first_run_facts': True}
 (work / 'RESULTAAT.json').write_text(json.dumps(checks, indent=2)); print(checks)

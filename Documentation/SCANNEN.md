@@ -7,20 +7,21 @@ staat alles erop en hoeft Sleeve nergens te raden.
 ## De vijf regels
 
 1. **De achtergrond is anders dan de rand van het onderdeel.**
-   - Licht onderdeel (witte hoes, wit kaartje, wit of doorzichtig vinyl): leg er een **donker,
-     effen vel** achter (zwart karton tussen het onderdeel en de klep).
+   - Licht onderdeel (witte hoes, wit kaartje, wit of doorzichtig vinyl): leg er een **effen,
+     gekleurd of donker vel** achter, tussen het onderdeel en de klep. Een paars vel werkt goed.
    - Donker onderdeel (zwart vinyl, donkere hoes): de gewone **witte klep**.
    - Cd-schijf: de witte klep.
    - Twijfel je: kijk of je de rand rondom ziet in de voorvertoning. Zie jij hem niet, dan
      ziet Sleeve hem ook niet.
 
-2. **Niet tegen de glasrand.** Leg het onderdeel minstens een halve centimeter van de rand
-   van het glas, aan elke kant waar een buitenrand in beeld komt. De rand van een scan is
+2. **Niet tegen de glasrand.** Leg het onderdeel minstens een halve centimeter (liever een
+   hele) van de rand van het glas, aan elke kant waar een buitenrand in beeld komt. De rand van een scan is
    geen rand van de hoes: een hoesrand die op de scanrand ligt, telt niet als gezien.
 
-3. **Alleen schuiven, niet draaien.** Leg het onderdeel bij elke deelscan in dezelfde stand
-   en schuif het op. Een scanner rekt in de ene richting net iets anders dan in de andere;
-   draai je een kwartslag tussen twee deelscans, dan passen ze nooit helemaal.
+3. **Schuiven, of een halve slag draaien; geen kwartslag.** Een scanner rekt in de ene
+   richting net iets anders dan in de andere. Draai je een kwartslag tussen twee deelscans,
+   dan passen ze nooit helemaal en scheelt de maat op 31 cm al gauw 1 à 2 mm. Een halve
+   slag (ondersteboven) mag wel.
 
 4. **Ruime overlap.** Elke deelscan deelt minstens 5 cm met zijn buren. Samen moeten de
    deelscans het hele onderdeel tonen, met rondom nog een strook achtergrond.
@@ -34,8 +35,9 @@ staat alles erop en hoeft Sleeve nergens te raden.
 | Onderdeel | Scans | Zo leg je het |
 |---|---|---|
 | LP-hoes (voor of achter) | 4 | Elke hoek één keer. Elke scan toont twee buitenranden met achtergrond erlangs. |
-| Uitklap (binnenkant) | 6 | Twee rijen van drie, van links naar rechts. |
-| Insert of tekstvel | 4 | Als een hoes. |
+| Uitklaphoes (binnenkant, vak "Inside") | 6 | Twee rijen van drie, van links naar rechts. Alleen voor een opengeklapte hoes. |
+| Insert of tekstvel (30 cm) | 4 per kant | Als een hoes. Elke kant in een eigen vak "Insert". |
+| Boekjespagina (29 cm) | 2 per pagina | Halve slag gedraaid, zodat elke scan één helft toont. Elke pagina in een eigen vak "Insert". |
 | Plaat | 4 | Elke scan een kwart van de plaat, met de buitenrand en achtergrond erlangs. Plaat niet draaien. |
 | Cd-boekje, kaartje, achterkaart | 1 | Recht leggen (binnen een paar graden), rondom achtergrond in beeld. |
 | Cd-schijf | 1 | Midden op het glas, bedrukte kant naar beneden. |

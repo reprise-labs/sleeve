@@ -17,12 +17,36 @@ def ring_colour(img):
     return np.median(lin, 0)
 
 
+DARK = (12 / 255) ** 2.2        # een kleurkanaal dat in het vinyl (bijna) zwart is, meet niets
+SCANNER = (0.85, 1.18)          # zoveel kan dezelfde plaat tussen twee scans in licht verschillen
+
+
+def gains(ca, cb):
+    """Feit: het verschil tussen twee scans van dezelfde plaat is een klein verschil in belichting
+    per kleurkanaal. Geeft per kant de correctie naar het midden, of None als het verschil groter is
+    dan een scanner kan verklaren (dan zijn de kanten echt anders, bv. gemarmerd vinyl).
+    Een kanaal waarin het vinyl bijna zwart is (rood bij blauw vinyl) zegt niets over de belichting:
+    dat kanaal blijft zoals het is. (Zonder dit werd een wit label blauwgroen: 0,5.27, Urban Solitude blauw.)"""
+    target = (ca + cb) / 2; out = []
+    for c in (ca, cb):
+        g = target / np.maximum(c, 1e-6)
+        g[np.minimum(ca, cb) < DARK] = 1.0
+        out.append(g)
+    if any((g < SCANNER[0]).any() or (g > SCANNER[1]).any() for g in out):
+        return None
+    return out
+
+
 def main():
     a, b = sys.argv[1], sys.argv[2]
     A = cv2.imread(a, cv2.IMREAD_UNCHANGED); B = cv2.imread(b, cv2.IMREAD_UNCHANGED)
-    ca, cb = ring_colour(A), ring_colour(B); target = (ca + cb) / 2
-    for path, img, c in ((a, A, ca), (b, B, cb)):
-        gain = target / np.maximum(c, 1e-4)
+    ca, cb = ring_colour(A), ring_colour(B)
+    found = gains(ca, cb)
+    if found is None:
+        print('sides differ more in colour than a scanner explains; both kept as scanned'); return
+    for path, img, gain in ((a, A, found[0]), (b, B, found[1])):
+        if np.allclose(gain, 1.0, atol=.004):
+            print(path.split('/')[-1], 'already the same colour; kept as scanned'); continue
         lin = (img[:, :, :3].astype(np.float32) / 255) ** 2.2 * gain
         img[:, :, :3] = np.clip(lin ** (1 / 2.2) * 255 + .5, 0, 255).astype(np.uint8)
         from PIL import Image

@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 11 nov 2026, versie 0.5.27 (branch `feiten`, github.com/reprise-labs/sleeve; laatste tag op GitHub: `v0.5.26`).
+Stand: 12 nov 2026, versie 0.5.28 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -89,7 +89,20 @@ Extra feiten:
 - **Scanwijze:** `Documentation/SCANNEN.md`. Een donker vel achter een kaartje telt niet als kaartje of drukwerk (`backing_mask`).
 - **Nog niet op echte scans getest:** een donker vel achter een cd-kaartje (alleen nagebootst).
 
+## 12 nov (0.5.28): scans op een gekleurd vel
+- Testscans: `~/Desktop/vinyl/us_new_green_scan`, `us_new_blue_scan`, `us_new_white_scan` (Urban Solitude, 600 dpi, paars vel).
+- **Deelscan zonder drukwerk:** `scan_edges.place_on_edges` legt hem op zijn papierranden (alleen `--vorm ruw`). Daarvoor: opnieuw zoeken met meer contrast (`faint_print`).
+- **Randschaduw per scanzijde:** `shading_widths` in `scan_feiten.py`. Geen vaste marge meer; een vaste 2 mm verborg de echte papierrand als het vel dicht bij de glasrand lag.
+- **Buitenste kader wint** (`find_rect(outer_wins=…)`), alleen vinyl-vellen, alleen als het 3 mm groter is en er achtergrond buiten alle zijden ligt (`background_outside`). Zonder die voorwaarden won de scanrand zelf, of verschoof Fake 0,6 mm.
+- **Rand van de plaat:** `rim_end`, alleen bij een gekleurde achtergrond. Op de witte klep sneed hij Together Alone 1,3 mm per kant te klein (glans lijkt op doorschijnen).
+- **Kleur kant A/B:** `scan_kleur_kanten.gains`; een kanaal waarin het vinyl zwart is, blijft staan.
+- **Inserts:** verschillende maten mogen (`SAME_SHEET_MM`); maatbereik 288-312. Bij 280 won een band drukwerk.
+- **Vaste toets:** Deena front is 0,6 mm kleiner (grijze strook boven is weg: beter); daardoor verschillen front en back 2,8 mm en zijn beide TWIJFEL. US kant B is GOED geworden. Nog niet opnieuw vastgelegd: wacht op akkoord van André.
+- **Nog toe te voegen aan de vaste toets:** de drie Urban Solitude-releases op het paarse vel.
+
 ## Open
+- **Blauw vinyl kant A:** TWIJFEL, rand op 11 plekken 1,3-1,7 mm naast de cirkel (doorschijnend vinyl op de witte klep).
+- **Donker vinyl op een gekleurd vel:** `rim_end` kan daar glans voor doorschijnen aanzien; nog niet getest.
 - **Rand niet gezien telt niet als twijfel:** `scan_feiten.py` zet bij een zijde zonder zichtbare rand (`weak_sides`, of sectoren bij een plaat) wel TWIJFEL, maar zonder reden; `scan_feitenroute.py` kijkt alleen naar redenen, dus het onderdeel wordt GOED. Eerst met de vaste toets meten hoeveel onderdelen dit raakt, dan beslissen.
 - **Hoek van een hoes of kaartje:** `find_rect` zoekt alleen tussen -3 en +3 graden. Schever gelegd = niet gevonden.
 - **Oude route:** `scan_cutout.py` en de vormherkenning in `scan_stitch.py` worden door de feitenroute niet meer gebruikt en kunnen eruit.

@@ -385,6 +385,14 @@ def main():
         for q in scans_in:
             if q not in a.scans and os.path.exists(q):
                 os.remove(q)
+    # Wat het samenvoegen over losse deelscans meldt, hoort de gebruiker te weten (nooit stil weglaten).
+    for line in (st.stdout or '').splitlines():
+        if line.startswith('NOTE: left out'):
+            name = line.rsplit(': ', 1)[-1]
+            result['why'].append(f'{name} was left out: it shares no print with the other scans and its paper edges are not visible. '
+                                 'Scan that corner with a contrasting sheet behind it.')
+        elif line.startswith('NOTE: placed on its paper edges') or line.startswith('NOTE: aligned on faint print'):
+            result['applied'] = (result.get('applied', '') + ' ' + line[6:]).strip()
     if not already and st.returncode == 0 and os.path.exists(raw + '.scans.json') and a.release_dpi:
         meta = json.load(open(raw + '.scans.json'))
         if not meta.get('dpi'):                            # samengevoegd zonder betrouwbare resolutie: die van de release
@@ -478,6 +486,21 @@ def main():
     if facts is None:
         result.update(verdict='FOUT', why=[fe.stderr.strip().splitlines()[-1] if fe.stderr.strip() else 'cropping failed'])
         print(json.dumps(result)); return
+    if facts.get('verdict') == 'FOUT' and a.part == 'inside' and fmt == 'vinyl' and not already:
+        # Feit: een opengeklapte hoes is twee panelen (±62 x 31 cm). Past dat niet in deze scans, maar een
+        # los vel wel, dan is het een los vel: de gemeten vorm bepaalt het (zoals bij cd-verpakkingen).
+        step('no opened gatefold in these scans; measuring as a single sheet')
+        subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, 'insert', '--format', fmt, '--out', crop], capture_output=True, text=True)
+        try:
+            sheet = json.load(open(crop + '.feiten.json'))
+        except (OSError, ValueError):
+            sheet = None
+        if sheet and sheet.get('verdict') != 'FOUT':
+            facts = sheet; feit_part = 'insert'
+            result['applied'] = (result.get('applied', '') + ' measured as a single sheet, not an opened gatefold (for a loose sheet or booklet page use the Insert slot)').strip()
+        else:
+            facts = {'verdict': 'FOUT', 'why': ['this is not an opened gatefold sleeve (two panels, about 62 x 31 cm), and no single sheet was found either. '
+                                               'Inside is only for a gatefold; put a loose sheet or a booklet page in an Insert slot, with all scans of that one side.']}
     if facts.get('verdict') == 'FOUT':
         result.update(verdict='FOUT', why=facts.get('why', ['not found']))
         print(json.dumps(result)); return

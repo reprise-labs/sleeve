@@ -27,8 +27,10 @@ SHAPES = {
         'inlay': ('rect', (305, 318), (305, 318), True),
         # uitklap (gatefold): twee panelen naast elkaar, 2 : 1
         'inside': ('rect', (605, 640), (305, 318), False),
-        # insert/tekstvel: rechthoek, niet per se vierkant (Music On Vinyl: 303 x 308)
-        'insert': ('rect', (290, 312), (290, 312), False),
+        # insert/tekstvel/boekje: rechthoek, niet per se vierkant (Music On Vinyl: 303 x 308 en 300 x 300; boekje Urban Solitude: 291 x 291).
+        # Ondergrens 288: het boekje meet 290,2-290,9. Niet ruimer: bij 280 won een gekleurde band in het
+        # drukwerk (283 mm) van de papierrand (MOV-vel, 12 nov).
+        'insert': ('rect', (288, 312), (288, 312), False),
         'sidea': ('disc', (296, 304), 7.24), 'sideb': ('disc', (296, 304), 7.24),
         'sidec': ('disc', (296, 304), 7.24), 'sided': ('disc', (296, 304), 7.24),
     },
@@ -66,7 +68,8 @@ DISC_EDGE_MM = 1.0               # feit: de rand van een plaat is afgerond, ±1 
                                  # toont die als glans of schaduw. Gesneden wordt op de vlakke plaat.
 HOLE_12_MM = 7.24                # feit (norm): het middengat van een 12"-plaat is 7,24 mm
 ANALYSIS_DPI = 300.0              # rekenen op deze resolutie; het eindbeeld komt op de volle resolutie
-SCAN_EDGE_MM = 0.6               # feit: de schaduw van de scannerrand is ±0,5 mm breed; daarbinnen is een rand geen bewijs
+SCAN_EDGE_MM = 0.6               # feit: de schaduw van de scannerrand is minstens ±0,5 mm breed; daarbinnen is een rand geen bewijs
+SCAN_EDGE_MAX_MM = 2.5           # ... en op een gekleurd vel gemeten tot ±2 mm (helderheid 138 -> 191); per scanrand gemeten, zie shading_widths
 RIM_CUT_MM = 0.25                # net binnen de binnenkant van de afgeronde rand snijden
 EDGE_FLOOR = 3.0                 # kleinste sprong (Sobel) die een rand kan zijn; wit op wit is zwak, dus laag
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
@@ -82,13 +85,67 @@ def load(path):
     return im[:, :, :3], alpha
 
 
-def scan_border_mask(meta, shape, scale, width_px):
-    """Pixels vlak bij de rand van een scan (op rekenschaal): daar is een rand geen bewijs."""
+def scan_border_mask(meta, shape, scale, width_px, widths=None, px_mm=None):
+    """Pixels vlak bij de rand van een scan (op rekenschaal): daar is een rand geen bewijs.
+    widths: per scan per zijde de gemeten breedte van de randschaduw in mm (shading_widths)."""
     m = np.zeros(shape, np.uint8)
-    for s in meta['scans']:
+    for k, s in enumerate(meta['scans']):
         cor = np.array(s['corners'], np.float32) * scale
-        cv2.polylines(m, [np.round(cor).astype(np.int32)], True, 1, int(width_px))
+        if widths is None:
+            cv2.polylines(m, [np.round(cor).astype(np.int32)], True, 1, int(width_px))
+            continue
+        for i in range(4):
+            a, b = np.round(cor[i]).astype(int), np.round(cor[(i + 1) % 4]).astype(int)
+            cv2.line(m, tuple(int(v) for v in a), tuple(int(v) for v in b), 1, int(max(2, round(2 * widths[k][i] * px_mm))))
     return m > 0
+
+
+def shading_widths(bgr, alpha, meta, scale, px_mm):
+    """Feit: langs de rand van een scan loopt de helderheid af (schaduw van de scannerrand), en die
+    schaduw houdt op waar de kleur vlak wordt. Per scan en per zijde gemeten, waar die zijde aan de
+    buitenkant van het samengevoegde beeld ligt: de afstand vanaf de rand tot het eerste vlakke stuk
+    (0,6 mm lang, kleurverschil < 3). Op een witte klep is dat ±0,5 mm, op een gekleurd vel tot ±2 mm.
+    Niet te meten (zijde ligt binnenin, of er is geen vlak stuk): de vaste ondergrens."""
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    lab[:, :, 0] *= 100 / 255
+    H, W = alpha.shape; ds = np.arange(0, 4.0, 0.125); win = int(round(0.6 / 0.125)); out = []
+    for s in meta['scans']:
+        cor = np.array(s['corners'], np.float32) * scale; centre = cor.mean(0); row = []
+        for i in range(4):
+            a, b = cor[i], cor[(i + 1) % 4]
+            d = (b - a) / max(np.linalg.norm(b - a), 1e-6); n = np.array([-d[1], d[0]], np.float32)
+            if n @ (centre - a) < 0:
+                n = -n
+            profs = []
+            for t in np.linspace(.1, .9, 48):
+                base = a + t * (b - a); o = base - 0.8 * px_mm * n
+                ox, oy = int(round(o[0])), int(round(o[1]))
+                if 0 <= ox < W and 0 <= oy < H and alpha[oy, ox]:
+                    continue                               # hier ligt een andere scan tegenaan: geen buitenrand
+                pts = base[None, :] + (ds[:, None] * px_mm) * n[None, :]
+                xi = np.round(pts[:, 0]).astype(int); yi = np.round(pts[:, 1]).astype(int)
+                ok = (xi >= 0) & (yi >= 0) & (xi < W) & (yi < H)
+                ok[ok] = alpha[yi[ok], xi[ok]]             # het samengevoegde beeld begint soms een halve mm binnen de scanrand
+                if not ok[ds >= 1.0].all():
+                    continue
+                prof = np.full((len(ds), 3), np.nan, np.float32); prof[ok] = lab[yi[ok], xi[ok]]
+                profs.append(prof)
+            width = SCAN_EDGE_MM
+            if len(profs) >= 10:
+                P = np.nanmedian(np.array(profs), 0)
+                first = int(np.argmax(~np.isnan(P[:, 0])))
+                for j in range(first, len(ds) - win):
+                    if np.linalg.norm(P[j:j + win + 1] - P[j], axis=1).max() < 3.0:
+                        width = float(min(SCAN_EDGE_MAX_MM, max(SCAN_EDGE_MM, ds[j]))); break
+                    # Feit: de schaduw loopt geleidelijk af; een papierrand is een sprong (kleurverschil >= 10
+                    # binnen 0,25 mm). Ligt het onderdeel vlak bij de scanrand, dan houdt de strook vóór die sprong op.
+                    if np.linalg.norm(P[j + 2] - P[j]) >= 10.0:
+                        width = float(min(SCAN_EDGE_MAX_MM, max(SCAN_EDGE_MM, ds[j] - 0.125))); break
+                else:
+                    width = SCAN_EDGE_MAX_MM
+            row.append(width)
+        out.append(row)
+    return out
 
 
 def edge_maps(bgr, alpha, border, ):
@@ -127,9 +184,41 @@ def side_cover(eh, ev, valid, x0, y0, Sx, Sy):
     return out
 
 
-def find_rect(eh0, ev0, valid0, sizes, angles):
-    """Rechthoek (Sx, Sy uit 'sizes', in px) die het best op randen ligt (grof)."""
-    h, w = eh0.shape; c = (w / 2, h / 2); best = None
+OUTER_MIN_PX = 6                 # 3 mm (rekenschaal 2 px/mm): zoveel groter moet het buitenste kader zijn om drukwerk langs de rand te verklaren
+OUTER_TIE = 0.03                 # zo weinig mogen twee kaders in randbewijs schelen (som over vier zijden) om 'even goed' te heten
+
+
+def background_outside(lab, valid, x0, y0, Sx, Sy):
+    """Feit: buiten elke zijde van het vel ligt de achtergrond: gescand, en anders van kleur dan wat er
+    net binnen de zijde ligt. Een 'zijde' op de rand van een scan heeft niets gescands erbuiten en telt
+    dus niet. lab/valid op rekenschaal (2 px per mm); stroken van 0,5 tot 1,5 mm aan weerszijden."""
+    h, w = valid.shape
+    def strips(horizontal, pos, a0, a1, outward):
+        out = []
+        for sign in (outward, -outward):
+            lo, hi = sorted((pos + sign * 1, pos + sign * 3))
+            if lo < 0 or hi >= (h if horizontal else w):
+                return None
+            sl = (slice(lo, hi + 1), slice(a0, a1)) if horizontal else (slice(a0, a1), slice(lo, hi + 1))
+            v = valid[sl]
+            if v.mean() < .8:
+                return None
+            out.append(np.median(lab[sl][v], 0))
+        return out
+    for horizontal, pos, a0, a1, outward in ((True, y0, x0, x0 + Sx, -1), (True, y0 + Sy, x0, x0 + Sx, +1),
+                                             (False, x0, y0, y0 + Sy, -1), (False, x0 + Sx, y0, y0 + Sy, +1)):
+        got = strips(horizontal, pos, a0, a1, outward)
+        if got is None or np.linalg.norm(got[0] - got[1]) < 8.0:
+            return False
+    return True
+
+
+def find_rect(eh0, ev0, valid0, sizes, angles, outer_wins=False, lab0=None):
+    """Rechthoek (Sx, Sy uit 'sizes', in px) die het best op randen ligt (grof).
+    outer_wins: liggen twee kaders even goed op randen, dan is het buitenste het vel. Feit: drukwerk
+    ligt binnen het papier. Een zwarte balk langs de rand van een vel geeft twee even sterke randen
+    (wit-zwart en zwart-achtergrond); de binnenste is drukwerk. (MOV-vel, 12 nov: 13 mm te smal.)"""
+    h, w = eh0.shape; c = (w / 2, h / 2); best = None; found = []
     for ang in angles:
         R = cv2.getRotationMatrix2D(c, ang, 1.0)
         rot = lambda a: cv2.warpAffine(a.astype(np.uint8), R, (w, h), flags=cv2.INTER_NEAREST) > 0
@@ -151,6 +240,22 @@ def find_rect(eh0, ev0, valid0, sizes, angles):
             i = int(np.argmax(score)); y0, x0 = divmod(i, nx)
             if best is None or score[y0, x0] > best[0]:
                 best = (float(score[y0, x0]), ang, x0, y0, Sx, Sy)
+            if outer_wins:
+                found.append((float(score[y0, x0]), ang, x0, y0, Sx, Sy))
+    if outer_wins and best is not None and lab0 is not None:
+        even = sorted((f for f in found if f[0] >= best[0] - OUTER_TIE), key=lambda f: (f[4] * f[5], f[0]), reverse=True)
+        turned = {}
+        for f in even[:400]:
+            if f[4] * f[5] <= best[4] * best[5]:
+                break                                      # geen groter kader dat even goed ligt
+            if f[4] < best[4] + OUTER_MIN_PX and f[5] < best[5] + OUTER_MIN_PX:
+                continue                                   # nauwelijks groter: dat is meetruis, geen balk drukwerk
+            if f[1] not in turned:
+                R = cv2.getRotationMatrix2D(c, f[1], 1.0)
+                turned[f[1]] = (cv2.warpAffine(lab0, R, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE),
+                                cv2.warpAffine(valid0.astype(np.uint8), R, (w, h), flags=cv2.INTER_NEAREST) > 0)
+            if background_outside(*turned[f[1]], *f[2:]):
+                best = f; break
     return best
 
 
@@ -270,6 +375,41 @@ def precise_circle(img, alpha, cx, cy, r, reach, round_px, n=72, inner=False, fi
     for k, (x, y) in zip(idx, P):
         dev[k] = float(math.hypot(x - ncx, y - ncy) - nr)
     return ncx, ncy, nr, dev
+
+
+def rim_end(bgr, alpha, X, Y, r_outer, px_mm, n=144, reach_mm=5.0, flat_de=2.0):
+    """Feit: door de dunne, afgeronde rand van een plaat schijnt de achtergrond heen (wit vinyl op een
+    paars vel krijgt een lila randje). Dat is de kleur van de achtergrond, niet van de plaat. De plaat
+    zelf begint waar de kleur niet meer naar de achtergrond toe verschoven is, vergeleken met de vlakke
+    plaat verderop (3 tot 5 mm binnen de rand). Een rand die juist donkerder of glanzender is dan de
+    plaat (dik doorschijnend vinyl, zwart vinyl) hoort bij de plaat en telt hier niet.
+    Geeft die afstand in mm vanaf de buitenrand; None als het niet rondom te meten is of als de
+    achtergrond dezelfde kleur heeft als de plaat (wit op wit)."""
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32); lab[:, :, 0] *= 100 / 255
+    H, W = alpha.shape; ang = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    def ring(d_mm):
+        r = r_outer - d_mm * px_mm
+        xs = np.round(X + r * np.cos(ang)).astype(int); ys = np.round(Y + r * np.sin(ang)).astype(int)
+        ok = (xs >= 0) & (ys >= 0) & (xs < W) & (ys < H); ok[ok] = alpha[ys[ok], xs[ok]]
+        return np.median(lab[ys[ok], xs[ok]], 0) if ok.sum() >= n * .5 else None
+    ds = np.arange(0.0, reach_mm + 1e-6, 0.125); P = [ring(d) for d in ds]
+    back = [ring(-d) for d in (1.0, 1.5, 2.0)]
+    if any(p is None for p in P) or any(b is None for b in back):
+        return None
+    P = np.array(P); plateau = np.median(P[ds >= 3.0], 0); lid = np.median(np.array(back), 0)
+    to_lid = lid - plateau; gap = float(to_lid @ to_lid)
+    if gap < 8.0 ** 2:
+        return None
+    # Alleen bij een gekleurde achtergrond: daar is doorschijnen aan de kleur te herkennen. Op de witte
+    # klep is een lichtere rand niet te onderscheiden van glans op donker vinyl (Together Alone werd
+    # er 1,3 mm per kant kleiner door): daar blijft de eerste sprong de snede.
+    if float(np.hypot(lid[1] - 128, lid[2] - 128)) < 8.0:
+        return None
+    dev = P - plateau
+    t = dev @ to_lid / gap                                  # 0 = kleur van de plaat, 1 = kleur van de achtergrond
+    side = np.linalg.norm(dev - t[:, None] * to_lid[None, :], axis=1)
+    tinted = (t > .05) & (side < 6.0) & (ds < 3.0)          # meer dan 5% van de weg naar de achtergrondkleur
+    return 0.0 if not tinted.any() else float(ds[np.nonzero(tinted)[0].max()] + 0.125)
 
 
 def find_hole(img, r, reach):
@@ -483,7 +623,9 @@ def main():
     s = WORK_PX_MM / px_mm
     small = cv2.resize(bgr, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     sa = cv2.resize(alpha.astype(np.uint8), (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
-    border = scan_border_mask(meta, sa.shape, s / F, max(2, 2 * SCAN_EDGE_MM * WORK_PX_MM))   # strook langs elke scanrand
+    shade = shading_widths(bgr, alpha, meta, 1 / F, px_mm)        # per scanrand: hoe breed de randschaduw is (mm)
+    print('scan edge shading (mm):', [[round(v, 2) for v in row] for row in shade])
+    border = scan_border_mask(meta, sa.shape, s / F, None, shade, WORK_PX_MM)   # strook langs elke scanrand
     fmt = a.format or ('cd' if a.part.startswith('cd') else 'vinyl')
     spec = SHAPES[fmt].get(a.part) or SHAPES['cd' if fmt.startswith('cd') else 'vinyl'].get(a.part) or SHAPES['vinyl'][a.part]
     shape = 'disc' if spec[0] == 'disc' else 'sleeve'
@@ -507,7 +649,8 @@ def main():
         result['verdict'] = 'GOED' if seen and not unseen else 'TWIJFEL'
     else:
         eh, ev, valid, _, _ = edge_maps(small, sa, border)
-        coarse = find_rect(eh, ev, valid, sizes, np.arange(-3, 3.01, 0.25))
+        small_lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32); small_lab[:, :, 0] *= 100 / 255
+        coarse = find_rect(eh, ev, valid, sizes, np.arange(-3, 3.01, 0.25), outer_wins=(fmt == 'vinyl' and not square), lab0=small_lab)
         if coarse is None:
             msg = f'no {a.part} of the expected size ({wlo}-{whi} x {hlo}-{hhi} mm, {fmt}) fits in this scan'
             print('final verdict: FOUT', msg)
@@ -535,6 +678,7 @@ def main():
             X, Y, rr, dev = precise_circle(bgr, alpha, cx * k, cy * k, r * k, 3 * px_mm, ROUND_MM * px_mm, inner=(fmt.startswith('cd')), outermost=(fmt.startswith('cd')))   # cd: de buitenste sprong is de rand tegen de klep
             off = [d for d in dev if d is not None and abs(d) > ROUND_MM * px_mm]
             result['precise_diameter_mm'] = round(2 * rr / px_mm, 2)
+            r_outer = rr
             # keuze André (8 nov): de afgeronde rand niet tonen. Feit: waar het vlakke vinyl
             # ophoudt is per richting te meten (eerste sprong van binnenuit); daar snijden.
             # feit: de afgeronde rand is rondom even breed, dus hetzelfde midden als de buitenrand
@@ -550,6 +694,12 @@ def main():
                 rr = ri - RIM_CUT_MM * px_mm
             else:
                 rr -= DISC_EDGE_MM * px_mm
+            if not fmt.startswith('cd'):
+                # de rand loopt soms verder door dan de eerste sprong (kleur van de achtergrond in de rand)
+                flat = rim_end(bgr, alpha, X, Y, r_outer, px_mm)
+                if flat is not None and flat <= 2.5 and r_outer - (flat + 0.1) * px_mm < rr:
+                    rr = r_outer - (flat + 0.1) * px_mm
+                    result['rim_mm'] = round(flat, 2)
             result['cut_diameter_mm'] = round(2 * rr / px_mm, 2)
             result['precise_dev_mm'] = round(max([abs(d) for d in dev if d is not None] or [0]) / px_mm, 2)
             result['directions_measured'] = sum(d is not None for d in dev)
@@ -634,7 +784,7 @@ def main():
         else:
             H, W = bgr.shape[:2]
             # feit: de rand van een scan is geen hoesrand, ook niet bij het nauwkeurig meten
-            near_scan_edge = scan_border_mask(meta, (H, W), 1 / F, max(2, 2 * SCAN_EDGE_MM * px_mm))
+            near_scan_edge = scan_border_mask(meta, (H, W), 1 / F, None, shade, px_mm)
             usable = (alpha & ~near_scan_edge).astype(np.uint8)
             def rotated(angle):
                 Rm = cv2.getRotationMatrix2D((W / 2, H / 2), angle, 1.0)
