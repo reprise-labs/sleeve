@@ -18,10 +18,11 @@ staat alles erop en hoeft Sleeve nergens te raden.
    hele) van de rand van het glas, aan elke kant waar een buitenrand in beeld komt. De rand van een scan is
    geen rand van de hoes: een hoesrand die op de scanrand ligt, telt niet als gezien.
 
-3. **Schuiven, of een halve slag draaien; geen kwartslag.** Een scanner rekt in de ene
-   richting net iets anders dan in de andere. Draai je een kwartslag tussen twee deelscans,
-   dan passen ze nooit helemaal en scheelt de maat op 31 cm al gauw 1 à 2 mm. Een halve
-   slag (ondersteboven) mag wel.
+3. **Liefst schuiven, niet draaien.** Een scanner rekt in de ene richting net iets anders dan
+   in de andere. Een hoes van 31 cm past op een A4-glas in vier posities zonder te draaien:
+   schuif hem steeds een hoek verder over het glas. Moet je toch draaien (de hoes valt van
+   het glas, of het ligt onhandig), dan kan dat: Sleeve legt de delen dan nog steeds goed
+   aan elkaar, maar de maat kan 1 à 2 mm afwijken.
 
 4. **Ruime overlap.** Elke deelscan deelt minstens 5 cm met zijn buren. Samen moeten de
    deelscans het hele onderdeel tonen, met rondom nog een strook achtergrond.
@@ -37,7 +38,7 @@ staat alles erop en hoeft Sleeve nergens te raden.
 | LP-hoes (voor of achter) | 4 | Elke hoek één keer. Elke scan toont twee buitenranden met achtergrond erlangs. |
 | Uitklaphoes (binnenkant, vak "Inside") | 6 | Twee rijen van drie, van links naar rechts. Alleen voor een opengeklapte hoes. |
 | Insert of tekstvel (30 cm) | 4 per kant | Als een hoes. Elke kant in een eigen vak "Insert". |
-| Boekjespagina (29 cm) | 2 per pagina | Halve slag gedraaid, zodat elke scan één helft toont. Elke pagina in een eigen vak "Insert". |
+| Boekjespagina (29 cm) | 2 per pagina | Eén keer de linkerhelft, één keer de rechterhelft. Elke pagina in een eigen vak "Insert". |
 | Plaat | 4 | Elke scan een kwart van de plaat, met de buitenrand en achtergrond erlangs. Plaat niet draaien. |
 | Cd-boekje, kaartje, achterkaart | 1 | Recht leggen (binnen een paar graden), rondom achtergrond in beeld. |
 | Cd-schijf | 1 | Midden op het glas, bedrukte kant naar beneden. |

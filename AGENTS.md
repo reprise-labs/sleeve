@@ -101,6 +101,7 @@ Extra feiten:
 - **Nog toe te voegen aan de vaste toets:** de drie Urban Solitude-releases op het paarse vel.
 
 ## Open
+- **Verkeerd gevouwen hoes melden:** Fake back: de voorkant steekt bovenaan 0,4-0,7 mm boven de achterkant uit; Sleeve snijdt op de buitenkant van die strook en zegt GOED. André snijdt dat met de hand bij, maar wil een melding. Kenmerk: een dun wit snijlijntje langs de hele zijde, binnen 1 mm van de snede, met drukwerk erboven dat niet aansluit. Eerst melden (TWIJFEL), pas daarna eventueel zelf snijden; altijd met de vaste toets.
 - **Blauw vinyl kant A:** TWIJFEL, rand op 11 plekken 1,3-1,7 mm naast de cirkel (doorschijnend vinyl op de witte klep).
 - **Donker vinyl op een gekleurd vel:** `rim_end` kan daar glans voor doorschijnen aanzien; nog niet getest.
 - **Rand niet gezien telt niet als twijfel:** `scan_feiten.py` zet bij een zijde zonder zichtbare rand (`weak_sides`, of sectoren bij een plaat) wel TWIJFEL, maar zonder reden; `scan_feitenroute.py` kijkt alleen naar redenen, dus het onderdeel wordt GOED. Eerst met de vaste toets meten hoeveel onderdelen dit raakt, dan beslissen.

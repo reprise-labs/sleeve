@@ -30,8 +30,13 @@ REMEMBERED = ('.anouk-referenties.json', '.sleeve-beslissingen.json', '.sleeve-r
 
 
 def version():
-    m = re.search(r'CFBundleShortVersionString</key><string>([^<]+)', (ROOT / 'build.sh').read_text())
-    return m[1] if m else '?'
+    """Versie van wat getoetst wordt: build.sh in de repo, of Info.plist in een gebouwde app (Contents)."""
+    for f in (ROOT / 'build.sh', ROOT / 'Info.plist'):
+        if f.exists():
+            m = re.search(r'CFBundleShortVersionString</key>\s*<string>([^<]+)', f.read_text(errors='ignore'))
+            if m:
+                return m[1]
+    return '?'
 
 
 def key(part, files):
