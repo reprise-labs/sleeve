@@ -47,21 +47,9 @@ def save_decision(folder, scans, part, decision):
         pass                                               # alleen-lezen map: dan niet onthouden
 
 
-def release_words(discogs):
-    """Bekende tekst van de release: artiest, titel, tracks, labels (feit voor rechtop)."""
-    import scan_naam as N
-    m = re.search(r'/(release|master)/(\d+)', discogs or '')
-    if not m:
-        return []
-    r = N.get(f'https://api.discogs.com/{"masters" if m[1] == "master" else "releases"}/{m[2]}')
-    if m[1] == 'master':
-        r = N.get(f'https://api.discogs.com/releases/{r["main_release"]}')
-    return ([a['name'] for a in r.get('artists', [])] + [r.get('title', '')] +
-            [t['title'] for t in r.get('tracklist', []) if t.get('title')] + [l['name'] for l in r.get('labels', [])])
-
-
-def release_format(discogs):
-    """Feit (Discogs): cd of vinyl."""
+def release_data(discogs):
+    """De release van Discogs (via scan_net: één keer opgehaald, daarna uit het geheugen), of None
+    zonder link. Lukt het ophalen niet, dan komt de fout omhoog; de aanroeper meldt hem."""
     import scan_naam as N
     m = re.search(r'/(release|master)/(\d+)', discogs or '')
     if not m:
@@ -69,6 +57,23 @@ def release_format(discogs):
     r = N.get(f'https://api.discogs.com/{"masters" if m[1] == "master" else "releases"}/{m[2]}')
     if m[1] == 'master':
         r = N.get(f'https://api.discogs.com/releases/{r["main_release"]}')
+    return r
+
+
+def release_words(discogs):
+    """Bekende tekst van de release: artiest, titel, tracks, labels (feit voor rechtop)."""
+    r = release_data(discogs)
+    if not r:
+        return []
+    return ([a['name'] for a in r.get('artists', [])] + [r.get('title', '')] +
+            [t['title'] for t in r.get('tracklist', []) if t.get('title')] + [l['name'] for l in r.get('labels', [])])
+
+
+def release_format(discogs):
+    """Feit (Discogs): cd of vinyl."""
+    r = release_data(discogs)
+    if not r:
+        return None
     names = {(f.get('name') or '').lower() for f in r.get('formats', [])}
     return 'cd' if names & {'cd', 'cdr'} else ('vinyl' if 'vinyl' in names else None)
 
@@ -165,6 +170,19 @@ def choices_for(why):
     return out
 
 
+def backing_mask(L, lab, pm):
+    """Feit: buiten het onderdeel ligt de klep of het vel dat erachter gelegd is: effen, en te zien
+    langs de rand van de scan. Geeft de pixels met die kleur, of None als de rand van de scan niet
+    effen is (dan loopt het onderdeel zelf tot de rand). L in 0-100, lab zoals OpenCV het geeft."""
+    b = max(2, int(1.5 * pm))
+    q = np.dstack([L, lab[:, :, 1] - 128, lab[:, :, 2] - 128])
+    strip = np.concatenate([q[:b].reshape(-1, 3), q[-b:].reshape(-1, 3), q[:, :b].reshape(-1, 3), q[:, -b:].reshape(-1, 3)])
+    med = np.median(strip, 0)
+    if (np.linalg.norm(strip - med, axis=1) < 12).mean() < .7:
+        return None
+    return np.linalg.norm(q - med, axis=2) < 12, med
+
+
 def print_outside(raw, facts):
     """Ligt er tussen de gevonden snede en de beeldrand (aan minstens één zijde, strook van
     minstens 0,3 mm) duidelijk drukwerk in plaats van effen lichte deksel?"""
@@ -177,6 +195,9 @@ def print_outside(raw, facts):
     lab = cv2.cvtColor(im, cv2.COLOR_BGR2LAB).astype(np.float32)
     L = lab[:, :, 0] * 100 / 255; C = np.hypot(lab[:, :, 1] - 128, lab[:, :, 2] - 128)
     lid = (L > 85) & (C < 10)
+    back = backing_mask(L, lab, pm)                        # ook een donker of gekleurd vel achter het onderdeel is geen drukwerk
+    if back is not None:
+        lid |= back[0]
     x, y, w, h = (facts.get('precise_mm') or facts.get('box_mm'))[:4]
     H, W = lid.shape; m = int(.3 * pm)
     x0, y0, x1, y1 = int(x * pm), int(y * pm), int((x + w) * pm), int((y + h) * pm)
@@ -205,7 +226,11 @@ def colour_extent(raw, dpi, cut, fmt, part):
     pm = dpi * k / 25.4
     lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
     L = lab[:, :, 0] * 100 / 255; C = np.hypot(lab[:, :, 1] - 128, lab[:, :, 2] - 128)
-    mask = ((C > 18) | (L < 60)).astype(np.uint8)                   # duidelijk gekleurd of donker
+    mask = (C > 18) | (L < 60)                                      # duidelijk gekleurd of donker
+    back = backing_mask(L, lab, pm)
+    if back is not None and back[1][0] < 45 and np.hypot(back[1][1], back[1][2]) < 15:
+        mask &= ~back[0]                                            # feit: een donker vel achter het onderdeel is geen kaartje
+    mask = mask.astype(np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((max(3, int(pm)),) * 2, np.uint8))
     n, lab_, stats, _ = cv2.connectedComponentsWithStats(mask)
     if n < 2:
@@ -259,11 +284,22 @@ def side_on_label(img, dpi):
         out = '\n'.join(l['text'] for l in R.ocr_lines(lab))
     except Exception:
         out = ''
-    words = {'one': 'a', 'two': 'b', 'three': 'c', 'four': 'd'}
-    for line in out.splitlines():
-        m = re.search(r'\bside\s*([abcd]|one|two|three|four)\b', line, re.I)
-        if m:
-            v = m[1].lower(); return words.get(v, v)
+    return side_letter(out)
+
+
+SIDE_WORDS = {'one': 'a', 'two': 'b', 'three': 'c', 'four': 'd', '1': 'a', '2': 'b', '3': 'c', '4': 'd'}
+SIDE_PATTERNS = (r'\b(?:side|kant|seite)\s*([abcd]|one|two|three|four|[1-4])\b',   # SIDE A, Side One, Side 1, Kant A, Seite 2
+                 r'\b([abcd])-side\b')                                               # A-Side
+
+
+def side_letter(text):
+    """De kant zoals hij op een label gedrukt staat (a-d), of None. Alleen schrijfwijzen die echt
+    een kant aanwijzen; een losse letter of een woord uit een titel telt niet."""
+    for line in text.splitlines():
+        for pattern in SIDE_PATTERNS:
+            m = re.search(pattern, line, re.I)
+            if m:
+                v = m[1].lower(); return SIDE_WORDS.get(v, v)
     return None
 
 
@@ -278,7 +314,14 @@ def main():
     if a.decision:
         save_decision(folder, a.scans, a.part, decision)
     import scan_feiten as SF
-    fmt = a.format or (release_format(a.discogs) if a.discogs else None) or ('cd' if a.part.startswith('cd') else 'vinyl')
+    fmt_note = None
+    fmt = a.format
+    if not fmt and a.discogs:
+        try:
+            fmt = release_format(a.discogs)
+        except Exception as e:                             # Discogs niet bereikbaar: het vak bepaalt het formaat, met een melding
+            fmt_note = f'the format (cd or vinyl) could not be read from Discogs ({e}); taken from the slot'
+    fmt = fmt or ('cd' if a.part.startswith('cd') else 'vinyl')
     feit_part = a.part if a.part in SF.SHAPES[fmt] else ('insert' if a.part.startswith('insert') else 'front')
     result_fmt = fmt
     os.makedirs(a.work, exist_ok=True)
@@ -287,7 +330,7 @@ def main():
     for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):   # nooit een oud tussenbestand gebruiken
         if os.path.exists(f):
             os.remove(f)
-    result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
+    result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [fmt_note] if fmt_note else [], 'choices': [], 'decision': decision}
     already = already_cut(a.scans[0], SF.SHAPES[fmt][feit_part], a.release_dpi) if len(a.scans) == 1 else None
     # Feit: alleen transparantie rondom bewijst dat een beeld al uitgesneden is. Een gewone scan
     # met de juiste buitenmaat kan nog deksel rondom hebben (wit hoesje op witte deksel, scheef
@@ -321,7 +364,10 @@ def main():
         d0 = scan_resolution(a.scans[0], a.release_dpi)
         from PIL import Image as _PI
         _PI.MAX_IMAGE_PIXELS = None
-        total_px = sum(_PI.open(f).size[0] * _PI.open(f).size[1] for f in a.scans)
+        total_px = 0
+        for f in a.scans:
+            with _PI.open(f) as im_:
+                total_px += im_.size[0] * im_.size[1]
         if total_px > 700e6:                               # samen meer dan ±700 Mpx (bv. uitklap, 6 x 1200 dpi): past niet in het geheugen
             # veel scans op 1200 dpi (uitklap): samen te groot voor het geheugen. Rekenen op
             # kopieën van 600 dpi; het eindbeeld wordt dan 600 dpi (melding in het resultaat).
@@ -462,7 +508,11 @@ def main():
         if not (fits(wm, hm) or fits(hm, wm)):
             why.append(f'measured {wm:.1f} x {hm:.1f} mm, but this packaging is {wl}-{wh} x {hl}-{hh} mm: check the packaging choice')
     # rechtop
-    words = release_words(a.discogs) if a.discogs else []
+    words_note = None
+    try:
+        words = release_words(a.discogs) if a.discogs else []
+    except Exception as e:                                 # het uitsnijden is klaar: dat gooien we niet weg om een haperende verbinding
+        words, words_note = [], f'which way is up: the text of the release could not be fetched from Discogs ({e})'
     disc = SF.SHAPES[fmt][feit_part][0] == 'disc'
     if words:
         args = [PY, os.path.join(HERE, 'scan_rechtop.py'), crop, '--words', os.path.join(a.work, 'words.json'), '--out', up]
@@ -478,18 +528,27 @@ def main():
         except (ValueError, IndexError):
             upright = {'verdict': 'TWIJFEL'}
         result['upright'] = {k: upright.get(k) for k in ('rotate_clockwise', 'verdict', 'read_upright')}
-        if os.path.exists(up):
-            img = cv2.imread(up, cv2.IMREAD_UNCHANGED)
-        if upright.get('verdict') != 'GOED':
+        turned = cv2.imread(up, cv2.IMREAD_UNCHANGED) if os.path.exists(up) else None
+        if upright.get('verdict') == 'GOED':
+            if turned is not None:
+                img = turned
+        else:
+            # Geen duidelijke stand: Sleeve gokt niet. Het beeld blijft zoals het uitgesneden is, behalve
+            # een label dat op de titel recht gezet is (dat is gemeten, alleen niet zeker): dat zie jij
+            # recht gezet. Jouw draaiing geldt voor precies het beeld dat jij zag.
+            base = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
+            title_only = 'title only' in (upright.get('read_upright') or [])
+            shown = turned if (title_only and turned is not None) else base
+            img = shown
+            if not title_only:
+                result['upright']['rotate_clockwise'] = 0   # er is niets gedraaid
             if decision.get('rotate') in ROTATE or decision.get('rotate') == 0:
-                base = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
-                img = cv2.rotate(base, ROTATE[decision['rotate']]) if decision['rotate'] else base
+                img = cv2.rotate(shown, ROTATE[decision['rotate']]) if decision['rotate'] else shown
                 result['applied'] = (result.get('applied', '') + f' rotated {decision["rotate"]}').strip()
-            elif 'title only' in (upright.get('read_upright') or []):
+            elif title_only:
                 why.append('which way is up: the label was set straight on the title only (no tracklist read); a title can be printed at an angle')
             else:
                 # geen bekende tekst: de Discogs-foto van deze release bepaalt de stand
-                base = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
                 got = discogs_orientation(base, a.discogs, disc) if a.discogs else None
                 if got:
                     ang_d, nk = got
@@ -502,13 +561,15 @@ def main():
                     result['upright'] = {'rotate_clockwise': round(ang_d, 1), 'verdict': 'GOED', 'read_upright': [f'Discogs photo ({nk} matching points)']}
                     result['applied'] = (result.get('applied', '') + ' upright from the Discogs photo').strip()
                 elif upright.get('verdict') == 'LEESBAAR':
-                    # feit: andere tekst op dit onderdeel leest duidelijk in één stand (img is al zo gedraaid)
+                    # feit: andere tekst op dit onderdeel leest duidelijk in één stand
+                    if turned is not None:
+                        img = turned
                     result['upright'] = {'rotate_clockwise': upright.get('rotate_clockwise'), 'verdict': 'GOED', 'read_upright': upright.get('read_upright')}
                     result['applied'] = (result.get('applied', '') + ' upright from readable text').strip()
                 else:
                     why.append('which way is up: no text could be read clearly, and no Discogs photo matches clearly')
     else:
-        why.append('which way is up: no Discogs release, so no known text to read')
+        why.append(words_note or 'which way is up: no Discogs release, so no known text to read')
     # kant op het label (feit) tegen het vak
     if disc and feit_part.startswith('side'):
         letter = side_on_label(img, dpi)

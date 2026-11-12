@@ -176,6 +176,39 @@ def reference_photos(req,work):
   p=folder/f'Foto {i+1}.png';cv2.imwrite(str(p),img);refs.append({'path':str(p),'title':f'Foto {i+1}'})
  emit('references',files=refs,message=title)
 
+def part_time_limit(files):
+ """Feit: een onderdeel is in minuten klaar; hoe lang hangt af van de hoeveelheid beeld. Duurt het
+ veel langer (15 minuten plus 1,5 s per megapixel aan scans), dan hangt er iets en komt het niet
+ meer goed: stoppen en melden, zodat de andere onderdelen en de app doorgaan."""
+ if os.environ.get('SLEEVE_PART_TIMEOUT'):return float(os.environ['SLEEVE_PART_TIMEOUT'])
+ mpx=0.0
+ try:
+  from PIL import Image;Image.MAX_IMAGE_PIXELS=None
+  for f in files:
+   with Image.open(f) as im:mpx+=im.size[0]*im.size[1]/1e6
+ except Exception:pass
+ return 900+1.5*mpx
+
+def release_format(req,parts):
+ """Feit: alle onderdelen van één release hebben hetzelfde formaat (een cd-vak = een cd), en de
+ verpakking (Discogs of jouw keuze) bepaalt de maten bij een cd."""
+ fmt=req.get('format') if req.get('format') in ('cd','vinyl') else ('cd' if any(part.startswith('cd') for part in parts) else '')
+ pk=req.get('packaging') or ''
+ if pk in ('','auto') and req.get('discogs'):
+  try:
+   import scan_release as RI;pk=RI.info(release_url(req['discogs'])).get('packaging','')
+  except Exception as e:emit('log',message=f'Packaging not read from Discogs: {e}')
+ if pk in ('slimjewel','superjewel','digipak','cardsleeve') and (fmt=='cd' or req.get('format')=='cd' or (not fmt and req.get('mediaKind')=='cd')):fmt='cd-'+pk
+ return fmt
+
+def run_facts(output):
+ """Formaat en resolutie waarmee deze map gemaakt is (voor een beslissing achteraf: zelfde feiten)."""
+ try:
+  data=json.loads((Path(output)/'Studio-verwerking.json').read_text())
+  if data.get('route')=='feiten' and 'format' in data:return data['format'],float(data.get('release_dpi') or 0.0)
+ except (OSError,ValueError,TypeError):pass
+ return None
+
 def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0):
  """Eén onderdeel door de feitenroute (scan_feitenroute.py); geeft de uitkomst."""
  cmd=[sys.executable,str(TOOLS/'scan_feitenroute.py'),'--part',part,'--out',str(output),'--work',str(work),*files]
@@ -196,9 +229,17 @@ def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0)
     emit('status',message=f'{part}: {line[12:].strip()}…')
    else:err_lines.append(line)
  reader=threading.Thread(target=read_err,daemon=True);reader.start()
- try:out=process.stdout.read();process.wait();reader.join()
+ limit=part_time_limit(files);timed_out=threading.Event()
+ def stop():
+  timed_out.set()
+  try:os.killpg(process.pid,signal.SIGKILL)               # het onderdeel en alles wat het gestart heeft
+  except (ProcessLookupError,PermissionError):pass
+ timer=threading.Timer(limit,stop);timer.daemon=True;timer.start()
+ try:out=process.stdout.read();process.wait();reader.join(10)
  finally:
-  OCR_CHILDREN.discard(process);shutil.rmtree(work,ignore_errors=True)
+  timer.cancel();OCR_CHILDREN.discard(process);shutil.rmtree(work,ignore_errors=True)
+ if timed_out.is_set():
+  return {'part':part,'scans':files,'verdict':'FOUT','why':[f'stopped after {limit/60:.0f} minutes without a result (it hung). The other parts went on; process this part again.']}
  err=''.join(err_lines)
  for line in (err or '').splitlines()[-5:]:emit('log',message=line)
  try:return json.loads(out.strip().splitlines()[-1])
@@ -263,15 +304,8 @@ def feiten_scan(req,rows,layout,work):
  if any(not d for d in dpis) and release_dpi:emit('log',message=f'Some scans have no reliable resolution stored; using {release_dpi:.0f} dpi from the other scans of this release.')
  workers=1 if (release_dpi or 300)>=900 else 2
  with CF.ThreadPoolExecutor(max_workers=workers) as pool:
-  # feit: alle onderdelen van één release hebben hetzelfde formaat; een cd-vak = een cd
-  fmt=req.get('format') if req.get('format') in ('cd','vinyl') else ('cd' if any(part.startswith('cd') for part,_ in jobs) else '')
-  # feit: de verpakking (Discogs of jouw keuze) bepaalt de maten bij een cd
-  pk=req.get('packaging') or ''
-  if pk in ('','auto') and req.get('discogs'):
-   try:
-    import scan_release as RI;pk=RI.info(release_url(req['discogs'])).get('packaging','')
-   except Exception as e:emit('log',message=f'Packaging not read from Discogs: {e}')
-  if pk in ('slimjewel','superjewel','digipak','cardsleeve') and (fmt=='cd' or req.get('format')=='cd' or (not fmt and req.get('mediaKind')=='cd')):fmt='cd-'+pk
+  fmt=release_format(req,[part for part,_ in jobs])
+  run_format=fmt
   futures={pool.submit(feiten_part,req,part,files,output,work/f'part{i}-{uuid.uuid4().hex[:8]}',None,fmt,release_dpi):part for i,(part,files) in enumerate(jobs)}
   for future in CF.as_completed(futures):
    result=future.result();done+=1;results.append(result)
@@ -312,13 +346,16 @@ def feiten_scan(req,rows,layout,work):
  for x,y in (('sidea','sideb'),('sidec','sided')):
   if x in made and y in made:
    emit('status',message=f'Same record, same colour: matching {x} and {y}')
-   cp=subprocess.run([sys.executable,str(TOOLS/'scan_kleur_kanten.py'),made[x],made[y]],capture_output=True,text=True)
-   for line in (cp.stdout+cp.stderr).splitlines()[-3:]:emit('log',message=line)
+   try:
+    cp=subprocess.run([sys.executable,str(TOOLS/'scan_kleur_kanten.py'),made[x],made[y]],capture_output=True,text=True,timeout=600)
+    for line in (cp.stdout+cp.stderr).splitlines()[-3:]:emit('log',message=line)
+   except subprocess.TimeoutExpired:
+    emit('warning',message=f'{x} and {y}: matching the colour took too long and was skipped; both sides are kept as scanned.')
  files=[]
  for r in results:
   if r.get('panels'):files+=[dict(feiten_file(r),path=q['path'],part=q['part']) for q in r['panels']]
   elif r.get('path'):files.append(feiten_file(r))
- (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':results,'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
+ (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','format':run_format,'release_dpi':release_dpi,'inputs':rows,'outputs':files,'results':results,'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
  if not files:raise ValueError('No processed images were made: '+' '.join(f"{r.get('part')}: {'; '.join(r.get('why') or ['no reason'])}." for r in results))
  # Een onderdeel dat niet gemaakt kon worden, heeft geen bestand en staat dus niet in de eindcontrole:
  # daarom hier hardop melden, met de reden (nooit stil laten verdwijnen).
@@ -346,7 +383,10 @@ def feiten_decide(req,work):
   emit('outputs',files=[dict(feiten_file(result),replace=True)])
   emit('complete',message=f'{part}: kept as it is. Nothing changed.');return
  output=old.parent if old else Path(req['output'])
- result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision,req.get('format') if req.get('format') in ('cd','vinyl') else ('cd' if part.startswith('cd') else ''))
+ # Feit: een beslissing verandert alleen wat jij kiest. Het onderdeel wordt opnieuw gemaakt met
+ # hetzelfde formaat, dezelfde verpakking en dezelfde resolutie als de eerste keer.
+ fmt,release_dpi=run_facts(output) or (release_format(req,[part]),0.0)
+ result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision,fmt,release_dpi)
  if old and result.get('path') and Path(result['path'])!=old and old.exists():
   shutil.move(result['path'],old);result['path']=str(old)
  if result.get('path'):emit('outputs',files=[dict(feiten_file(result),replace=True)])
@@ -363,11 +403,11 @@ def scan(req,rows,work):
   if part not in PARTS:raise ValueError('Choose a valid part.')
   if any(row.get('reference') for row in rows):raise ValueError('Choose only the source images for this part.')
   output=job_folder(req,'Scans');emit('destination',path=str(output))
-  result=feiten_part(req,part,[row['path'] for row in rows],output,work/f'rerun-{uuid.uuid4().hex[:8]}',None,req.get('format') if req.get('format') in ('cd','vinyl') else '')
+  result=feiten_part(req,part,[row['path'] for row in rows],output,work/f'rerun-{uuid.uuid4().hex[:8]}',None,release_format(req,[part]))
   if not result.get('path'):raise ValueError('This part could not be made: '+'; '.join(result.get('why',[])))
   files=[feiten_file(result)];JOB_OUTPUTS[files[0]['path']]=files[0]
   emit('outputs',files=files)
-  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','inputs':rows,'outputs':files,'results':[result],'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
+  (output/'Studio-verwerking.json').write_text(json.dumps({'action':'scan','route':'feiten','format':release_format(req,[part]),'release_dpi':0.0,'inputs':rows,'outputs':files,'results':[result],'discogs':req.get('discogs','')},ensure_ascii=False,indent=2))
   emit('complete',message=f'{part}: {result.get("verdict")}',path=str(output));return
  layout=layout_from_groups(rows)
  # Feit: elk onderdeel bestaat één keer (twee vakken 'Side A' of twee keer 'CD' kan niet; inserts wel)
@@ -643,7 +683,8 @@ def main():
   if not req.get('discogs') or not files:emit('complete',message='Drag the scans into the slots.');return
   emit('status',message='Looking for facts: barcode, Discogs cover photo, disc…')
   cmd=[sys.executable,str(TOOLS/'scan_vakken.py'),release_url(req['discogs']),str(req.get('format') or ''),','.join(req.get('slots') or []),*files]
-  out=subprocess.run(cmd,capture_output=True,text=True)
+  try:out=subprocess.run(cmd,capture_output=True,text=True,timeout=120+45*len(files))
+  except subprocess.TimeoutExpired:emit('complete',message='Looking for facts took too long. Drag the scans into the slots.');return
   try:res=json.loads(out.stdout.strip().splitlines()[-1])
   except (ValueError,IndexError):emit('complete',message='No slots filled in. Drag the scans into the slots.');return
   emit('groups',groups=res.get('groups',[]))

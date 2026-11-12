@@ -1,3 +1,35 @@
+# Reference test for the facts route (0.5.27, 12 November 2026)
+
+`python3 Tests/feiten/reference.py run` makes the recorded releases again through the bridge
+(the same path as the app) and compares every part: verdict, size in mm (within 0.3 mm), upright
+angle (within 1 degree) and a small image print. The scans are not in the repository; they are
+read from `~/Desktop` (or `SLEEVE_TESTSCANS`). Twelve releases take about 1.5 hours on the
+development Mac; nothing else should run meanwhile, because macOS text recognition falls back
+to fast reading under load and the outcome then differs.
+
+Baseline recorded with 0.5.26: 44 parts, 37 GOED. 0.5.27 gives the same outcome on all 44
+parts ("ALL THE SAME"). The recorded outcomes are what 0.5.26 made; they are not yet approved one
+by one by the owner of the collection (`approved: false` in `reference.json`).
+
+| Release | Parts | GOED | In doubt |
+|---|---|---|---|
+| deena | 3 | 2 | front |
+| deena_cd | 5 | 4 | inlay |
+| fake | 4 | 4 | - |
+| feet_on_the_ground_promo | 3 | 3 | - |
+| hny | 4 | 3 | sidea |
+| places_to_go_promo | 3 | 3 | - |
+| pretending_promo | 3 | 3 | - |
+| queen | 4 | 2 | sidea; sideb |
+| queen_hoes | 2 | 2 | - |
+| ta | 4 | 4 | - |
+| together_alone_cd | 5 | 5 | - |
+| us | 4 | 2 | back; sideb |
+
+Fire and GF (1200 dpi, tier `groot`) are in the set but not recorded yet.
+
+Not covered by a real scan: a dark sheet behind a CD card (only simulated).
+
 ## 0.4.23 — English
 
 - Full test suite passes with the English messages (tests updated where they checked Dutch text).

@@ -76,7 +76,10 @@ def has_cd(im, px_mm):
 def main():
     url, fmt, slots = sys.argv[1], sys.argv[2], [s for s in sys.argv[3].split(',') if s]
     scans = sys.argv[4:]
-    rid = re.search(r'/release/(\d+)', url)
+    rid = re.search(r'/release/(\d+)', url); mid = re.search(r'/master/(\d+)', url)
+    if not rid and mid:                                    # master-link: de hoofduitgave daarvan
+        main = json.loads(D.get(f'https://api.discogs.com/masters/{mid.group(1)}')).get('main_release')
+        rid = re.search(r'/release/(\d+)', f'/release/{main}') if main else None
     rel = json.loads(D.get(f'https://api.discogs.com/releases/{rid.group(1)}')) if rid else {}
     codes = [re.sub(r'\D', '', i.get('value', '')) for i in rel.get('identifiers', []) if i.get('type') == 'Barcode']
     imgs, roles = [], []

@@ -9,7 +9,7 @@ export PYTHONDONTWRITEBYTECODE=1
 "$RUNTIME_PY" Tests/check_names.py
 "$RUNTIME_PY" Tests/check_placement.py
 "$RUNTIME_PY" Tests/check_arrange.py
-for check in bridge audits progress cancel circle_edit memory scratch scratch_work release_advice blend fields handoff preview_cache workers; do
+for check in bridge audits progress cancel circle_edit memory scratch scratch_work release_advice blend fields handoff preview_cache workers facts_fixes; do
  "$RUNTIME_PY" "Tests/check_${check}.py" "$CHECK_DIR/$check"
 done
 mkdir -p "$CHECK_DIR/Checks.app/Contents/MacOS"

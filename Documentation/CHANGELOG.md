@@ -1,3 +1,16 @@
+# 0.5.27 — A part that hangs no longer hangs the app; Discogs fetched once; a fixed reference test
+
+- **No more hanging.** Each part has a time limit (15 minutes plus 1.5 s per megapixel of scans). A part that passes it is stopped with everything it started and reported as `NOT MADE: <part> – stopped after N minutes`; the other parts go on. Filling in the slots and matching the colour of side A and B have a time limit too.
+- **Discogs is fetched once per address and remembered for an hour** (`scan_net.py`), shared by all parts. "Too many requests" (429) or a fault at Discogs is retried after a short wait instead of failing the part. Before, every part asked Discogs three to four times, close to its limit of about 25 requests a minute.
+- **A fault at Discogs no longer throws away a finished cut-out.** If the text of the release cannot be fetched, the part is kept and you get doubt about which way is up, with the reason.
+- **A decision is remade with the same facts.** Rotating or squaring a part in the Final Check now uses the same format, packaging and resolution as the first run (stored in `Studio-verwerking.json`). Before, a slim-jewel or cardboard-sleeve part was remade on jewel-case sizes.
+- **In doubt about which way is up, Sleeve no longer turns the image.** It stays as it was cut out, and your rotation applies to exactly the image you saw. (A label set straight on its title is still shown straightened, and marked as doubt.)
+- **Side letter on the label:** also read as `Side 1`, `A-Side`, `Kant A`, `Seite 2`; words from a title ("Side by side") do not count.
+- **Dark sheet behind a card:** a dark, even sheet behind a CD card is no longer taken for the card or for print.
+- Slots are also filled in from a Discogs master link.
+- **Reference test for the facts route** (`Tests/feiten/reference.py`): approved releases are made again through the bridge and compared part by part (verdict, size in mm, upright angle, a small image print). See `Documentation/TESTS.md`.
+- New: `Documentation/SCANNEN.md`, how to scan so that Sleeve does not have to doubt.
+
 # 0.4.23 — Sleeve in English
 
 - The whole app is now in American English: screens, buttons, messages, progress and the final check, following the approved glossary (release, cover, record, part, Final Check, Process Scans, Adjust Color, Rename Files; parts Front, Back, Inside, Insert, Insert Left/Right, Side A–D, CD, Unassigned).

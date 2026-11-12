@@ -29,18 +29,11 @@ def get(url):
 
 
 def fetch(url):
-    """Ophalen; lukt dat niet met Python (bv. geen certificaten op deze Mac), dan met curl."""
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA}), timeout=8) as r:
-            return r.read()
-    except Exception as error:
-        if getattr(getattr(error,'reason',error),'errno',None) in (13,51,64,65):
-            raise RuntimeError('No connection to Discogs. Check the internet connection and Sleeve’s network access; you can also use your own reference photo.') from error
-        import subprocess
-        r = subprocess.run(['curl', '-fsSL', '-A', UA, '--connect-timeout', '8', '--max-time', '20', url], capture_output=True)
-        if r.returncode:
-            raise RuntimeError(f'fetch failed: {url}')
-        return r.stdout
+    """Ophalen via scan_net: één keer per adres, onthouden, opnieuw proberen bij 'te veel aanvragen'."""
+    import os, sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import scan_net
+    return scan_net.fetch(url)
 
 
 def naam(url, kant, extra='', year=''):

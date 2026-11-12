@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 9 nov 2026, versie 0.5.26 (tag `v0.5.26`, branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 11 nov 2026, versie 0.5.27 (branch `feiten`, github.com/reprise-labs/sleeve; laatste tag op GitHub: `v0.5.26`).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -14,6 +14,11 @@ Antwoord André kort en in het Nederlands. Meld per release de uitkomst.
 
 ## Werken
 - Tests: `zsh scripts/check.sh` → moet eindigen met "Controles geslaagd".
+- **Vaste toets van de feitenroute (verplicht vóór elke release):** `python3 Tests/feiten/reference.py run` → moet eindigen met "ALL THE SAME".
+  - Maakt de vastgelegde releases opnieuw via de bridge en vergelijkt per onderdeel oordeel, maat, stand en beeld. De scans staan in `~/Desktop` (of `SLEEVE_TESTSCANS`).
+  - Een verschil is een regressie, tenzij het de bedoeling van je wijziging is. Leg een bedoeld verschil aan André voor; na zijn akkoord: `reference.py record <naam> --approved`.
+  - `--groot` neemt ook Fire en GF mee (1200 dpi, lang, ±5 GB vrij nodig). `--keep <map>` bewaart de beelden om te bekijken.
+  - Niets anders tegelijk laten draaien: de tekstherkenning schakelt bij drukte over op snel lezen en dan verschilt de uitkomst.
 - Bouwen: versie in `build.sh` ophogen, `zsh build.sh`; app kopiëren naar `~/Desktop/claude need fix/Sleeve - test <versie>/` en zip maken met `ditto -c -k --sequesterRsrc --keepParent`.
 - Release: tag `v<versie>` pushen en `gh release create … --prerelease --target feiten` met de zip.
 - Git-auteur: `reprise-labs <334611916+reprise-labs@users.noreply.github.com>`. Niet force-pushen.
@@ -76,7 +81,19 @@ Extra feiten:
 - **Testmodus van de app**: `Sleeve --scans "a.png|b.png" --discogs <link> --dump /tmp/x`. Die bevestigt de release en schrijft elke 5 s de indeling naar `/tmp/x_<t>s.json`.
 - **Afspraak met André:** elke verbetering is een feit voor álle releases, nooit een uitzondering voor één release.
 
+## 11 nov (0.5.27)
+- **Hangen:** elk onderdeel heeft een tijdgrens (`part_time_limit` in de bridge: 15 min + 1,5 s per megapixel). Daarna wordt het gestopt en gemeld als NOT MADE.
+- **Discogs:** alles gaat via `Resources/Tools/scan_net.py`: één keer per adres ophalen, een uur onthouden (map in de tijdelijke map, of `SLEEVE_NET_CACHE`), opnieuw proberen bij 429 of een storing. Nooit meer zelf `urlopen` aanroepen.
+- **Beslissing:** `decide` gebruikt formaat, verpakking en resolutie van de eerste run (`run_facts`, uit `Studio-verwerking.json`).
+- **Stand bij twijfel:** het beeld wordt niet gedraaid; jouw draaiing geldt voor het beeld dat je zag.
+- **Scanwijze:** `Documentation/SCANNEN.md`. Een donker vel achter een kaartje telt niet als kaartje of drukwerk (`backing_mask`).
+- **Nog niet op echte scans getest:** een donker vel achter een cd-kaartje (alleen nagebootst).
+
 ## Open
+- **Rand niet gezien telt niet als twijfel:** `scan_feiten.py` zet bij een zijde zonder zichtbare rand (`weak_sides`, of sectoren bij een plaat) wel TWIJFEL, maar zonder reden; `scan_feitenroute.py` kijkt alleen naar redenen, dus het onderdeel wordt GOED. Eerst met de vaste toets meten hoeveel onderdelen dit raakt, dan beslissen.
+- **Hoek van een hoes of kaartje:** `find_rect` zoekt alleen tussen -3 en +3 graden. Schever gelegd = niet gevonden.
+- **Oude route:** `scan_cutout.py` en de vormherkenning in `scan_stitch.py` worden door de feitenroute niet meer gebruikt en kunnen eruit.
+- **Eindbeeld in één keer opbouwen:** nu wordt elk beeld twee keer omgerekend (samenvoegen, daarna rechtzetten) en vier keer naar schijf geschreven.
 - **Witte platen op de witte deksel** (Queen A/B, Deena A/B/C): André scant ze opnieuw met een donker vel. Hier geen tijd meer aan besteden.
 - **HNY kant A:** twijfel op de rand.
 - **Super Jewel Box:** de maat van de achterkaart is onzeker.
