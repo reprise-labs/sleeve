@@ -1,3 +1,14 @@
+# 0.5.29 — Sharp small text on stitched sleeves, no patchwork on vinyl, light falloff of the glass removed
+
+Found on the Urban Solitude scans on a purple sheet (12–13 November), checked against the full reference test.
+
+- **Small text comes from the sharp scan.** The threshold for "this is print" was computed on a quarter-size image and came out about 100 times too high, so small grey text counted as plain paper and a blurred partial scan could win there. Now, where one scan is clearly sharper (1.8×), the whole block of text around it (±1.5 mm) is taken from the scan that is sharpest there. Elsewhere on a sleeve the choice is as in 0.5.28, so the found edges do not move.
+- **No more patchwork on vinyl.** On a record, "sharpness" in the grooves is only gloss. Away from the label and the rim, the partial scan in which that spot lies furthest from the edge of the glass is used. Side effect (approved): a narrow strip (±1 mm) of the rounded rim of the record is now in the image; cutting exactly on its inner side follows in 0.5.30.
+- **The light falloff of the glass is measured and removed on sleeves.** On this scanner the right part of the glass is 2–3% darker, in every scan. Sleeve measures that from even areas in all partial scans together and removes it before the scans are matched; it is saved next to the scans (`.sleeve-glas.json`). Not yet for records (translucent vinyl takes the colour behind it).
+- **A strip of background along one part of an edge is cut off — only on a coloured sheet.** When a sleeve lay slightly differently in two partial scans, a grey strip of the sheet could fall inside the cut along part of one side. On a coloured sheet the side is now checked in 8 pieces and the worst piece counts (only the colour of the sheet, at most 1 mm). On the white lid the same check is done only where the paper of that piece differs strongly from the lid (dark or saturated print): a thin line of white lid along part of a side is cut off (Fire insert and back, Fake, Queen sleeve front); light print along the edge stays whole.
+- Tried and not kept, after the reference test showed sleeves 1–2 mm smaller: a looser scanner-stretch correction, levelling the tone across seams (`SEAM_LEVEL`, off), cutting a record inward to its worst point, and checking edges in pieces on the white lid regardless of the print colour.
+- Reference test: Urban Solitude green, blue and white on the purple sheet added; GF recorded for the first time.
+
 # 0.5.28 — Scans on a coloured sheet: blank corners, faint print, clean edges; blue vinyl keeps its white label
 
 Found on the first releases scanned with a purple sheet behind them (Urban Solitude green, blue and white, 12 November).

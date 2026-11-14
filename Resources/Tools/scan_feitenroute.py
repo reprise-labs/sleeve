@@ -381,7 +381,8 @@ def main():
                 scans_in.append(q)
             result['why_note'] = f'{len(a.scans)} scans ({total_px / 1e6:.0f} Mpx) do not fit in memory together; made at {d0 / 2:.0f} dpi'
         step(f'merging {len(scans_in)} scans')
-        st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'], capture_output=True, text=True)
+        is_disc = SF.SHAPES.get(fmt, SF.SHAPES['vinyl']).get(feit_part, ('rect',))[0] == 'disc'
+        st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'] + (['--plaat-onderdeel'] if is_disc else []), capture_output=True, text=True)
         for q in scans_in:
             if q not in a.scans and os.path.exists(q):
                 os.remove(q)

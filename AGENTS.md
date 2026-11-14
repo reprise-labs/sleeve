@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 12 nov 2026, versie 0.5.28 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 13 nov 2026, versie 0.5.29 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -99,6 +99,22 @@ Extra feiten:
 - **Inserts:** verschillende maten mogen (`SAME_SHEET_MM`); maatbereik 288-312. Bij 280 won een band drukwerk.
 - **Vaste toets:** Deena front is 0,6 mm kleiner (grijze strook boven is weg: beter); daardoor verschillen front en back 2,8 mm en zijn beide TWIJFEL. US kant B is GOED geworden. Nog niet opnieuw vastgelegd: wacht op akkoord van André.
 - **Nog toe te voegen aan de vaste toets:** de drie Urban Solitude-releases op het paarse vel.
+
+## 13 nov (0.5.29): scherpe tekst, geen lapjes op vinyl, lichtpatroon van het glas
+- **Scankeuze per plek** (`scan_stitch.py`, blok 'Comparing details'):
+  - Hoes: zoals 0.5.28 (scherpte ±25 px x afstand tot de scanrand), behalve waar één scan duidelijk scherper is (1,8x): dan het hele tekstblok (±1,5 mm) uit de scherpste. De drempel voor 'detail' wordt nu op dezelfde schaal gemeten als de scherpte (was ±100x te hoog).
+  - Plaat: buiten sterk detail wint de scan waarin de plek het verst van de glasrand ligt (geen lapjes). Gevolg, door André goedgekeurd (keuze B): ±1 mm afgeronde rand zichtbaar. **Open voor 0.5.30: strak snijden op de binnenkant van de rand.**
+- **Lichtpatroon van het glas** (`glass_fields`, alleen hoezen; `GLASS_FOR_RECORDS = False`): rechterdeel van het glas 2-3% donkerder; bewaard als `.sleeve-glas.json` bij de scans.
+- **Strook achtergrond langs een deel van een zijde**: `trim_edge_lines` kijkt per 8 stukken, alleen de kleur van het vel of de klep (geen schaduw), hooguit 1 mm. Op een gekleurd vel altijd; op de witte klep alleen waar het papier van dat stuk sterk van de klep verschilt (`FAR_FROM_LID` = 60 Lab). Beeld voor beeld nagekeken: Fake, Fire, Queen-hoes, Deena back verliezen alleen klep.
+- **Geprobeerd en teruggedraaid** (vaste toets: hoezen 1-2 mm kleiner): ruimere rekcorrectie, `SEAM_LEVEL` (uit; idee André: als optie, eerst rand zoeken en daarna pas naden gelijktrekken), plaat naar binnen snijden tot het slechtste punt, per stuk bijsnijden op de witte klep.
+- **Les:** alles wat de toon langs randen verandert of de scan bij de rand anders kiest, verschuift de gevonden hoesrand. Altijd de vaste toets draaien, ook `--groot`.
+- **Scanadvies** (SCANNEN.md): 1 cm van de glasrand, klep aandrukken bij rand en tekst, plaat mag een kwartslag draaien. Opnieuw scannen van de witte back (`~/Desktop/vinyl/us_new_white_back3`) gaf een perfecte back.
+- **Open:**
+  - Doorschijnend vinyl: André probeert optie A (per positie twee scans: witte klep voor de kleur, vel erop voor de rand).
+  - Glans in de groeven verschilt per kwart (kwartslag gedraaid): per ring de helderheid gelijktrekken.
+  - Groen kant B: label alleen op de titel rechtgezet, tracklist niet gelezen.
+  - 0.5.30: FAQ en scanwijzer in de app (Help), meldingen in gewone taal met "Hoe los ik dit op?".
+  - Queen en HNY: opnieuw scannen op een donker vel (rand van wit/geel vinyl op de witte klep).
 
 ## Open
 - **Verkeerd gevouwen hoes melden:** Fake back: de voorkant steekt bovenaan 0,4-0,7 mm boven de achterkant uit; Sleeve snijdt op de buitenkant van die strook en zegt GOED. André snijdt dat met de hand bij, maar wil een melding. Kenmerk: een dun wit snijlijntje langs de hele zijde, binnen 1 mm van de snede, met drukwerk erboven dat niet aansluit. Eerst melden (TWIJFEL), pas daarna eventueel zelf snijden; altijd met de vaste toets.

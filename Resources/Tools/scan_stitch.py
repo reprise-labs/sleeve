@@ -26,7 +26,7 @@ scan_cutout.py (cover/vinyl) en de watermerkstap.
 import argparse, os, sys, gc, contextlib
 from scan_progress import progress
 from scan_blend import detail_blur
-from scan_fields import GainPlane, CorrectedImage
+from scan_fields import GainPlane, CorrectedImage, FieldGain
 from scan_memory import MappedScanStore,MappedArrayStore,render_tile_size,drop_array_pages,flush_array_rows,MemoryLease
 import numpy as np
 import cv2
@@ -56,6 +56,8 @@ INK_MIN_AREA = 0.002  # minder drukwerk dan dit deel van het canvas: geen contro
 REFINE_SLACK = 0.5     # px: bijstellen mag geen enkel paar meer dan dit verslechteren
 SEAM_SIDE = 1200       # px: rekenschaal voor het kiezen van de naden
 WINNER_SMOOTH = 8     # px (rekenschaal): keuzekaart per deelscan samenhangend maken
+SHARP_SIGMA_MM = 0.7   # scherpte meten over ±0,7 mm
+DETAIL_RATIO = 1.8     # zoveel scherper moet een scan zijn om bij kleine tekst te winnen
 TONE_SIGMA = 30        # px (rekenschaal): alleen deze heel grove toon wordt tussen deelscans gemengd;
                        # alles fijner (ook letters) komt uit de gekozen deelscan
 MAX_SLOPE = 0.06      # lichtverloop per deelscan: max ~6% over de hele breedte/hoogte
@@ -234,6 +236,8 @@ def scanner_stretch(pairs):
     Liggen stukken 90 graden gedraaid, dan past alleen schuiven/draaien niet meer
     precies (letters verspringen). Zoek de verhouding y/x die alle paren het
     best laat passen; dezelfde scanner, dus één waarde voor alle scans."""
+    # (12 nov geprobeerd: alle punten met afgekapte afwijking. Dat zette de rek ook aan waar het ruis was en
+    # maakte TA, Fake, HNY 1-2 mm kleiner in de vaste toets; teruggezet, 13 nov.)
     def score(sy):
         D = np.array([1.0, sy], np.float32); tot = []
         for src, dst in pairs.values():
@@ -435,6 +439,276 @@ def seam_regions(img, masks, ks, height, width):
     for n, k in enumerate(ks):
         choice[(choice == n) & ~masks[k]] = 255              # nooit buiten de eigen scan
     return choice
+
+
+TONE_FIELD_MM = 10.0   # zo glad is het toonveld per deelscan (mm); fijn genoeg voor het licht dat langs de glasrand afloopt
+TONE_FIELD_MAX = 0.12  # hooguit 12% lichter of donkerder
+TONE_EDGE_MM = 1.0     # zo ver van de rand van een deelscan telt hij niet mee (randschaduw van de scanner, ±0,5 mm)
+
+
+GLASS_NODES = (8, 11)  # vakken over het glas (breedte x hoogte, ±27 mm): fijn genoeg voor de afloop langs de rand
+GLASS_MAX = 0.15       # hooguit 15% correctie door het lichtpatroon
+
+
+GLASS_FOR_RECORDS = False   # nog uit: eerst de naden en groeven (André, 12 nov); doorschijnend vinyl apart bekijken
+SEAM_LEVEL = False   # uit: verschoof de toon langs de scanranden en daarmee de gevonden hoesrand (Queen-insert,
+                     # Deena front 1-1,4 mm in de vaste toets, 13 nov); op de backs maakte het nauwelijks verschil
+GLASS_FILE = '.sleeve-glas.json'   # het gemeten lichtpatroon, bij de scans bewaard (zelfde scanner, zelfde sessie)
+
+
+def glass_apply(img, ks, H, Tsh, sizes, height, width, pattern, q=8):
+    """Het lichtpatroon van het glas (vakken over het glas, factor rond 1) uit elke deelscan halen."""
+    hs, ws = max(8, height // q), max(8, width // q)
+    yy, xx = np.mgrid[0:hs, 0:ws].astype(np.float64)
+    cx, cy = xx * q + q / 2, yy * q + q / 2
+    grid = cv2.resize(np.asarray(pattern, np.float32), (256, 256), interpolation=cv2.INTER_CUBIC)
+    for k in ks:
+        Hi = np.linalg.inv(Tsh @ H[k])
+        u = (Hi[0, 0] * cx + Hi[0, 1] * cy + Hi[0, 2]) / sizes[k][0]
+        v = (Hi[1, 0] * cx + Hi[1, 1] * cy + Hi[1, 2]) / sizes[k][1]
+        f_ = cv2.remap(grid, (np.clip(u, 0, 1) * 255).astype(np.float32), (np.clip(v, 0, 1) * 255).astype(np.float32), cv2.INTER_LINEAR)
+        gain = (1.0 / np.maximum(f_, .5)).astype(np.float32)
+        full = cv2.resize(gain, (width, height), interpolation=cv2.INTER_LINEAR)
+        old = img[k].gain
+        base_field = old.field.astype(np.float32) if isinstance(old, FieldGain) else 1.0
+        img[k].gain = FieldGain(old.plane if isinstance(old, FieldGain) else old, (full * base_field).astype(np.float16))
+
+
+def glass_load(path, sizes, ks):
+    """Een eerder (op een hoes) gemeten lichtpatroon, als het bij scans van dezelfde maat hoort (hetzelfde glas,
+    zelfde resolutie; de rekenschaal mag verschillen, die is een vaste factor)."""
+    import json
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError, TypeError):
+        return None
+    w0, h0 = data.get('scan_size', [0, 0])
+    if not w0 or not h0:
+        return None
+    for k in ks:
+        w_, h_ = sizes[k]
+        if abs(w_ / h_ - w0 / h0) > .01 * (w0 / h0):
+            return None                                    # andere verhouding: niet het hele glas, of een ander glas
+    return data
+
+
+def glass_fields(img, masks, ks, H, Tsh, sizes, height, width, px_mm, q=8, log=print, save=None):
+    """Feit: elke deelscan komt van hetzelfde glas met dezelfde lamp; het licht valt op elke plek van
+    het glas in elke scan even sterk (bij deze scanner is het rechterkwart ±3% donkerder, gemeten op
+    12 scans, 12 nov). En: een egaal stuk papier of achtergrond heeft overal dezelfde kleur. Dus: in
+    elke scan, per egale kleur, hoe licht is die op elke plek van het glas ten opzichte van zijn eigen
+    midden; het midden daarvan over alle scans is het lichtpatroon. Dat wordt uit elke scan gehaald, ook
+    waar maar één scan ligt (een hoek op de glasrand). Alleen als alle scans even groot zijn (het hele
+    glas) en er genoeg egaal vlak is; anders niets."""
+    if len(ks) < 2 or not px_mm:
+        return False
+    dims = {sizes[k] for k in ks}
+    ws0, hs0 = max(s_[0] for s_ in dims), max(s_[1] for s_ in dims)
+    if any(abs(w_ - ws0) > .01 * ws0 or abs(h_ - hs0) > .01 * hs0 for w_, h_ in dims):
+        return False                                       # niet het hele glas gescand: plek op het glas onbekend
+    hs, ws = max(8, height // q), max(8, width // q)
+    yy, xx = np.mgrid[0:hs, 0:ws].astype(np.float64)
+    cx, cy = xx * q + q / 2, yy * q + q / 2
+    nx, ny = GLASS_NODES
+    sums = np.zeros((ny, nx)); cnt = np.zeros((ny, nx)); vals = [[[] for _ in range(nx)] for _ in range(ny)]
+    maps = {}
+    for k in ks:
+        bgr = np.empty((height, width, 3), np.uint8)
+        for y0 in range(0, height, 512):
+            y1 = min(height, y0 + 512)
+            bgr[y0:y1] = np.clip(img[k][y0:y1], 0, 255).astype(np.uint8)
+        small = cv2.resize(bgr, (ws, hs), interpolation=cv2.INTER_AREA); bgr = None
+        lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32)
+        m = cv2.resize(masks[k].astype(np.uint8), (ws, hs), interpolation=cv2.INTER_NEAREST)
+        m = cv2.erode(m, np.ones((3, 3), np.uint8), iterations=max(1, int(round(1.5 * px_mm / q)))) > 0
+        L = lab[:, :, 0]
+        sm = cv2.GaussianBlur(L, (0, 0), max(1.0, 1.5 * px_mm / q))
+        flat = m & (np.abs(L - sm) < 2.0) & (L > 60) & (L < 252)
+        Hi = np.linalg.inv(Tsh @ H[k])
+        u = (Hi[0, 0] * cx + Hi[0, 1] * cy + Hi[0, 2]) / sizes[k][0]
+        v = (Hi[1, 0] * cx + Hi[1, 1] * cy + Hi[1, 2]) / sizes[k][1]
+        maps[k] = (u, v)
+        if flat.sum() < 200:
+            continue
+        # egale kleuren: de grootste groepen gelijke tint. Op tint (a, b) en grof op helderheid: het lichtverloop
+        # zelf (een paar procent) mag een kleur niet in tweeën splitsen, anders meet je het niet meer.
+        key = np.round(lab[flat] / np.array([40.0, 6.0, 6.0], np.float32)).astype(np.int32)
+        uniq, inv_, counts = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+        fy, fx = np.nonzero(flat)
+        for g in np.argsort(counts)[::-1][:3]:
+            if counts[g] < .08 * flat.sum() or counts[g] < 150:
+                break
+            centre = np.median(lab[flat][inv_.ravel() == g], 0)
+            close = flat & (np.linalg.norm(lab[:, :, 1:] - centre[1:], axis=2) < 5.0) & (np.abs(lab[:, :, 0] - centre[0]) < 25.0)
+            if close.sum() < 150:
+                continue
+            ref_ = float(np.median(L[close]))
+            r_ = L[close] / max(ref_, 1.0)
+            uu, vv = u[close], v[close]
+            inside = (uu >= 0) & (uu < 1) & (vv >= 0) & (vv < 1)
+            ci = np.minimum((uu[inside] * nx).astype(int), nx - 1); cj = np.minimum((vv[inside] * ny).astype(int), ny - 1)
+            for a_, b_, val in zip(cj, ci, r_[inside]):
+                vals[a_][b_].append(val)
+    med = np.full((ny, nx), np.nan); n_ = np.zeros((ny, nx))
+    for j in range(ny):
+        for i in range(nx):
+            if len(vals[j][i]) >= 40:
+                med[j, i] = float(np.median(vals[j][i])); n_[j, i] = len(vals[j][i])
+    if np.isnan(med).mean() > .5:
+        log('scanner light pattern: too little even area to measure; not used')
+        return False
+    w_ = (~np.isnan(med)).astype(np.float32); vfill = np.nan_to_num(med, nan=1.0).astype(np.float32)
+    num = cv2.GaussianBlur(vfill * w_, (0, 0), 1.0); den = cv2.GaussianBlur(w_, (0, 0), 1.0)
+    pattern = np.where(den > 1e-3, num / np.maximum(den, 1e-6), 1.0)
+    pattern = pattern / float(np.median(pattern[~np.isnan(med)]))
+    lim = np.log1p(GLASS_MAX); pattern = np.exp(np.clip(np.log(pattern), -lim, lim))
+    if os.environ.get('STITCH_GLASS'):
+        print('GLASS rows (top->bottom), columns left->right, % (measured cells):')
+        for j in range(ny):
+            print('  ' + ' '.join(('%+5.1f' % (100 * (pattern[j, i] - 1))) if not np.isnan(med[j, i]) else '   . ' for i in range(nx)))
+    log(f'scanner light pattern from even areas: {100 * (pattern.min() - 1):+.1f}% to {100 * (pattern.max() - 1):+.1f}% over the glass')
+    glass_apply(img, ks, H, Tsh, sizes, height, width, pattern, q)
+    if save:
+        import json, datetime
+        try:
+            tmp = save + f'.{os.getpid()}.tmp'
+            json.dump({'pattern': np.round(pattern, 5).tolist(), 'scan_size': [int(ws0), int(hs0)], 'samples': int(n_.sum()),
+                       'measured': datetime.datetime.now().isoformat(timespec='seconds')}, open(tmp, 'w'))
+            os.replace(tmp, save)
+        except OSError:
+            pass                                           # alleen-lezen map: dan niet bewaren
+    return True
+
+
+def tone_fields(img, masks, ks, height, width, px_mm, lighter, q=8):
+    """Feit: twee deelscans van hetzelfde stuk tonen dezelfde toon. Het lichtvlak per deelscan (gain_correct)
+    vangt een vaste zweem en een rechtlijnig verloop; wat overblijft (een hoes die niet overal even plat
+    ligt, het licht dat per stand anders valt) gaf een harde stap op de naad (Urban Solitude, backs).
+    Per deelscan een glad veld dat hem in de overlap gelijk maakt aan de andere, en dat buiten de overlap
+    geleidelijk uitdooft. Bij papier is de lichtste de maat (schaduw en een opgetilde hoes maken alleen
+    donkerder); bij een plaat het gemiddelde (glans maakt juist lichter)."""
+    if len(ks) < 2 or not px_mm:
+        return
+    hs, ws = max(8, height // q), max(8, width // q)
+    pq = px_mm / q
+    L, M = {}, {}
+    for k in ks:
+        g = np.empty((height, width), np.uint8)
+        for y0 in range(0, height, 512):
+            y1 = min(height, y0 + 512)
+            g[y0:y1] = cv2.cvtColor(np.clip(img[k][y0:y1], 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY)
+        gs = cv2.resize(g, (ws, hs), interpolation=cv2.INTER_AREA).astype(np.float32); g = None
+        m = cv2.resize(masks[k].astype(np.uint8), (ws, hs), interpolation=cv2.INTER_NEAREST)
+        m = cv2.erode(m, np.ones((3, 3), np.uint8), iterations=max(1, int(round(TONE_EDGE_MM * pq)))) > 0
+        sig = max(1.0, 3.0 * pq)
+        mb = cv2.GaussianBlur(m.astype(np.float32), (0, 0), sig)
+        L[k] = cv2.GaussianBlur(gs * m, (0, 0), sig) / np.maximum(mb, 1e-6); M[k] = m & (mb > .5)
+    stack = np.stack([np.where(M[k], L[k], np.nan) for k in ks])
+    count = np.sum(~np.isnan(stack), 0)
+    with np.errstate(all='ignore'):
+        cons = np.nanmax(stack, 0) if lighter else np.nanmean(stack, 0)
+    big = max(2.0, TONE_FIELD_MM * pq); lim = np.log1p(TONE_FIELD_MAX)
+    for k in ks:
+        w = (M[k] & (count >= 2) & (L[k] > 20)).astype(np.float32)
+        if w.sum() < 50:
+            continue
+        r = np.zeros((hs, ws), np.float32)
+        r[w > 0] = np.clip(np.log(cons[w > 0] / np.maximum(L[k][w > 0], 1e-3)), -lim, lim)
+        num = cv2.GaussianBlur(r * w, (0, 0), big); den = cv2.GaussianBlur(w, (0, 0), big)
+        field = num / np.maximum(den, .01 * float(den.max()))   # in en vlak bij de overlap de volle correctie; verder weg dooft hij uit
+        full = cv2.resize(np.exp(np.clip(field, -lim, lim)).astype(np.float32), (width, height), interpolation=cv2.INTER_LINEAR)
+        if os.environ.get('STITCH_TONE'):np.save(os.environ['STITCH_TONE']+f'_{k}.npy',np.stack([L[k],np.where(M[k],1,0).astype(np.float32),cons.astype(np.float32),field.astype(np.float32),w]))   # hulpbestand
+        old = img[k].gain
+        base_field = old.field.astype(np.float32) if isinstance(old, FieldGain) else 1.0
+        img[k].gain = FieldGain(old.plane if isinstance(old, FieldGain) else old, (full * base_field).astype(np.float16))
+
+
+LEVEL_MAX = 0.15       # seam leveling: hooguit 15% lichter of donkerder per plek
+
+
+def seam_level(img, masks, ks, best, height, width, px_mm, q=8, log=print):
+    """Seam leveling (zoals 'naadloze tonen' in Photoshop). Feit: het beeld heeft op een naad geen sprong;
+    alleen de deelscans verschillen daar in licht. Per plek is er één deelscan gekozen (best). Gezocht:
+    één glad correctieveld C over het hele beeld, zodat (gekozen scan + C) op elke naad doorloopt zoals
+    de scans zelf daar verlopen, en binnen elk stuk zo vlak mogelijk is (het verloop binnen een scan blijft).
+    Daarna wordt elke deelscan op dat resultaat afgestemd, ook waar hij niet gekozen is (voor het mengen).
+    Alleen helderheid (één factor voor alle kanalen); kleur regelt het lichtvlak per scan al."""
+    if len(ks) < 2 or not px_mm:
+        return False
+    hs, ws = max(8, height // q), max(8, width // q)
+    sig = max(1.0, 2.0 * px_mm / q)
+    Ls, Ms = [], []
+    for k in ks:
+        g = np.empty((height, width), np.uint8)
+        for y0 in range(0, height, 512):
+            y1 = min(height, y0 + 512)
+            g[y0:y1] = cv2.cvtColor(np.clip(img[k][y0:y1], 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY)
+        gs = cv2.resize(g, (ws, hs), interpolation=cv2.INTER_AREA).astype(np.float32); g = None
+        m = cv2.resize(masks[k].astype(np.uint8), (ws, hs), interpolation=cv2.INTER_NEAREST)
+        m = cv2.erode(m, np.ones((3, 3), np.uint8), iterations=max(1, int(round(0.8 * px_mm / q)))) > 0
+        mb = cv2.GaussianBlur(m.astype(np.float32), (0, 0), sig)
+        Lk = cv2.GaussianBlur(gs * m, (0, 0), sig) / np.maximum(mb, 1e-6)
+        Ls.append(np.log(np.maximum(Lk, 4.0))); Ms.append(m & (mb > .6))
+    Ls = np.stack(Ls); Ms = np.stack(Ms)
+    R = cv2.resize(best.astype(np.uint8), (ws, hs), interpolation=cv2.INTER_NEAREST).astype(np.int64)
+    R = np.clip(R, 0, len(ks) - 1)
+    V = np.take_along_axis(Ms, R[None], 0)[0]              # de gekozen scan is hier bruikbaar
+    yy, xx = np.mgrid[0:hs, 0:ws]
+    def edges(axis):
+        if axis == 1:
+            p_, q_ = (yy[:, :-1], xx[:, :-1]), (yy[:, 1:], xx[:, 1:])
+        else:
+            p_, q_ = (yy[:-1, :], xx[:-1, :]), (yy[1:, :], xx[1:, :])
+        i, j = R[p_], R[q_]
+        both = V[p_] & V[q_]
+        same = i == j
+        # naad: beide scans moeten op beide plekken bruikbaar zijn; het gewenste verschil in C is
+        # het verschil tussen de scans daar (gemiddeld over beide plekken)
+        ok_i = Ms[i, p_[0], p_[1]] & Ms[i, q_[0], q_[1]]; ok_j = Ms[j, p_[0], p_[1]] & Ms[j, q_[0], q_[1]]
+        gq = .5 * ((Ls[i, q_[0], q_[1]] - Ls[j, q_[0], q_[1]]) + (Ls[i, p_[0], p_[1]] - Ls[j, p_[0], p_[1]]))
+        w = np.where(same, 1.0, np.where(ok_i & ok_j, 1.0, 0.0)) * both
+        g_ = np.where(same, 0.0, gq) * (w > 0)
+        return w.astype(np.float64), g_.astype(np.float64)
+    wh, gh = edges(1); wv, gv = edges(0)
+    nseam = int(((R[:, :-1] != R[:, 1:]) & (wh > 0)).sum() + ((R[:-1, :] != R[1:, :]) & (wv > 0)).sum())
+    if nseam < 10:
+        return False
+    lam = 1e-3
+    Vf = V.astype(np.float64)
+    def A(C):
+        out = lam * C * Vf
+        d = (C[:, 1:] - C[:, :-1]) * wh; out[:, :-1] -= d; out[:, 1:] += d
+        d = (C[1:, :] - C[:-1, :]) * wv; out[:-1, :] -= d; out[1:, :] += d
+        return out
+    b = np.zeros((hs, ws))
+    t = wh * gh; b[:, :-1] -= t; b[:, 1:] += t
+    t = wv * gv; b[:-1, :] -= t; b[1:, :] += t
+    # geconjugeerde gradiënten (matrixvrij)
+    C = np.zeros((hs, ws)); r_ = b - A(C); pv = r_.copy(); rs = float((r_ * r_).sum())
+    for it in range(1500):
+        Ap = A(pv); alpha = rs / max(float((pv * Ap).sum()), 1e-30)
+        C += alpha * pv; r_ -= alpha * Ap; rs_new = float((r_ * r_).sum())
+        if rs_new < 1e-10 * max(float((b * b).sum()), 1e-30):
+            break
+        pv = r_ + (rs_new / rs) * pv; rs = rs_new
+    C -= np.median(C[V])                                    # gemiddeld niets lichter of donkerder
+    lim = np.log1p(LEVEL_MAX)
+    T = np.take_along_axis(Ls, R[None], 0)[0] + C           # doel: gekozen scan + correctie
+    log(f'seam leveling: {nseam} seam steps, {it + 1} iterations, correction {100 * (np.exp(np.percentile(C[V], 2)) - 1):+.1f}% to {100 * (np.exp(np.percentile(C[V], 98)) - 1):+.1f}%')
+    big = max(1.0, 3.0 * px_mm / q)
+    for n, k in enumerate(ks):
+        m = Ms[n] & V
+        d = np.where(m, np.clip(T - Ls[n], -lim, lim), 0.0).astype(np.float32)
+        wgt = m.astype(np.float32)
+        num = cv2.GaussianBlur(d * wgt, (0, 0), big); den = cv2.GaussianBlur(wgt, (0, 0), big)
+        dk = np.where(den > 1e-3, num / np.maximum(den, 1e-6), 0.0)
+        # buiten wat deze scan met het doel deelt: de correctie van de dichtstbijzijnde gedeelde plek, uitdovend
+        gain = np.exp(np.clip(dk, -lim, lim)).astype(np.float32)
+        full = cv2.resize(gain, (width, height), interpolation=cv2.INTER_LINEAR)
+        old = img[k].gain
+        base_field = old.field.astype(np.float32) if isinstance(old, FieldGain) else 1.0
+        img[k].gain = FieldGain(old.plane if isinstance(old, FieldGain) else old, (full * base_field).astype(np.float16))
+    return True
 
 
 def feather_weight(mask):
@@ -832,7 +1106,8 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
     G_o = {}
     for k in ks:
         gain=gainm.pop(k,None)
-        G_o[k]=gain if isinstance(gain,GainPlane) else to_out(gain,cv2.INTER_LINEAR) if gain is not None else None
+        if isinstance(gain,FieldGain):G_o[k]=(gain.plane,to_out(gain.field.astype(np.float32),cv2.INTER_LINEAR))
+        else:G_o[k]=gain if isinstance(gain,GainPlane) else to_out(gain,cv2.INTER_LINEAR) if gain is not None else None
     gain=None
     gc.collect()
     B_o = to_out(best.astype(np.uint8), cv2.INTER_NEAREST)
@@ -888,7 +1163,11 @@ def render_full(paths, order, H, Tsh, O, f, out_small_wh, canvas_small, masks, w
                         continue
                     im = cv2.warpAffine(srcs[k], (T @ M[k])[:2], (w, h), flags=cv2.INTER_LANCZOS4,
                                         borderMode=cv2.BORDER_REPLICATE).astype(np.float32)
-                    if G_o[k] is not None:
+                    if isinstance(G_o[k],tuple):
+                        plane_k,field_k=G_o[k]
+                        if plane_k is not None:im *= plane_k.output_block(inverse_O,f,x0,y0,w,h,out_small_wh)
+                        im *= sample(field_k, x0, y0, w, h, cv2.INTER_LINEAR)[..., None]
+                    elif G_o[k] is not None:
                         im *= G_o[k].output_block(inverse_O,f,x0,y0,w,h,out_small_wh) if isinstance(G_o[k],GainPlane) else sample(G_o[k], x0, y0, w, h, cv2.INTER_LINEAR)
                     mf = mk.astype(np.float32)
                     wk = (np.maximum(sample(W_o[k], x0, y0, w, h, cv2.INTER_LINEAR), 0) + 1e-4) * mf
@@ -1008,6 +1287,7 @@ def main_with_resources(resources,lease=None):
     p.add_argument('--rechtop',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--snelle-tussenbestanden',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--referentie', type=int)
+    p.add_argument('--plaat-onderdeel', action='store_true', help=argparse.SUPPRESS)   # feitenroute: dit is een plaat (glans is hier geen schaduw)
     p.add_argument('--klein', action='store_true', help='output at ~300 dpi (fast) instead of full scan resolution')
     p.add_argument('--vorm', choices=['auto', 'hoes', 'plaat', 'geen', 'ruw'], default='auto', help='hoes = square, plaat = round, geen = by color only, ruw = whole scans, no cropping (default: decide automatically)')
     a = p.parse_args()
@@ -1180,6 +1460,21 @@ def main_with_resources(resources,lease=None):
     wts={k:work.put(('weight',k),feather_weight(masks[k])) for k in ks}
     gainm={}
     progress('Matching exposure between partial scans',0,len(ks))
+    glass_path=os.path.join(os.path.dirname(os.path.abspath(a.delen[0])),GLASS_FILE)
+    if not a.geen_kleur and len(ks)>1 and not a.plaat_onderdeel:
+        # eerst het lichtpatroon van het glas uit de ruwe scans (anders trekt het lichtvlak per scan dat
+        # patroon als een schuin verloop door over de hele scan: Urban Solitude backs, links 99,6 / rechts 95);
+        # bewaard bij de scans, voor de platen van dezelfde release
+        progress('Measuring the light of the scanner glass')
+        glass_fields(img,masks,ks,H,Tsh,a_sizes,height,width,px_mm,log=lambda t:print(t,flush=True),save=glass_path)
+    elif GLASS_FOR_RECORDS and not a.geen_kleur and len(ks)>1 and a.plaat_onderdeel:
+        # plaat: niet op het vinyl meten (de groeven glimmen per richting anders), wel het patroon van een
+        # hoes uit dezelfde map gebruiken
+        stored=glass_load(glass_path,a_sizes,ks)
+        if stored:
+            glass_apply(img,ks,H,Tsh,a_sizes,height,width,stored['pattern'])
+            pat=np.asarray(stored['pattern'])
+            print(f'scanner light pattern from the sleeve scans in this folder: {100*(pat.min()-1):+.1f}% to {100*(pat.max()-1):+.1f}%',flush=True)
     if not a.geen_kleur:
         done=[ref];todo=[k for k in ks if k!=ref]
         while todo:
@@ -1192,27 +1487,106 @@ def main_with_resources(resources,lease=None):
                 work.drop_pages()
             k=max(todo,key=lambda t:int((masks[t]&cm).sum()))
             if (masks[k]&cm).sum()<5000:break
-            gain=gain_correct(img[k].raw,masks[k],comp,cm,release=work.drop_pages,fit_only=True)
-            img[k].gain=gain
-            gainm[k]=gain;gain=None
+            field=img[k].gain if isinstance(img[k].gain,FieldGain) else None
+            src=img[k].raw if field is None else np.concatenate([img[k][y0:min(height,y0+512)] for y0 in range(0,height,512)],0)
+            gain=gain_correct(src,masks[k],comp,cm,release=work.drop_pages,fit_only=True);src=None
+            img[k].gain=FieldGain(gain,field.field) if field is not None else gain
+            gainm[k]=img[k].gain;gain=None
             done.append(k);todo.remove(k);work.drop_pages()
             progress('Matching exposure between partial scans',len(done),len(ks))
         comp=acc=cm=None;work.discard(('composite',0))
-    # Same sharpness winner as argmax, computed by bands without stacking all scores.
+    if not a.geen_kleur and len(ks)>1:
+        for k in ks:
+            if isinstance(img[k].gain,FieldGain):gainm[k]=img[k].gain
+    # Welke deelscan per plek. Feit: scherpte zegt alleen iets waar detail is (tekst, drukwerk); daar
+    # wint de scherpste (een opgetilde of wazige scan verliest). Op een egaal vlak (glad vinyl, effen
+    # papier) is 'scherpte' alleen ruis en glans, en gaf dat een lappendeken van deelscans (Urban
+    # Solitude blauw, 12 nov). Daar wint de deelscan waarin die plek het verst van de glasrand ligt:
+    # daar ligt het onderdeel het vlakst en is het licht het gelijkmatigst.
     progress('Comparing details between partial scans',0,height)
     best=np.zeros((height,width),np.uint8)
+    q=4                                                  # diepte in de scan op 1/4 rekenen (genoeg voor een gladde grens)
+    depth=[]
+    for k in ks:
+        mk=cv2.resize(masks[k].astype(np.uint8),(max(1,width//q),max(1,height//q)),interpolation=cv2.INTER_NEAREST)
+        depth.append(cv2.distanceTransform(mk,cv2.DIST_L2,5))
+    if a.plaat_onderdeel:
+        # Plaat: glans in de groeven hangt af van de richting, niet van de scherpte. Alleen sterk detail (label,
+        # rand) telt; deze grove drempel (op 1/4 gemeten) gaf schoon vinyl. Met de fijne drempel van papier
+        # kwam de lappendeken terug (Urban Solitude blauw kant B, 12 nov).
+        tops=None
+        for n,k in enumerate(ks):
+            gs=np.concatenate([cv2.resize(cv2.cvtColor(np.clip(img[k][y0:min(height,y0+768)],0,255).astype(np.uint8),cv2.COLOR_BGR2GRAY),
+                                          (max(1,width//q),max(1,(min(height,y0+768)-y0)//q)),interpolation=cv2.INTER_AREA) for y0 in range(0,height,768)],0).astype(np.float32)
+            shq=cv2.GaussianBlur(cv2.Laplacian(gs,cv2.CV_32F)**2,(0,0),max(1.0,(SHARP_SIGMA_MM*px_mm if px_mm else 25)/q))*q**4     # zelfde maat als op volle rekenschaal (ruwweg)
+            shq[cv2.resize(masks[k].astype(np.uint8),(shq.shape[1],shq.shape[0]),interpolation=cv2.INTER_NEAREST)==0]=0
+            tops=shq if tops is None else np.maximum(tops,shq)
+            work.drop_pages()
+        floor=float(np.percentile(tops[tops>0],40))*3.0 if (tops>0).any() else 0.0
+        tops=None
+    else:
+        # Wat telt als detail: ruim boven de 'scherpte' van een egaal vlak, gemeten over het hele beeld, op dezelfde
+        # schaal als de keuze hieronder (elke 4e pixel). Eerst op 1/4 verkleind gemeten: dat gaf een drempel ±100x te
+        # hoog, kleine grijze tekst telde als leeg papier en de wazige scan won (Urban Solitude back, 12 nov).
+        tops=[]
+        for y0 in range(0,height,768):
+            y1=min(height,y0+768);top=max(0,y0-102);bottom=min(height,y1+102);m=None
+            for k in ks:
+                g=cv2.cvtColor(np.clip(img[k][top:bottom],0,255).astype(np.uint8),cv2.COLOR_BGR2GRAY).astype(np.float32)
+                sh=cv2.GaussianBlur(cv2.Laplacian(g,cv2.CV_32F)**2,(0,0),SHARP_SIGMA_MM*px_mm if px_mm else 25)[y0-top:y1-top:4,::4]
+                sh[~masks[k][y0:y1:4,::4]]=0
+                m=sh if m is None else np.maximum(m,sh)
+                work.drop_pages()
+            tops.append(m[m>0])
+        tops=np.concatenate(tops) if tops else np.zeros(0,np.float32)
+        floor=float(np.percentile(tops,40))*3.0 if tops.size else 0.0
+        tops=None
     # Keep the same 102-row convolution halo; wider bands avoid recomputing it.
     for y0 in range(0,height,768):
         y1=min(height,y0+768);top=max(0,y0-102);bottom=min(height,y1+102)
-        value=np.full((y1-y0,width),-np.inf,np.float32);winner=np.zeros(value.shape,np.uint8)
+        shs=[];deps=[]
         for n,k in enumerate(ks):
             g=cv2.cvtColor(np.clip(img[k][top:bottom],0,255).astype(np.uint8),cv2.COLOR_BGR2GRAY).astype(np.float32)
-            sh=cv2.GaussianBlur(cv2.Laplacian(g,cv2.CV_32F)**2,(0,0),25)
-            score=wts[k][y0:y1]*np.sqrt(sh[y0-top:y1-top]+1.0)
-            better=score>value;value[better]=score[better];winner[better]=n
+            # scherpte over ±0,7 mm: breder telde de schaduwlijn langs de rand van een hoes mee als 'scherp' (de wazige
+            # scan won daar de tekst, Urban Solitude back)
+            sh=cv2.GaussianBlur(cv2.Laplacian(g,cv2.CV_32F)**2,(0,0),SHARP_SIGMA_MM*px_mm if px_mm else 25)[y0-top:y1-top]
+            sh[~masks[k][y0:y1]]=-1.0
+            shs.append(sh)
+            r0=y0//q;r1=min(depth[n].shape[0],(y1+q-1)//q+1)
+            d=cv2.resize(depth[n][r0:r1],(width,(r1-r0)*q),interpolation=cv2.INTER_LINEAR)[y0-r0*q:y0-r0*q+(y1-y0)]
+            if d.shape[0]<y1-y0:d=np.pad(d,((0,y1-y0-d.shape[0]),(0,0)),mode='edge')
+            d[~masks[k][y0:y1]]=-1.0
+            if not a.plaat_onderdeel:
+                # hoes: buiten tekst de keuze van 0.5.28 (scherpte over ±25 px, gewogen naar de afstand tot de
+                # scanrand). De diepste scan kiezen verlegde de gevonden hoesrand 1-1,4 mm waar een hoes niet
+                # vlak lag (Deena front, Queen-insert, vaste toets 13 nov).
+                s25=cv2.GaussianBlur(cv2.Laplacian(g,cv2.CV_32F)**2,(0,0),25)[y0-top:y1-top]
+                d=wts[k][y0:y1]*np.sqrt(s25+1.0);d[~masks[k][y0:y1]]=-1.0;s25=None
+            deps.append(d)
             work.drop_pages()
-        best[y0:y1]=winner
+        S_=np.stack(shs);D_=np.stack(deps)
+        order_=np.argsort(S_,0)
+        first=np.take_along_axis(S_,order_[-1:],0)[0];second=np.take_along_axis(S_,order_[-2:-1],0)[0] if len(ks)>1 else np.zeros_like(first)
+        # echt detail (tekst, drukwerk, de rand van een plaat): de scherpste. Ook kleine, lichte tekst: daar is
+        # de ene scan duidelijk scherper dan de andere (een wazige scan gaf dubbele letters, Urban Solitude back).
+        detail=(first>floor)|((first>DETAIL_RATIO*np.maximum(second,1e-6))&(first>.3*floor))
+        if not a.plaat_onderdeel:
+            # hoes: alleen waar één scan duidelijk scherper is (kleine tekst die in een andere scan wazig is). Losse
+            # lettertjes werden daarna door het samenhangend maken weer opgeslokt door de scan eromheen; daarom het
+            # hele tekstblok (±1,5 mm rond de letters) uit de scan die daar gemiddeld het scherpst is.
+            det=((first>DETAIL_RATIO*np.maximum(second,1e-6))&(first>.3*floor)).astype(np.uint8)
+            rr_=max(1,int(1.5*px_mm)) if px_mm else 30
+            detail=cv2.dilate(det,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(2*rr_+1,2*rr_+1)))>0;det=None
+            sig=max(1.0,(1.0*px_mm) if px_mm else 20)
+            Sb=np.stack([np.where(m_>=0,cv2.GaussianBlur(np.maximum(m_,0),(0,0),sig),-1.0) for m_ in S_])
+            order_=np.argsort(Sb,0)[-1:];Sb=None
+            best[y0:y1]=np.where(detail,order_[0],np.argmax(D_,0)).astype(np.uint8)
+            progress('Comparing details between partial scans',y1,height)
+            continue
+        if os.environ.get('STITCH_SHARP') and y0==0:print('SHARP floor',floor,flush=True)
+        best[y0:y1]=np.where(detail,order_[-1],np.argmax(D_,0)).astype(np.uint8)
         progress('Comparing details between partial scans',y1,height)
+    S_=D_=shs=deps=depth=None
     value=winner=g=sh=score=better=None
     # Eén deelscan per plek: maak de keuzekaart samenhangend en neem ook de
     # grove laag vooral uit die scan. Overal mengen gaf dubbele, vage letters
@@ -1234,6 +1608,11 @@ def main_with_resources(resources,lease=None):
         seams=seam_regions(img,allowed,ks,height,width)
         allowed=None
         if seams is not None:best[:]=np.where(seams<255,seams,best)
+        if os.environ.get('STITCH_BEST'):cv2.imwrite(os.environ['STITCH_BEST'],(best.astype(np.float32)*(255/max(1,len(ks)-1))).astype(np.uint8))   # hulpbeeld: welke deelscan per plek
+        if not a.geen_kleur:
+            progress('Levelling tone across the seams')
+            if SEAM_LEVEL and seam_level(img,masks,ks,best,height,width,px_mm,log=lambda t:print(t,flush=True)):
+                for k in ks:gainm[k]=img[k].gain
         quality=stitch_quality(img,masks,ks,best,height,width,1.0/f)
         print('SLEEVE_QUALITY '+__import__('json').dumps(quality),flush=True)
     value=coherent=share=better=None

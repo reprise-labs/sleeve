@@ -26,7 +26,7 @@ SIZE_MM = 0.3            # zoveel mag een maat verschillen (meetruis van de rand
 ANGLE = 1.0              # graden: zoveel mag de stand van een plaat of cd verschillen
 THUMB = 24               # beeldafdruk: 24 x 24 grijswaarden
 THUMB_DIFF = 6.0         # gemiddeld verschil (0-255) waarboven het beeld echt anders is
-REMEMBERED = ('.anouk-referenties.json', '.sleeve-beslissingen.json', '.sleeve-release.json')
+REMEMBERED = ('.anouk-referenties.json', '.sleeve-beslissingen.json', '.sleeve-release.json', '.sleeve-glas.json')
 
 
 def version():

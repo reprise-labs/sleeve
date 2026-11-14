@@ -296,6 +296,8 @@ def feiten_scan(req,rows,layout,work):
     missing=sorted(sides-have)
     if missing:emit('warning',message='Discogs lists side '+', '.join(x.upper() for x in sorted(sides))+'; no slot for side '+', '.join(x.upper() for x in missing)+'.')
   except Exception as e:emit('log',message=f'Sides not checked against Discogs: {e}')
+ # hoezen en vellen eerst: daarop meet Sleeve het lichtpatroon van het glas, dat de platen daarna gebruiken
+ jobs.sort(key=lambda j:j[0].startswith(('side','cd')))
  output=job_folder(req,'Scans');emit('destination',path=str(output))
  done=0;results=[]
  emit('progress',fraction=0,index=None,total=len(jobs),phase='Processing parts',scope='preparation',completedParts=0,activeParts=min(2,len(jobs)))

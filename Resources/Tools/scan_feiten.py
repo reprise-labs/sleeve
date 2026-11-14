@@ -567,6 +567,9 @@ def missing_part(result, covered, px_mm):
                          'or fill it in yourself, for example in Photoshop. Sleeve does not invent image.')
 
 
+FAR_FROM_LID = 60.0   # Lab-afstand papier-klep waarboven per stuk van een zijde bijgesneden mag worden (witte klep)
+
+
 def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0, shadow_mm=2.5):
     """Feit: wat langs de rand de kleur van de klep heeft (gemeten vlak buiten het onderdeel
     in dezelfde scan), of de schaduw ervan (donkerder en kleurlozer dan het drukwerk), is
@@ -576,14 +579,16 @@ def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0, shadow_mm=2.5):
     # het papier ernaast meten op 2-3 mm van de rand: een brede schaduw reikt tot ±1,5 mm
     a, b = int(3.0 * px_mm), max(int(4.0 * px_mm), int(3.0 * px_mm) + 2); m = max(1, int(max_mm * px_mm))
     m_shadow = int(shadow_mm * px_mm)                    # feit: de kartonrand van een hoes is ±2-3 mm en geen voorkant
-    def cut(rows):                                         # rows: Lab per rij/kolom vanaf de rand naar binnen
+    def cut(rows, shadow_ok=True, far=0.0):                # rows: Lab per rij/kolom vanaf de rand naar binnen
         paper = np.median(rows[a:b], 0)
+        if far and (lid_lab is None or np.linalg.norm(paper - lid_lab) < far):
+            return 0                                       # papier lijkt op de klep: per stuk niets te zeggen
         k = 0
         while k < m_shadow:
             r = rows[k]
             to_paper = np.linalg.norm(r - paper)
             to_lid = np.linalg.norm(r - lid_lab) if lid_lab is not None else 1e9   # klep onbekend: alleen de schaduw telt
-            shadow = r[0] < paper[0] - 10 and np.hypot(r[1] - 128, r[2] - 128) < np.hypot(paper[1] - 128, paper[2] - 128)
+            shadow = shadow_ok and r[0] < paper[0] - 10 and np.hypot(r[1] - 128, r[2] - 128) < np.hypot(paper[1] - 128, paper[2] - 128)
             # een mengsel van klep en papier (de rand loopt over in de klep): ligt op de lijn papier-klep
             d = (lid_lab - paper) if lid_lab is not None else np.zeros(3, np.float32); nd = float(d @ d)
             tt = float((r - paper) @ d) / nd if nd > 1 else 0.0
@@ -594,8 +599,26 @@ def trim_edge_lines(img, px_mm, lid_lab, max_mm=1.0, shadow_mm=2.5):
             else:
                 break
         return k
-    t = cut(lab.mean(1)); bt = cut(lab.mean(1)[::-1])
-    l = cut(lab.mean(0)); r = cut(lab.mean(0)[::-1])
+    coloured = lid_lab is not None and float(np.hypot(lid_lab[1] - 128, lid_lab[2] - 128)) >= 8.0
+    def side(view):                                        # view: rijen vanaf de rand naar binnen x langs de zijde x Lab
+        k = cut(view.mean(1))
+        if coloured:
+            # Feit, alleen op een gekleurd vel: papier en achtergrond zijn daar duidelijk verschillend. Ligt de rand
+            # op één stuk van de zijde lager (de hoes lag in twee deelscans net anders: Urban Solitude backs, een
+            # grijze strook achtergrond binnen de snede), dan telt het ergste van 8 stukken. Op de witte klep niet:
+            # daar lijkt drukwerk langs de rand op klep of schaduw en kostte dit TA en Fake 0,5-2 mm (13 nov).
+            for part in np.array_split(np.arange(view.shape[1]), 8):
+                if len(part) > 20:
+                    k = max(k, cut(view[:, part].mean(1), shadow_ok=False))   # alleen echte achtergrondkleur, hooguit max_mm
+        else:
+            # Op de witte klep alleen waar het papier van dat stuk sterk van de klep verschilt (donker drukwerk:
+            # Fire-insert, een wit lijntje klep langs een deel van de zijde). Licht drukwerk langs de rand blijft heel.
+            for part in np.array_split(np.arange(view.shape[1]), 8):
+                if len(part) > 20:
+                    k = max(k, cut(view[:, part].mean(1), shadow_ok=False, far=FAR_FROM_LID))
+        return k
+    t = side(lab); bt = side(lab[::-1])
+    l = side(lab.transpose(1, 0, 2)); r = side(lab.transpose(1, 0, 2)[::-1])
     h, w = img.shape[:2]
     return img[t:h - bt, l:w - r], (t, r, bt, l)
 
