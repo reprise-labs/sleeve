@@ -9,9 +9,9 @@ staat alles erop en hoeft Sleeve nergens te raden.
 1. **De achtergrond is anders dan de rand van het onderdeel.**
    - Licht onderdeel (witte hoes, wit kaartje, wit of geel dekkend vinyl): leg er een **effen,
      gekleurd of donker vel** achter, tussen het onderdeel en de klep. Een paars vel werkt goed.
-   - Doorschijnend vinyl (clear, translucent blauw/groen): een donker vel kleurt door de plaat heen.
-     Hiervoor komt een eigen werkwijze (twee scans per positie: één met de witte klep voor de kleur,
-     één met een vel erop voor de rand). Tot die er is: een licht gekleurd vel, steeds hetzelfde.
+   - Doorschijnend vinyl (clear, translucent blauw/groen): **optie A**, per positie twee scans zonder de plaat te
+     verschuiven: één met de witte klep (de kleur), één met een vel óp de plaat (de rand). Vel: clear → mat zwart;
+     blauw/groen → oranje of geel; magenta/rood → groen; geel → blauw of paars. Mat, effen. Alle scans in hetzelfde vak.
    - Donker onderdeel (zwart vinyl, donkere hoes): de gewone **witte klep**.
    - Cd-schijf: de witte klep.
    - Twijfel je: kijk of je de rand rondom ziet in de voorvertoning. Zie jij hem niet, dan
@@ -46,7 +46,7 @@ staat alles erop en hoeft Sleeve nergens te raden.
 | Uitklaphoes (binnenkant, vak "Inside") | 6 | Twee rijen van drie, van links naar rechts. Alleen voor een opengeklapte hoes. |
 | Insert of tekstvel (30 cm) | 4 per kant | Als een hoes. Elke kant in een eigen vak "Insert". |
 | Boekjespagina (29 cm) | 2 per pagina | Eén keer de linkerhelft, één keer de rechterhelft. Elke pagina in een eigen vak "Insert". |
-| Plaat | 4 | Elke scan een kwart van de plaat, met de buitenrand en achtergrond erlangs. Een kwartslag draaien mag. |
+| Plaat | 4 + 1 | Elke scan een kwart van de plaat, met de buitenrand en achtergrond erlangs. Een kwartslag draaien mag. **Plus één scan met het label midden op het glas**: in de kwartscans ligt het label tegen de rand van het glas en is het wazig; Sleeve neemt het label dan uit deze scan (10× scherper, US blauw 14 nov). Zet hem in hetzelfde vak. |
 | Cd-boekje, kaartje, achterkaart | 1 | Recht leggen (binnen een paar graden), rondom achtergrond in beeld. |
 | Cd-schijf | 1 | Midden op het glas, bedrukte kant naar beneden. |
 | Sticker | 1 | Op zijn eigen plastic hoes, ruim binnen het glas, plastic plat en klep dicht. Eén scan per sticker. |

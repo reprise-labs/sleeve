@@ -269,6 +269,15 @@ def real(M):
     return M is not None and float(np.hypot(M[0, 0], M[1, 0])) > .05
 
 
+def background(sm):
+    """Achtergrond langs de scanrand: 'lid' (witte klep: licht en kleurloos) of 'sheet' (gekleurd of donker vel)."""
+    h, w = sm.shape[:2]; b = max(3, int(.03 * min(h, w)))
+    lab = cv2.cvtColor(sm, cv2.COLOR_BGR2LAB).astype(np.float32)
+    ring = np.concatenate([lab[:b].reshape(-1, 3), lab[-b:].reshape(-1, 3), lab[:, :b].reshape(-1, 3), lab[:, -b:].reshape(-1, 3)])
+    white = (ring[:, 0] * 100 / 255 > 80) & (np.hypot(ring[:, 1] - 128, ring[:, 2] - 128) < 10)
+    return 'lid' if white.mean() > .25 else 'sheet'
+
+
 def stacks(scans, feats, discs):
     """Deelscans in bestandsvolgorde tot stapels: zie de feiten bovenaan."""
     order = sorted(scans, key=number_key)
@@ -314,13 +323,14 @@ def main():
     front_photos = set()
     if primary is not None:
         front_photos = {primary} | {n for k, n, M in D.matches(imgs[primary], imgs) if k >= 40 and real(M)}
-    facts, why, feats, discs, rims, photo = {}, {}, {}, {}, {}, {}
+    facts, why, feats, discs, rims, photo, backs = {}, {}, {}, {}, {}, {}, {}
     with tempfile.TemporaryDirectory() as work:
         for n, s in enumerate(scans):
             print(f'SLEEVE_STEP looking at scan {n + 1} of {len(scans)}', file=sys.stderr, flush=True)
             sm = small(s, work)
             if sm is not None:
                 feats[s] = features(sm)
+                backs[s] = background(sm)
                 if fmt != 'cd':
                     rims[s] = record_rim(sm)
             found = []
@@ -344,7 +354,27 @@ def main():
                 facts[s] = found[0]
             elif found:
                 why[s] = 'conflicting facts: ' + ', '.join(p for p, _ in found)
-    groups = stacks([s for s in scans if s in feats] or scans, feats, discs) if scans else []
+    usable = [s for s in scans if s in feats] or scans
+    # alleen scans van een plaat (de rand van een lp is te zien): optie A bestaat alleen bij vinyl. Een hoes kan
+    # toevallig scans met en zonder witte klep langs de rand hebben (Deena inside).
+    rec = [s for s in usable if rims.get(s, 0.0) >= RECORD_RIM]
+    lids = [s for s in rec if backs.get(s) == 'lid']; sheets = [s for s in rec if backs.get(s) == 'sheet']
+    if len(lids) >= 2 and len(sheets) >= 2:
+        # Optie A (doorschijnend vinyl): per positie een scan met de witte klep en een met een vel op de plaat. Een
+        # vel-scan ligt op dezelfde plek als zijn klep-scan: eerst de klep-scans tot stapels, dan elke vel-scan bij de
+        # stapel waar hij het best op past. (Anders begon bij elke vel-scan een nieuwe stapel: 'zelfde plek'.)
+        groups = stacks(lids, feats, discs)
+        rest = [s for s in usable if s not in lids and s not in sheets]
+        for sh in sorted(sheets, key=number_key):
+            best = max(((link(feats[sh], feats[x])[0], gi) for gi, g in enumerate(groups) for x in g), default=(0, None))
+            if best[0] >= MIN_LINK:
+                groups[best[1]].append(sh)
+            else:
+                groups.append([sh])
+        groups += stacks(rest, feats, discs) if rest else []
+        groups.sort(key=lambda g: min(number_key(x) for x in g))       # scanvolgorde (kant A voor kant B)
+    else:
+        groups = stacks(usable, feats, discs) if scans else []
     def best_photo(g):
         got = [photo[s] for s in g if s in photo]
         return max(got, key=lambda x: x[1]) if got else (None, 0)

@@ -709,6 +709,7 @@ def main():
     p.add_argument('--format', choices=sorted(SHAPES), default=None, help='vinyl or cd (default: cd for cd parts, else vinyl)')
     p.add_argument('--overlay', help='write a preview with the found shape')
     p.add_argument('--out', help='write the crop at full resolution')
+    p.add_argument('--cut-circle', default='', help='record/CD: cut exactly this circle "X,Y,R" (full-resolution px), measured on another merge of the same record (option A: the edge from the scans with a sheet on top)')
     p.add_argument('--pixels', help='same canvas, other tones (seam levelling): edges are found on IMAGE, the pixels come from here')
     a = p.parse_args()
     meta = json.load(open(a.image + '.scans.json'))
@@ -819,6 +820,14 @@ def main():
                 if flat is not None and flat <= 2.5 and r_outer - (flat + 0.1) * px_mm < rr:
                     rr = r_outer - (flat + 0.1) * px_mm
                     result['rim_mm'] = round(flat, 2)
+            if a.cut_circle:
+                # Optie A (doorschijnend vinyl): de rand is gemeten op de scans met een vel op de plaat (daar is hij te
+                # zien); hier, op de scans met de witte klep (de echte kleur), precies die snede
+                cxf, cyf, crf = (float(v) for v in a.cut_circle.split(','))
+                X, Y, rr = cxf / F, cyf / F, crf / F; r_outer = rr
+                result['cut_from'] = 'the scans with a sheet on top (option A)'
+                off = []                                   # de rand is op de andere scans gemeten; hier niet opnieuw beoordelen
+            result['cut_circle_px'] = [round(X * F, 2), round(Y * F, 2), round(rr * F, 2)]
             result['cut_diameter_mm'] = round(2 * rr / px_mm, 2)
             result['precise_dev_mm'] = round(max([abs(d) for d in dev if d is not None] or [0]) / px_mm, 2)
             result['directions_measured'] = sum(d is not None for d in dev)

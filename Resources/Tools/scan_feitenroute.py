@@ -461,6 +461,45 @@ def sticker_route(a, decision):
     print(json.dumps(result, ensure_ascii=False))
 
 
+def scan_background(path):
+    """Achtergrond van een plaatscan langs de scanrand: 'lid' (de witte klep: licht en kleurloos) of 'sheet' (een
+    gekleurd of donker vel op de plaat). Optie A voor doorschijnend vinyl gebruikt van elk een stel."""
+    im = cv2.imread(path, cv2.IMREAD_REDUCED_COLOR_8)
+    if im is None:
+        im = cv2.imread(path)
+        if im is None:
+            return 'unknown'
+        im = cv2.resize(im, None, fx=.125, fy=.125, interpolation=cv2.INTER_AREA)
+    h, w = im.shape[:2]; b = max(3, int(.03 * min(h, w)))
+    lab = cv2.cvtColor(im, cv2.COLOR_BGR2LAB).astype(np.float32)
+    ring = np.concatenate([lab[:b].reshape(-1, 3), lab[-b:].reshape(-1, 3), lab[:, :b].reshape(-1, 3), lab[:, -b:].reshape(-1, 3)])
+    # de plaat zelf kan tot aan de scanrand liggen: tel alleen het deel van de rand dat wit en kleurloos is
+    white = (ring[:, 0] * 100 / 255 > 80) & (np.hypot(ring[:, 1] - 128, ring[:, 2] - 128) < 10)
+    return 'lid' if white.mean() > .25 else 'sheet'
+
+
+def map_circle(src_raw, dst_raw, circle):
+    """Een cirkel (X, Y, R in px) van het ene samengevoegde beeld op het andere leggen: zelfde plaat, dus een
+    gelijkvormige verplaatsing (schuiven, draaien, schaal 1). Op overeenkomende punten (label, groeven), op 1/4."""
+    a_ = cv2.imread(src_raw, cv2.IMREAD_REDUCED_GRAYSCALE_4); b_ = cv2.imread(dst_raw, cv2.IMREAD_REDUCED_GRAYSCALE_4)
+    if a_ is None or b_ is None:
+        return None
+    clahe = cv2.createCLAHE(2.0, (8, 8)); sift = cv2.SIFT_create(8000)
+    ka, da = sift.detectAndCompute(clahe.apply(a_), None); kb, db = sift.detectAndCompute(clahe.apply(b_), None)
+    if da is None or db is None:
+        return None
+    m = [x[0] for x in cv2.BFMatcher().knnMatch(da, db, k=2) if len(x) == 2 and x[0].distance < .75 * x[1].distance]
+    if len(m) < 30:
+        return None
+    M, inl = cv2.estimateAffinePartial2D(np.float32([ka[x.queryIdx].pt for x in m]), np.float32([kb[x.trainIdx].pt for x in m]),
+                                         method=cv2.RANSAC, ransacReprojThreshold=1.5, maxIters=5000, confidence=.999)
+    if M is None or int(inl.sum()) < 30 or abs(float(np.hypot(M[0, 0], M[1, 0])) - 1) > .01:
+        return None
+    X, Y, R = circle
+    x2, y2 = M @ np.array([X / 4, Y / 4, 1.0])
+    return [float(x2 * 4), float(y2 * 4), float(R * np.hypot(M[0, 0], M[1, 0]))]
+
+
 def facts_levelled(crop):
     try:
         return bool(json.load(open(crop + '.feiten.json')).get('seam_levelled'))
@@ -495,9 +534,11 @@ def main():
     result_fmt = fmt
     os.makedirs(a.work, exist_ok=True)
     raw = os.path.join(a.work, f'{a.part}_raw.png'); crop = os.path.join(a.work, f'{a.part}_crop.png')
+    edge_raw = os.path.join(a.work, f'{a.part}_raw_edge.png'); edge_crop = os.path.join(a.work, f'{a.part}_crop_edge.png')
+    edge_circle = cut_circle = None
     level_raw = os.path.join(a.work, f'{a.part}_raw_level.png'); levelled = False
     up = os.path.join(a.work, f'{a.part}_up.png')
-    for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', crop, crop + '.feiten.json', up):   # nooit een oud tussenbestand gebruiken
+    for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', edge_raw, edge_raw + '.scans.json', edge_crop, edge_crop + '.feiten.json', crop, crop + '.feiten.json', up):   # nooit een oud tussenbestand gebruiken
         if os.path.exists(f):
             os.remove(f)
     result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [fmt_note] if fmt_note else [], 'choices': [], 'decision': decision}
@@ -552,13 +593,39 @@ def main():
             result['why_note'] = f'{len(a.scans)} scans ({total_px / 1e6:.0f} Mpx) do not fit in memory together; made at {d0 / 2:.0f} dpi'
         step(f'merging {len(scans_in)} scans')
         is_disc = SF.SHAPES.get(fmt, SF.SHAPES['vinyl']).get(feit_part, ('rect',))[0] == 'disc'
-        cached = stitch_cache_get(a.scans, scans_in != a.scans, is_disc, raw)
+        if is_disc:
+            # Optie A (doorschijnend vinyl): per positie een scan met de witte klep (de echte kleur) en een met een vel op
+            # de plaat (daar is de rand te zien). Feit per scan: de achtergrond langs de scanrand, wit of gekleurd.
+            kinds = {f: scan_background(f) for f in scans_in}
+            lids = [f for f in scans_in if kinds[f] == 'lid']; sheets = [f for f in scans_in if kinds[f] == 'sheet']
+            if len(lids) >= 2 and len(sheets) >= 2:
+                step(f'option A: finding the edge on the {len(sheets)} scans with a sheet on top')
+                se = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), edge_raw] + sheets + ['--vorm', 'ruw', '--plaat-onderdeel'], capture_output=True, text=True)
+                if se.returncode == 0 and os.path.exists(edge_raw):
+                    subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), edge_raw, feit_part, '--format', fmt, '--out', edge_crop], capture_output=True, text=True)
+                    try:
+                        ef = json.load(open(edge_crop + '.feiten.json'))
+                    except (OSError, ValueError):
+                        ef = {}
+                    if ef.get('cut_circle_px') and ef.get('verdict') != 'FOUT':
+                        edge_circle = ef['cut_circle_px']; scans_in = lids
+                        result['applied'] = (result.get('applied', '') + f' option A: colour from {len(lids)} scans with the white lid, edge from {len(sheets)} scans with a sheet on top').strip()
+                if edge_circle is None:
+                    result['why'].append('option A: the edge could not be measured on the scans with a sheet on top; all scans were merged together')
+        cached = stitch_cache_get(a.scans, scans_in != a.scans, is_disc, raw) if edge_circle is None else None
         if cached is not None:
             st = cached                                     # alleen in de vaste toets (SLEEVE_STITCH_CACHE)
         else:
             st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'] + (['--plaat-onderdeel'] if is_disc else []), capture_output=True, text=True)
-            if st.returncode == 0:
+            if st.returncode == 0 and edge_circle is None:
                 stitch_cache_put(a.scans, scans_in != a.scans, is_disc, raw, st.stdout)
+        if edge_circle is not None and st.returncode == 0:
+            # de snede van de vel-versie op de klep-versie leggen: beide tonen dezelfde plaat en hetzelfde label
+            mapped = map_circle(edge_raw, raw, edge_circle)
+            if mapped is None:
+                result['why'].append('option A: the two merges could not be laid on each other; cut on the scans with the white lid')
+            else:
+                cut_circle = mapped
         if a.seam_level and st.returncode == 0:
             # Optie: nog een keer samenvoegen met de toon langs de naden gelijkgetrokken. De randen worden op de
             # gewone versie gezocht (gelijktrekken verschoof eerder de gevonden rand: Queen-insert 1,2 mm); alleen
@@ -594,7 +661,8 @@ def main():
         print(json.dumps(result)); return
     if not already:
         step('finding the edges and cutting out')
-    fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', fmt, '--out', crop] + (['--pixels', level_raw] if levelled else []), capture_output=True, text=True) if not already else subprocess.CompletedProcess([], 0, '', '')
+    fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', fmt, '--out', crop] + (['--pixels', level_raw] if levelled else [])
+                        + (['--cut-circle', ','.join(f'{v:.2f}' for v in cut_circle)] if cut_circle else []), capture_output=True, text=True) if not already else subprocess.CompletedProcess([], 0, '', '')
     if levelled and facts_levelled(crop):
         result['applied'] = (result.get('applied', '') + ' tone levelled across the seams').strip()
     try:
@@ -840,7 +908,7 @@ def main():
         if result.get('why_note'):
             result['applied'] = (result.get('applied', '') + ' ' + result['why_note']).strip()
         result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
-        for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', crop, crop + '.feiten.json', up):
+        for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', edge_raw, edge_raw + '.scans.json', edge_crop, edge_crop + '.feiten.json', crop, crop + '.feiten.json', up):
             if os.path.exists(f):
                 os.remove(f)
         print(json.dumps(result, ensure_ascii=False)); return
@@ -872,7 +940,7 @@ def main():
     if result.get('why_note'):
         result['applied'] = (result.get('applied', '') + ' ' + result['why_note']).strip()
     result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
-    for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', crop, crop + '.feiten.json', up):   # tussenbestanden opruimen (1200 dpi: ±1,5 GB)
+    for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', edge_raw, edge_raw + '.scans.json', edge_crop, edge_crop + '.feiten.json', crop, crop + '.feiten.json', up):   # tussenbestanden opruimen (1200 dpi: ±1,5 GB)
         if os.path.exists(f):
             os.remove(f)
     print(json.dumps(result, ensure_ascii=False))

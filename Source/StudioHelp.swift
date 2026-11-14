@@ -159,7 +159,7 @@ struct StudioHelpView: View {
         ("Gatefold, opened (Inside)", "6", "Two rows of three, left to right."),
         ("Insert or lyric sheet (30 cm)", "4 per side", "Like a sleeve; each side in its own Insert slot."),
         ("Booklet page (29 cm)", "2 per page", "Left half, then right half; each page its own Insert slot."),
-        ("Record side", "4", "Each scan a quarter of the record, with the edge and background; a quarter turn is fine."),
+        ("Record side", "4 + 1", "Each scan a quarter of the record, with the edge and background; a quarter turn is fine. Plus one scan with the label in the middle of the glass, in the same slot: in the quarter scans the label lies against the edge of the glass and is blurred; Sleeve takes the label from the sharpest scan."),
         ("CD booklet, card, back card", "1", "Straight (within a few degrees), background all around."),
         ("CD", "1", "In the middle of the glass, printed side down."),
         ("Sticker", "1", "The sticker on its plastic sleeve, well inside the glass; put the scan in a Sticker slot."),

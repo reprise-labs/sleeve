@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.37 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.38 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -144,6 +144,11 @@ Extra feiten:
 - `reference.py`: cache van samengevoegde beelden (`SLEEVE_STITCH_CACHE`, route `stitch_cache_get/put`, max 3 GB, alleen bij ≥ 8 GB vrij), `--hoezen`, `--no-cache`. Niet `--keep` gebruiken bij weinig schijfruimte (volle schijf op 14 nov).
 - Naadregel (naad tot 15 mm verleggen waar scans op de naad verschillen; eilandjes opnemen) GEPROBEERD EN WEGGEHAALD: verschoof gevonden randen (Deena back +1,3 mm, Queen-insert −0,8 mm) en gaf dubbele letters waar de naad langs een tekstregel ging. André: "beter scannen ipv verbeteren na afloop".
 - Sticker (0.5.35): `scan_sticker.py` (kader → rand op vaste afstand rondom, eerste duidelijke sprong op alle zijden; of rand zelf; of cirkel in 180 richtingen; hoeken op kleur), route `sticker_route` (rechtop via scan_rechtop, cirkel met --disc). Getest op 7 chatbeelden van André; originele scans met dpi nog nodig. Strook zonder kader nog niet echt gezien. Indelen herkent een sticker (0.5.36, `is_sticker`: ≤ 15% van de scan, afgeronde hoeken ≥ 1,5 mm of cirkel ≠ 112-125 mm). Snede: vanaf de gevonden rand naar binnen tot net binnen stickerkleur is (strook zonder kader). Mosgroene stickers (2025+) zijn te donker voor de tekstherkenning: André draait zelf.
+
+## 14 nov avond (0.5.38): optie A, labelscan
+- Route: `scan_background` (rand van de scan wit+kleurloos = klep, anders vel); ≥2 van elk bij een plaatkant → vel-scans apart samenvoegen, `scan_feiten` geeft `cut_circle_px`, `map_circle` (SIFT op 1/4, gelijkvormig, schaal 1) legt hem op de klep-versie, `scan_feiten --cut-circle`. Getest: US blauw optie A (map vinyl/us_blauw_optieA): 297,3 mm, randstreep weg.
+- Indelen: vel-scans bij de stapel van hun klep-scan (`background` in scan_vakken).
+- Labelscan (label midden op het glas) als extra scan in het vak: label 10× scherper (sharpest wins). Oorzaak wazig label: in kwartscans ligt het label tegen de glasrand en niet plat.
 
 ## Open
 - ~~Verkeerd gevouwen hoes melden~~: opgelost sinds 0.5.29 (smalle randen per stuk van een zijde bijsnijden); André 14 nov: "De back is perfect".
