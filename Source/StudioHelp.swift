@@ -154,6 +154,17 @@ struct StudioHelpView: View {
         ("Lid closed and pressed down; one setting per release.",
          "Press near the edges and near small text. Use one resolution per release and let the scan software store it in the file."),
     ]
+    private let sheets: [(String, String, String)] = [
+        ("Black vinyl, dark sleeve or card", "the white lid", "Dark against white: the edge is clear."),
+        ("White or light opaque vinyl", "purple or dark sheet", "Not light yellow: the edge of white vinyl then shows too faintly (a thin line of the rim stays)."),
+        ("White or light sleeve, card or insert", "purple or dark sheet", "Between the part and the lid."),
+        ("Translucent blue or green vinyl", "orange or yellow sheet (option A)", "Per position one scan with the white lid (colour) and one with the sheet laid on the record (edge)."),
+        ("Translucent magenta or red vinyl", "green sheet (option A)", "As above."),
+        ("Translucent yellow vinyl", "blue or purple sheet (option A)", "As above."),
+        ("Clear (colourless) vinyl", "matt black sheet (option A)", "Through clear vinyl you see the sheet; on matt black the grooves and the rim catch the light."),
+        ("Record label", "white lid, label in the middle of the glass", "One extra scan per side, in the same slot: the label comes out sharp."),
+        ("Sticker", "its own plastic sleeve, flat", "If gold on gold or yellow: a contrasting sheet behind the plastic."),
+    ]
     private let parts: [(String, String, String)] = [
         ("LP sleeve (front or back)", "4", "Each corner once; every scan shows two outer edges with background."),
         ("Gatefold, opened (Inside)", "6", "Two rows of three, left to right."),
@@ -183,6 +194,18 @@ struct StudioHelpView: View {
                                     VStack(alignment:.leading, spacing:3) {
                                         Text(rule.0).font(.callout.weight(.semibold))
                                         Text(rule.1).font(.callout).fixedSize(horizontal:false, vertical:true)
+                                    }
+                                }
+                            }
+                        }
+                        section("Which sheet behind the part") {
+                            Text("The background must differ from the edge of the part. Use a plain, matt sheet (no gloss, no print), large enough to cover the part with a border around it.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal:false, vertical:true)
+                            Grid(alignment:.leading, horizontalSpacing:14, verticalSpacing:6) {
+                                ForEach(sheets, id:\.0) {p in
+                                    GridRow {
+                                        Text(p.0).font(.callout.weight(.medium))
+                                        Text(p.1).font(.callout)
+                                        Text(p.2).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal:false, vertical:true)
                                     }
                                 }
                             }

@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.38 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.39 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.

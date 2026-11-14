@@ -1,3 +1,8 @@
+# 0.5.39 — Help: which sheet behind which part
+
+- **Help has a table "Which sheet behind the part"**: black vinyl and dark sleeves on the white lid; white or light vinyl, sleeves, cards and inserts on a purple or dark sheet (not light yellow); translucent blue/green with an orange or yellow sheet, magenta/red with green, yellow with blue or purple, clear with matt black (all option A); the label in the middle of the glass on the white lid; a sticker on its own plastic sleeve. Plain, matt, no print.
+- Checked: 4 quarter scans + 1 label scan give a record that is sharp everywhere. On Urban Solitude blue the label went from sharpness 30 to 1896; the vinyl itself (grooves, gloss) was already as sharp as it shows.
+
 # 0.5.38 — Translucent vinyl (option A); a sharp label from a separate label scan
 
 - **Option A for translucent vinyl.** Per position two scans without moving the record: one with the white lid (the true colour) and one with a coloured or dark sheet laid on the record (there the edge is visible). Sleeve tells them apart by the background along the scan border (white and colourless, or not), merges each set, measures the edge on the sheet merge, lays that merge on the lid merge (same record, same label: a shift and turn, scale 1, on matching points) and cuts the lid merge with exactly that circle. Urban Solitude blue side A: 297.3 mm instead of 298.7, and the light streak of the rim (the white lid shining through) is gone.
