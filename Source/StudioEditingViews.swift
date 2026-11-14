@@ -83,6 +83,7 @@ struct StudioRetryView:View {
     @State private var candidates:[MediaItem]
     @State private var chosen:Set<URL>
     @State private var seamLevel=false
+    @State private var levelVinyl=false
     init(model:StudioModel,target:MediaItem){self.model=model;self.target=target;let original=model.scanSettings(for:target);settings=original;_candidates=State(initialValue:original.inputs.filter{!$0.reference});_chosen=State(initialValue:Set(original.inputs.filter{!$0.reference && $0.part==target.part}.map{$0.url}))}
     var valid:Bool{!chosen.isEmpty && Set(chosen.map{$0.deletingLastPathComponent()}).count==1 && chosen.allSatisfy{FileManager.default.fileExists(atPath:$0.path)}}
     var body:some View {
@@ -98,8 +99,9 @@ struct StudioRetryView:View {
             }
             Button("Choose Other Original Scans…"){let p=NSOpenPanel();p.allowedContentTypes=[.image];p.allowsMultipleSelection=true;if p.runModal() == .OK {chosen=[];for url in p.urls {if !candidates.contains(where:{$0.url==url}){candidates.append(MediaItem(url:url,part:target.part))};chosen.insert(url)}}}
             Toggle(isOn:$seamLevel){VStack(alignment:.leading,spacing:2){Text("Level tone across the seams");Text("For a light or dark band where two partial scans meet. Edges are still found on the normal merge, so the size doesn't change. Takes about twice as long.").font(.caption).foregroundStyle(.secondary)}}.disabled(chosen.count<2)
+            if ["sidea","sideb","sidec","sided","sidee","sidef"].contains(target.part) {Toggle(isOn:$levelVinyl){VStack(alignment:.leading,spacing:2){Text("Level the tone of plain light vinyl");Text("For grey patches in white or light one-colour vinyl, from the scanner light. Each spot is made as light as the vinyl at the same distance from the centre; grooves, dust and scratches stay as scanned. Only lighter, never more than 8 L. Shown with the result.").font(.caption).foregroundStyle(.secondary)}}}
             Text(settings.discogs.isEmpty ? "Without Discogs. Apply any vinyl color separately afterwards." : "With the Discogs settings of the original run. Apply any vinyl color separately afterwards.").font(.caption).foregroundStyle(.secondary)
-            HStack{Text(chosen.count==1 ? "1 source image · one new result" : "\(chosen.count) source images · one new result").font(.caption);Spacer();Button("Process Only This Part"){model.retryPart(target:target,sources:candidates.filter{chosen.contains($0.url)},settings:settings,seamLevel:seamLevel)}.buttonStyle(.borderedProminent).disabled(!valid)}
+            HStack{Text(chosen.count==1 ? "1 source image · one new result" : "\(chosen.count) source images · one new result").font(.caption);Spacer();Button("Process Only This Part"){model.retryPart(target:target,sources:candidates.filter{chosen.contains($0.url)},settings:settings,seamLevel:seamLevel,levelVinyl:levelVinyl)}.buttonStyle(.borderedProminent).disabled(!valid)}
         }.padding(24).frame(minWidth:800,minHeight:590).tint(studioAccent)
     }
 }

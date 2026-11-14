@@ -513,6 +513,7 @@ def main():
     p.add_argument('--discogs', default=''); p.add_argument('--out', required=True); p.add_argument('--work', required=True)
     p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default=''); p.add_argument('--release-dpi', type=float, default=0.0); p.add_argument('--year', default='')
     p.add_argument('--seam-level', action='store_true')       # optie: toon langs de naden gelijktrekken (randen uit de gewone run)
+    p.add_argument('--level-vinyl', action='store_true')     # optie: helderheid van effen licht vinyl gelijktrekken (scan_vlak)
     p.add_argument('--target', default='')                 # beslissing: precies dit bestand vervangen (niet een ander onderdeel met dezelfde naam)
     a = p.parse_args()
     folder = os.path.dirname(os.path.abspath(a.scans[0]))
@@ -929,6 +930,14 @@ def main():
         # Feit: een beslissing geldt voor het bestand dat jij zag. Twee inserts hebben dezelfde naam
         # (_insert en _insert_2); zonder dit overschreef de tweede de eerste (0.5.29).
         path = a.target
+    if a.level_vinyl and SF.SHAPES.get(fmt, SF.SHAPES['vinyl']).get(feit_part, ('rect',))[0] == 'disc':
+        # Optie (André 14 nov): lichte vlekken in effen vinyl ophelderen tot de helderheid rondom; gemeten, niets verzonnen
+        import scan_vlak
+        img, lv_ = scan_vlak.level(img, dpi)
+        if lv_.get('levelled'):
+            result['applied'] = (result.get('applied', '') + f" vinyl tone levelled (up to {lv_['max_L']} L lighter)").strip()
+        else:
+            result['applied'] = (result.get('applied', '') + ' vinyl tone not levelled: ' + lv_.get('why', '')).strip()
     cv2.imwrite(path, img)
     try:                                                   # dpi in het bestand zetten
         from PIL import Image

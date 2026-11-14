@@ -223,6 +223,7 @@ def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0,
  if release_dpi:cmd+=['--release-dpi',str(release_dpi)]
  if target:cmd+=['--target',str(target)]
  if req.get('seamLevel'):cmd+=['--seam-level']
+ if req.get('levelVinyl'):cmd+=['--level-vinyl']
  work.mkdir(parents=True,exist_ok=True)
  process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
  OCR_CHILDREN.add(process)

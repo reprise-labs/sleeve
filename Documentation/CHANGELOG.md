@@ -1,6 +1,13 @@
+# 0.5.42 — Option: level the tone of plain light vinyl
+
+- **New option when reprocessing a record side: "Level the tone of plain light vinyl".** White vinyl can show faint grey patches from the scanner light (Queen For A Day 2021 side A, top right: lightness 96.5 where the rest at that distance is 99.2). Sleeve measures the lightness of the vinyl around the record at each distance from the centre (0.5 mm across, 1 degree around) and makes darker spots as light as the vinyl at the same distance. What is the same all the way round stays as it is (the rounded rim, the run-out), and grooves, dust and scratches stay as scanned: the three colours get the same factor, only lighter, at most 8 L. Only for plain light vinyl (90% within ΔE 12 of one colour, lightness 60 or more); the label is left alone. Off by default; the result says when it was used and by how much.
+- Queen 2021 side A with the option: the strip at the top right from 96.5 to 98.5, nothing around it lighter than before; GOED, 297.9 mm, as without.
+- Not a content-aware fill: nothing is drawn that was not scanned.
+- Reference: Queen For A Day 2021 new scans added as case queen_paars (Discogs release 19274500).
+
 # 0.5.41 — Arranging twice as fast; Queen For A Day (2021) arranged by itself; sticker edge per side
 
-- **Arranging is about twice as fast.** Each Discogs photo is measured once instead of once for every scan, and the scans are made small and read for a barcode three at a time. Queen For A Day, 27 scans at 600 dpi: 92 → 47 seconds, the same slots and names.
+- **Arranging is about twice as fast.** Each Discogs photo is measured once instead of once for every scan, and the scans are made small and read for a barcode three at a time. Queen For A Day, 27 scans at 600 dpi: 68 → 33 seconds (measured while another test ran), the same slots and names.
 - **Scan order from the number at the end of the file name** ("…_0018.tif"): label scans no longer sort after everything else.
 - **A front needs the cover at full size.** A Discogs photo counts as a cover photo only when the cover fills it (at least 70% of its width), and the cover must show at least 250 mm wide on an LP scan (96 mm on a CD). The two lyric sheets of Queen For A Day print the cover small; they are inserts, not fronts.
 - **A sticker is checked before insert/inside**, so a sticker scan is never called insert.
