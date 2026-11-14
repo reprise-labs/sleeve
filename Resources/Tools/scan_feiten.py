@@ -751,6 +751,11 @@ def main():
                        'ring_cover': score, 'sectors_seen': sum(x >= SEEN for x in seen), 'sectors_scanned': len(seen),
                        'weak_degrees': unseen})
         result['verdict'] = 'GOED' if seen and not unseen else 'TWIJFEL'
+        if unseen:
+            # zonder reden telde dit niet als twijfel in de route: nu wel
+            thing = 'disc' if fmt.startswith('cd') else 'record'
+            result.setdefault('why', []).append(f'the edge of the {thing} could not be seen at {len(unseen)} of {len(seen)} places around it '
+                                                f'(at {", ".join(str(d) for d in unseen[:6])}{"…" if len(unseen) > 6 else ""} degrees); the circle is measured on the rest')
     else:
         eh, ev, valid, _, _ = edge_maps(small, sa, border)
         small_lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float32); small_lab[:, :, 0] *= 100 / 255
@@ -775,6 +780,11 @@ def main():
         result.update({'angle': ang, 'box_mm': [x0 / WORK_PX_MM, y0 / WORK_PX_MM, Sx / WORK_PX_MM, Sy / WORK_PX_MM],
                        'sides': sides, 'weak_sides': weak})
         result['verdict'] = 'GOED' if not weak else 'TWIJFEL'
+        if weak:
+            # zonder reden telde dit niet als twijfel in de route (die kijkt naar de redenen): nu wel, met wat te doen
+            result.setdefault('why', []).append(
+                f"the {' and '.join(weak)} edge{'s' if len(weak) > 1 else ''} could not be seen along most of "
+                f"{'their' if len(weak) > 1 else 'its'} length; placed by the size of this part (before turning upright)")
     print(json.dumps(result, indent=1))
     if a.out:
         k = 1 / s                                          # rekenschaal -> volle resolutie

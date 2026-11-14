@@ -49,6 +49,15 @@ staat alles erop en hoeft Sleeve nergens te raden.
 | Plaat | 4 | Elke scan een kwart van de plaat, met de buitenrand en achtergrond erlangs. Een kwartslag draaien mag. |
 | Cd-boekje, kaartje, achterkaart | 1 | Recht leggen (binnen een paar graden), rondom achtergrond in beeld. |
 | Cd-schijf | 1 | Midden op het glas, bedrukte kant naar beneden. |
+| Sticker | 1 | Op zijn eigen plastic hoes, ruim binnen het glas, plastic plat en klep dicht. Eén scan per sticker. |
+
+## Stickers
+
+- Scan de sticker op zijn eigen plastic hoes: één scan, de sticker ruim binnen het glas (minstens 1 cm van de rand), het plastic plat en de klep dicht.
+- Sleeve herkent de scan zelf als sticker (kleine vorm met afgeronde hoeken, of rond, op een verder lege scan) en zet hem in het vak Sticker.
+- Uitsnijden: bij een Music On Vinyl-sticker het gedrukte kader en de rand eromheen; bij een strook zonder kader de rand zelf; bij een ronde sticker de cirkel. Transparante hoeken.
+- Rechtop op de tekst van de release (artiest, titel). Mosgroene stickers (vanaf 2025) zijn te donker voor de tekstherkenning: daar kies je zelf de stand.
+- Is de rand niet goed te zien (goud op goud of geel): leg een contrasterend vel achter het plastic.
 
 ## Namen
 
@@ -64,5 +73,7 @@ dan zet Sleeve die scan meteen in het goede vak.
   (regel 1).
 - **"front … and back … differ"**: één van de twee is op een drukrand gesneden of lag niet
   plat (regel 1 en 5).
+- **"the left edge could not be seen …"** (hoes of kaart): langs die zijde was de rand niet te zien; Sleeve legde hem op de bekende maat. Leg een contrasterend vel achter dat deel (regel 1) en houd de rand 1 cm van het glas (regel 2).
+- **"the edge of the record could not be seen at N of 36 places"**: op die plekken rondom was de plaatrand niet te zien; de cirkel is op de rest gemeten. Licht vinyl: donker of gekleurd vel erachter.
 - **"which way is up"**: er is geen tekst van de release te lezen. Dat is geen scanfout;
   kies zelf de stand.

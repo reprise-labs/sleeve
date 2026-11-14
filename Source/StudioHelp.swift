@@ -66,6 +66,16 @@ let helpTopics: [HelpTopic] = [
     HelpTopic(id:"hung", title:"“stopped after … minutes without a result”",
               meaning:"Processing this part took far too long and was stopped; the other parts went on.",
               fix:["Process this part again (Reprocess Part…). If it happens again, save the log and send it."]),
+    HelpTopic(id:"edge-unseen", title:"“the left edge could not be seen …”",
+              meaning:"Sleeve finds a sleeve or card by its four edges. Along this side the edge was not visible for most of its length (for example a white sleeve on the white lid), so Sleeve placed it by the known size of the part. It is probably right, but not measured. The side named is as it lay on the scanner, before turning upright.",
+              fix:["Put a contrasting sheet behind the part (a coloured or dark sheet) and scan that side again.",
+                   "Keep the edge at least 1 cm from the edge of the glass.",
+                   "If the result looks right to you, choose ‘Keep as it is’."]),
+    HelpTopic(id:"disc-unseen", title:"“the edge of the record could not be seen at N of 36 places”",
+              meaning:"Sleeve looks for the edge of a record or CD in 36 directions around it. In some of them the edge was not visible (light vinyl on the white lid, the lid shining through translucent vinyl, or the edge too close to the edge of the glass). The circle is measured on the places where it was seen, so the cut is usually right.",
+              fix:["Light or white vinyl: put a dark or coloured sheet behind it and scan again.",
+                   "Keep the edge of the record at least 1 cm from the edge of the glass in every scan.",
+                   "If the result looks right to you, choose ‘Keep as it is’."]),
     HelpTopic(id:"no-sticker", title:"“no sticker found”",
               meaning:"Sleeve looks for a closed rectangle with rounded corners (the printed frame of a Music On Vinyl sticker, or the sticker's own edge) or a round edge all around. Neither was found in this scan.",
               fix:["Scan the sticker well inside the glass, with the plastic sleeve flat and the lid closed.",
@@ -86,12 +96,12 @@ func helpTopic(for reason: String) -> String? {
     if r.hasPrefix("measured ") && r.contains("packaging") {return "packaging"}
     let rules: [(String, String)] = [
         ("not scanned", "not-scanned"), ("directions more than", "record-rim"),
-        ("the edge of the record could not", "record-edge-missing"), ("centre hole", "centre-hole"),
+        ("could not be measured anywhere", "record-edge-missing"), ("centre hole", "centre-hole"),
         ("this insert is", "insert-size"),
         ("the label was set straight on the title only", "title-only"),
         ("which way is up", "upright"), ("the label says side", "side-letter"),
         ("was left out", "left-out"), ("no resolution", "no-dpi"), ("not an opened gatefold", "not-gatefold"),
-        ("stopped after", "hung"), ("no sticker found", "no-sticker"), ("edge of the sticker", "sticker-edge"),
+        ("stopped after", "hung"), ("no sticker found", "no-sticker"), ("could not be seen along", "edge-unseen"), ("could not be seen at", "disc-unseen"), ("edge of the sticker", "sticker-edge"),
         ("round edge is visible", "sticker-edge"), ("discogs", "discogs"),
     ]
     return rules.first(where: {r.contains($0.0)})?.1
@@ -189,8 +199,11 @@ struct StudioHelpView: View {
                             }
                         }
                         section("Arranging the scans") {
-                            Text("After you confirm the release, Sleeve puts the scans of one part together in a slot: scans that share print and follow each other in file order. It names a slot only on a fact: the barcode (Back), the Discogs cover photo (Front), the rim of a record (Side A, B … in scan order; the label is checked after processing) or a 120 mm disc (CD). A slot without a fact says ‘choose the part’. A part that came in two slots: use the arrow on a slot to move all its scans at once.").font(.callout).fixedSize(horizontal:false, vertical:true)
+                            Text("After you confirm the release, Sleeve puts the scans of one part together in a slot: scans that share print and follow each other in file order. It names a slot only on a fact: the barcode (Back), the Discogs cover photo (Front), the rim of a record (Side A, B … in scan order; the label is checked after processing), a 120 mm disc (CD), the second 150 mm card of a jewel case once the back is known (Inlay), and a small shape with rounded corners or a circle on an otherwise empty scan (Sticker). Once front and back are found, another sheet is an Insert, or the Inside when it is a whole opened gatefold. A slot without a fact says ‘choose the part’. A part that came in two slots: use the arrow on a slot to move all its scans at once.").font(.callout).fixedSize(horizontal:false, vertical:true)
                             Text("Tip: scan one part after the other (front, back, side A, side B …). If a file name ends in the part (…_front.png, …_cd.png), it goes straight into that slot.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal:false, vertical:true)
+                        }
+                        section("Stickers") {
+                            Text("Scan the sticker on its own plastic sleeve: one scan, the sticker well inside the glass, the plastic lying flat and the lid closed. Sleeve finds the printed frame of a Music On Vinyl sticker and its edge around it, a strip without a frame by its own edge, or a round sticker by its round edge, and cuts it out with transparent corners. It is set upright on the text of the release (artist, title). Dark moss-green stickers (from 2025) can't be read by macOS: choose the turn yourself.").font(.callout).fixedSize(horizontal:false, vertical:true)
                         }
                         section("When Sleeve is in doubt") {
                             Text("‘In doubt’ means a fact couldn't be checked. Sleeve shows the reason and what you can choose; it remembers your choice for these scans.").font(.callout).foregroundStyle(.secondary)

@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.36 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.37 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -149,8 +149,8 @@ Extra feiten:
 - ~~Verkeerd gevouwen hoes melden~~: opgelost sinds 0.5.29 (smalle randen per stuk van een zijde bijsnijden); André 14 nov: "De back is perfect".
 - **Blauw vinyl kant A:** TWIJFEL, rand op 11 plekken 1,3-1,7 mm naast de cirkel (doorschijnend vinyl op de witte klep).
 - **Donker vinyl op een gekleurd vel:** `rim_end` kan daar glans voor doorschijnen aanzien; nog niet getest.
-- **Rand niet gezien telt niet als twijfel:** `scan_feiten.py` zet bij een zijde zonder zichtbare rand (`weak_sides`, of sectoren bij een plaat) wel TWIJFEL, maar zonder reden; `scan_feitenroute.py` kijkt alleen naar redenen, dus het onderdeel wordt GOED. Eerst met de vaste toets meten hoeveel onderdelen dit raakt, dan beslissen.
-- **Hoek van een hoes of kaartje:** `find_rect` zoekt alleen tussen -3 en +3 graden. Schever gelegd = niet gevonden.
+- Rand niet gezien → nu TWIJFEL met reden (0.5.37, scan_feiten: `weak_sides` en `weak_degrees`). Vannacht gemeten hoeveel onderdelen dit raakt.
+- ~~Hoes > 3° scheef~~: niet doen (André: wie slordig scant, is niet de doelgroep).
 - **Oude route:** `scan_cutout.py` en de vormherkenning in `scan_stitch.py` worden door de feitenroute niet meer gebruikt en kunnen eruit.
 - **Eindbeeld in één keer opbouwen:** nu wordt elk beeld twee keer omgerekend (samenvoegen, daarna rechtzetten) en vier keer naar schijf geschreven.
 - **Witte platen op de witte deksel** (Queen A/B, Deena A/B/C): André scant ze opnieuw met een donker vel. Hier geen tijd meer aan besteden.

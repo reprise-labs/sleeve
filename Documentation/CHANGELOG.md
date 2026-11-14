@@ -1,3 +1,10 @@
+# 0.5.37 — An edge that could not be seen is now doubt; Help and scanning guide for stickers
+
+- **A side whose edge could not be seen gives doubt.** Sleeve already knew when an edge of a sleeve or card was not visible along most of its length (it then placed that side by the known size), or when the edge of a record or CD was not visible at some of the 36 places around it. Without a reason the route still reported GOED. Now: "the left edge could not be seen along most of its length; placed by the size of this part" or "the edge of the record could not be seen at 3 of 36 places (at 20, 30, 40 degrees)", each with "How do I fix this?".
+- **Help:** arranging now explains the Inlay, Insert/Inside and Sticker names; a Stickers section on how to scan them.
+- **Scanning guide:** stickers (one scan on the plastic sleeve, flat, lid closed) and the two new messages.
+- Not yet measured how many parts of the reference test this turns from GOED into doubt: that is tonight's full test.
+
 # 0.5.36 — Stickers recognised when arranging; strip stickers without a frame
 
 - **A sticker scan gets the Sticker slot by itself.** Fact: a small closed shape with rounded corners, or a circle, on an otherwise empty scan (its plastic sleeve): at most 15% of the scan. A CD booklet or card has sharp corners and a CD is a 120 mm circle, so those are never called sticker. Checked on the reference test: no CD card became a sticker.
