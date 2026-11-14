@@ -37,6 +37,9 @@ import AppKit
                 Button("Save Project") {if model.projectURL==nil{model.saveProjectAs()}else{model.saveExistingProject()}}.keyboardShortcut("s").disabled(model.busy)
                 Button("Add Images…") {model.pickImages()}.keyboardShortcut("o").disabled(model.busy)
             }
+            CommandGroup(replacing:.help) {
+                Button("Sleeve Help") {model.helpTopic=nil;model.panel = .help}.keyboardShortcut("?")
+            }
         }
     }
 }
@@ -63,6 +66,7 @@ struct StudioView: View {
                 } label:{Label("Project",systemImage:"folder")}.disabled(model.busy)
                 Button{model.showQueue=true} label:{Label("Queue (\(model.pendingCount))",systemImage:"list.bullet.rectangle")}
                 Button {model.newEdition()} label:{Label("New Release",systemImage:"plus")}.disabled(model.busy)
+                Button {model.helpTopic=nil;model.panel = .help} label:{Label("Help",systemImage:"questionmark.circle")}
             }.padding(.horizontal,24).padding(.vertical,17).background(studioPaper)
             Divider()
             HStack(spacing:0) {
@@ -112,6 +116,7 @@ struct StudioView: View {
             case .retry:if let item=model.retryTarget{StudioRetryView(model:model,target:item)}
             case .arrange:StudioArrangeView(model:model)
             case .release:ReleaseConfirmSheet(model:model)
+            case .help:StudioHelpView(model:model)
             }
         }
         .onDrop(of:["public.file-url"],isTargeted:nil) {providers in

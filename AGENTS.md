@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.31 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.32 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -129,6 +129,12 @@ Extra feiten:
 - Gemeten: overlap alleen, overeenkomst van de hele overlap en mate van overlap scheiden kant A/B en herhaalde hoes NIET (label = zelfde ontwerp, insert = afdruk van de hoes). Plek op het glas en sterkte van de overeenkomst wel.
 - Toets: `Tests/feiten/indeling.py` (±8 min). Stand: 0 fout, 6 helemaal goed, rest naamloze stapels (inserts, inside, cd-backs zonder barcode), Deena inside in 2 stapels.
 - Open: inserts/inside/inlay een naam geven (maat? Discogs-foto's?), cd-back (150 mm breed) herkennen.
+
+## 14 nov (0.5.32): plaatrand, echte cirkel, Help
+- `flat_start` in `scan_feiten.py`: per 24 stukken van de omtrek waar de kleur weer binnen 3 ΔE van het vlakke vinyl (3-5 mm) is; mediaan. Alleen DONKERDER telt (schaduw van de ronding); lichter = doorschijnen/glans = echte plaat. Eerst geprobeerd: mediaan-ring over de hele omtrek (blauw −3 mm, TA −2 mm: fout), richting-naar-de-klep (HNY viel weg: gele rand is ook minder geel). Uit te zetten met SLEEVE_FLAT_START=0.
+- `soft_disc`: masker als echte cirkel; cv2.circle tekent een grote cirkel als 72-hoek (tot 0,13 mm naar binnen).
+- Indelen: met front én back gevonden wordt een ander vel insert (scans bedekken < 520 mm) of inside (> 580 mm, `extent_mm`); geen insert-namen als er een inside is. Cd-back/inlay: geen feit (beide ±150 x 118).
+- `Source/StudioHelp.swift`: hulpvenster + `helpTopic(for:)` (melding → onderwerp; alle 17 meldingsvormen getest). Nieuwe melding in de route? Voeg een onderwerp en een regel toe.
 
 ## Open
 - **Sticker uitsnijden (zijproject, André vergeet het steeds):** vak `sticker` bestaat in de bridge, maar `scan_feiten.py` heeft er geen vorm/maat voor.

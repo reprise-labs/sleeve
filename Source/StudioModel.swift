@@ -173,6 +173,8 @@ final class PipeReader: @unchecked Sendable {
     @Published var suggestStatus = ""
     /// Waarom Sleeve een stapel zo noemde (of geen naam gaf), per vak.
     @Published var slotNotes: [String:String] = [:]
+    /// Het onderwerp waarop het hulpvenster opent (nil: bovenaan).
+    @Published var helpTopic: String? = nil
     var suggestProcess:Process?
     var showQueue: Bool {get{panel == .queue} set{if newValue{panel = .queue}else if panel == .queue{panel=nil}}}
     var showReview: Bool {get{panel == .review} set{if newValue{panel = .review}else if panel == .review{panel=nil}}}

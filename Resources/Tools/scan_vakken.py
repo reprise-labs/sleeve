@@ -141,7 +141,34 @@ def link(a, b):
         return 0, 0.0, 0.0
     moved = M @ np.array([sa[1] / 2, sa[0] / 2, 1.0]) - np.array([sb[1] / 2, sb[0] / 2])
     ang = abs((np.degrees(np.arctan2(M[1, 0], M[0, 0])) + 180) % 360 - 180)
+    LINKS[id(a), id(b)] = M                                  # voor de maat van de hele stapel (extent)
     return int(inl.sum()), float(np.hypot(*moved) / PXMM), float(ang)
+
+
+LINKS = {}
+
+
+def extent_mm(g, feats):
+    """Breedte en hoogte (mm) van wat de deelscans van een stapel samen bedekken: elke scan op zijn plek via
+    de overlap met een eerdere scan uit de stapel. Een opengeklapte hoes is ±62 cm breed, een vel ±30 cm."""
+    T = {g[0]: np.eye(3)}
+    for s in g[1:]:
+        best = None
+        for x in T:
+            M = LINKS.get((id(feats[s]), id(feats[x])))
+            if M is not None and (best is None or True):
+                best = (x, M); break
+        if best is None:
+            return None
+        x, M = best
+        T[s] = T[x] @ np.vstack([M, [0, 0, 1]])
+    pts = []
+    for s, t in T.items():
+        h, w = feats[s][2]
+        c = np.array([[0, 0, 1], [w, 0, 1], [w, h, 1], [0, h, 1]], np.float64).T
+        pts.append((t @ c)[:2].T)
+    P = np.vstack(pts)
+    return float((P[:, 0].max() - P[:, 0].min()) / PXMM), float((P[:, 1].max() - P[:, 1].min()) / PXMM)
 
 
 def record_rim(im):
@@ -293,6 +320,15 @@ def main():
     # De hoes bestaat één keer, maar een insert of poster kan precies dezelfde afbeelding dragen. Lijken
     # meer stapels op de hoes, dan is niet vast te stellen welke de hoes is: geen naam (jij kiest).
     fronts = [x for x in named if x[0] == 'front']
+    if len(fronts) > 1 and fmt != 'cd':
+        # Feit: een lp-hoes is minstens 305 mm in beide richtingen. Wat de scans van een stapel samen bedekken,
+        # moet dan ook minstens zo groot zijn; is het in één richting kleiner, dan is het niet de hoes maar een
+        # kleiner vel met de hoes erop (Urban Solitude groen: een afdruk van de hoes in 2 scans).
+        for x in fronts:
+            e = extent_mm(x[1], feats)
+            if e is not None and min(e) < 305:
+                x[0], x[2] = 'unknown', f'looks like the cover, but these scans cover only {min(e):.0f} mm one way: smaller than a sleeve (305 mm)'
+        fronts = [x for x in named if x[0] == 'front']
     if len(fronts) > 1:
         for x in fronts:
             x[0], x[2] = 'unknown', f'{len(fronts)} stacks look like the cover (a print of it on an insert?): choose which is the front'
@@ -311,6 +347,21 @@ def main():
             for x in same:
                 if x is not keep:
                     x[0], x[2] = 'unknown', f'also looks like the {part}, but {os.path.basename(keep[1][0])} matches better: choose it'
+    # Een release heeft één front en één back. Zijn beide gevonden, dan is elk ander vel (geen plaat, geen cd)
+    # een insert, of de binnenkant van een uitklaphoes als het samen breder is dan 45 cm (±62 x 31 cm).
+    # De maat is wat de deelscans samen bedekken (glas, dus ruimer dan het vel): een vel van 30 cm in 4 delen
+    # 330-460 mm, een opengeklapte hoes ±670 mm (gemeten op de vaste toets). Ligt er een binnenkant in de
+    # release, dan krijgt geen andere stapel 'insert': een los stuk van die binnenkant zou anders insert heten.
+    if fmt != 'cd' and any(x[0] == 'front' for x in named) and any(x[0] == 'back' for x in named):
+        open_ = [x for x in named if x[0] == 'unknown' and (x[2].startswith('no fact') or 'smaller than a sleeve' in x[2])]
+        size = {id(x): extent_mm(x[1], feats) for x in open_}
+        for x in open_:
+            if size[id(x)] and max(size[id(x)]) > 580:
+                x[0], x[2] = 'inside', f'front and back are found; these scans cover {max(size[id(x)]):.0f} mm: the inside of a gatefold'
+        if not any(x[0] == 'inside' for x in named):
+            for x in open_:
+                if x[0] == 'unknown' and size[id(x)] and max(size[id(x)]) < 520:
+                    x[0], x[2] = 'insert', 'front and back are found and this is another sheet: an insert'
     named = [x[:3] for x in named]
     if fmt == 'cd':                       # één cd-schijf: meer stapels met een cd is geen feit meer
         cds = [x for x in named if x[0] == 'cd']

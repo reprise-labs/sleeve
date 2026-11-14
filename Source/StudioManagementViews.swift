@@ -127,7 +127,7 @@ struct StudioVerdictView:View {
                     Label("Good on the facts"+(item.applied.map{" · your decision: \($0)"} ?? ""),systemImage:"checkmark.seal.fill").font(.caption).foregroundStyle(studioAccent)
                 } else {
                     Label(verdict=="TWIJFEL" ? "In doubt: you decide" : "Not processed",systemImage:"questionmark.diamond.fill").font(.caption.weight(.semibold)).foregroundStyle(.orange)
-                    ForEach(item.why ?? [],id:\.self){Text("• "+$0).font(.caption).foregroundStyle(.secondary)}
+                    ForEach(item.why ?? [],id:\.self){reason in Text("• "+reason).font(.caption).foregroundStyle(.secondary);HelpForReason(reason:reason)}
                     if let message=item.message {Text(message).font(.caption).foregroundStyle(.secondary)}
                     if let choices=item.choices,!choices.isEmpty {
                         HStack {ForEach(choices,id:\.self){choice in Button(choiceLabel(choice)){model.decide(item,choice)}.font(.caption)}}

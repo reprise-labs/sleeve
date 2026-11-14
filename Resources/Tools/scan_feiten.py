@@ -15,7 +15,7 @@ in het beeld ligt. Per zijde (of rondom, bij de plaat) wordt gemeten welk deel v
 de omtrek echt op een zichtbare rand ligt. Overal duidelijk zichtbaar: GOED.
 Ergens niet: TWIJFEL, met een voorstel; de gebruiker beslist.
 """
-import argparse, json, math, sys
+import argparse, json, math, os, sys
 import numpy as np, cv2
 
 # Feiten per formaat en onderdeel: rechthoek (breedte, hoogte in mm, elk (min, max); de
@@ -71,6 +71,8 @@ ANALYSIS_DPI = 300.0              # rekenen op deze resolutie; het eindbeeld kom
 SCAN_EDGE_MM = 0.6               # feit: de schaduw van de scannerrand is minstens ±0,5 mm breed; daarbinnen is een rand geen bewijs
 SCAN_EDGE_MAX_MM = 2.5           # ... en op een gekleurd vel gemeten tot ±2 mm (helderheid 138 -> 191); per scanrand gemeten, zie shading_widths
 RIM_CUT_MM = 0.25                # net binnen de binnenkant van de afgeronde rand snijden
+FLAT_START = os.environ.get('SLEEVE_FLAT_START', '1') != '0'   # snijden waar de kleur van het vlakke vinyl begint (0.5.32)
+FLAT_DE = 3.0                    # ... binnen zoveel ΔE van het vlakke vinyl telt als vlak
 EDGE_FLOOR = 3.0                 # kleinste sprong (Sobel) die een rand kan zijn; wit op wit is zwak, dus laag
 ROUND_MM = 0.75                  # een plaat is rond: geen richting wijkt meer af dan dit
 SQUARE_MM = 1.5                  # een hoes is vierkant: breedte en hoogte verschillen hooguit zoveel
@@ -412,6 +414,54 @@ def rim_end(bgr, alpha, X, Y, r_outer, px_mm, n=144, reach_mm=5.0, flat_de=2.0):
     return 0.0 if not tinted.any() else float(ds[np.nonzero(tinted)[0].max()] + 0.125)
 
 
+def soft_disc(n, r):
+    """Een echte cirkel (straal r px, midden n/2) met een zachte rand van één pixel. cv2.circle tekent een
+    grote cirkel als 72-hoek: tot 0,14 mm buiten de cirkel bij een lp (zichtbaar als knikjes, 14 nov)."""
+    out = np.empty((n, n), np.uint8); xx = (np.arange(n, dtype=np.float32) - n / 2) ** 2
+    for y0 in range(0, n, 1024):
+        yy = (np.arange(y0, min(n, y0 + 1024), dtype=np.float32) - n / 2) ** 2
+        d = np.sqrt(yy[:, None] + xx[None, :])
+        out[y0:y0 + len(yy)] = (np.clip(r - d + 0.5, 0, 1) * 255 + .5).astype(np.uint8)
+    return out
+
+
+def flat_start(bgr, alpha, X, Y, r_outer, px_mm, n=144, reach_mm=5.0, max_mm=2.5, sectors=24):
+    """Feit: het vlakke vinyl heeft dezelfde kleur als de plaat 3 tot 5 mm binnen de rand. De afgeronde
+    rand wijkt daarvan af (schaduw, glans, doorschijnende achtergrond) en loopt geleidelijk over in het
+    vlakke deel. Per stuk van de omtrek (sectors) het begin van het vlakke deel: de eerste ring vanaf
+    binnen die meer dan FLAT_DE afwijkt. Het licht van de scanner valt van één kant, zodat de rand op
+    de schaduwkant breder lijkt; daarom telt de mediaan over de stukken, niet de breedste kant (TA en
+    blauw vinyl werden anders 2 tot 3 mm te klein; HNY kant B: verloop tot ±1,9 mm, rondom gelijk).
+    Geeft de afstand in mm vanaf de buitenrand, of None als het niet rondom te meten is."""
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32); lab[:, :, 0] *= 100 / 255
+    H, W = alpha.shape; ang = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    ds = np.arange(-2.0, reach_mm + 1e-6, 0.125)          # negatief: buiten de plaat (de klep of het vel)
+    V = np.full((len(ds), n, 3), np.nan, np.float32)
+    for i, d in enumerate(ds):
+        r = r_outer - d * px_mm
+        xs = np.round(X + r * np.cos(ang)).astype(int); ys = np.round(Y + r * np.sin(ang)).astype(int)
+        ok = (xs >= 0) & (ys >= 0) & (xs < W) & (ys < H); ok[ok] = alpha[ys[ok], xs[ok]]
+        V[i, ok] = lab[ys[ok], xs[ok]]
+    flat = ds >= 3.0; rim = (ds >= 0) & (ds < 3.0); outside = (ds <= -1.0); found = []
+    for sec in np.array_split(np.arange(n), sectors):
+        S = V[:, sec]
+        if np.isnan(S[ds >= 0]).any(axis=2).mean() > .2 or np.isnan(S[outside]).all():
+            continue                                        # dit stuk is niet (helemaal) gescand
+        P = np.nanmedian(S, 1); plateau = np.median(P[flat], 0)
+        D = P - plateau; dev = np.linalg.norm(D, axis=1)
+        # Alleen schaduw telt als rand: duidelijk donkerder dan het vlakke vinyl. Lichter is doorschijnen (de
+        # klep door dik gekleurd vinyl) of glans; dat is echte plaat (blauw vinyl werd anders 1,5 mm in egaal
+        # vinyl gesneden) en daar blijft de eerste sprong de snede.
+        away = D[:, 0] < -.5 * dev
+        tol = max(FLAT_DE, 3 * float(np.percentile(dev[flat], 90)))
+        out = np.nonzero(rim & (dev > tol) & away)[0]
+        found.append(float(ds[out.max()] + 0.125) if len(out) else 0.0)
+    if len(found) < sectors // 2:
+        return None
+    d = float(np.median(found))
+    return d if d <= max_mm else None
+
+
 def find_hole(img, r, reach):
     """Het middengat: de cirkel met de straal van het gat (feit) binnen 'reach' van
     het midden van de plaat waarvan de omtrek het best op een rand ligt.
@@ -718,8 +768,13 @@ def main():
             else:
                 rr -= DISC_EDGE_MM * px_mm
             if not fmt.startswith('cd'):
-                # de rand loopt soms verder door dan de eerste sprong (kleur van de achtergrond in de rand)
+                # de rand loopt soms verder door dan de eerste sprong: kleur van de achtergrond in de rand,
+                # of een geleidelijk verloop van schaduw of glans naar het vlakke vinyl
                 flat = rim_end(bgr, alpha, X, Y, r_outer, px_mm)
+                if FLAT_START:
+                    f2 = flat_start(bgr, alpha, X, Y, r_outer, px_mm)
+                    if f2 is not None and (flat is None or f2 > flat):
+                        flat = f2
                 if flat is not None and flat <= 2.5 and r_outer - (flat + 0.1) * px_mm < rr:
                     rr = r_outer - (flat + 0.1) * px_mm
                     result['rim_mm'] = round(flat, 2)
@@ -742,7 +797,7 @@ def main():
             src = np.dstack([bgr, alpha.astype(np.uint8) * 255])
             sx0, sy0 = max(0, x0f), max(0, y0f); sx1, sy1 = min(src.shape[1], x0f + n), min(src.shape[0], y0f + n)
             crop[sy0 - y0f:sy1 - y0f, sx0 - x0f:sx1 - x0f] = src[sy0:sy1, sx0:sx1]
-            ring = np.zeros((n, n), np.uint8); cv2.circle(ring, (n * 8, n * 8), int(round(rr * 16)), 255, -1, cv2.LINE_AA, 4)   # zachte rand van één pixel
+            ring = soft_disc(n, rr)   # zachte rand van één pixel
             crop[:, :, 3] = np.minimum(crop[:, :, 3], ring)
             inside = ring > 0
             cov = np.ones_like(inside); cov[inside] = crop[:, :, 3][inside] > 0
@@ -797,7 +852,7 @@ def main():
                 src = np.dstack([full_bgr, full_alpha.astype(np.uint8) * 255])
                 sx0, sy0 = max(0, x0g), max(0, y0g); sx1, sy1 = min(src.shape[1], x0g + n2), min(src.shape[0], y0g + n2)
                 big[sy0 - y0g:sy1 - y0g, sx0 - x0g:sx1 - x0g] = src[sy0:sy1, sx0:sx1]
-                ring2 = np.zeros((n2, n2), np.uint8); cv2.circle(ring2, (n2 * 8, n2 * 8), int(round(rf * 16)), 255, -1, cv2.LINE_AA, 4)
+                ring2 = soft_disc(n2, rf)
                 big[:, :, 3] = np.minimum(big[:, :, 3], ring2)
                 # zelfde gat, opgeschaald naar de volle resolutie (zachte rand)
                 Mh = np.float32([[F, 0, x0f * F - x0g], [0, F, y0f * F - y0g]])
