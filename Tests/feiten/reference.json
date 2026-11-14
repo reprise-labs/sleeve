@@ -43808,6 +43808,79 @@
     "version": "0.5.29",
     "date": "2026-11-14"
    }
+  },
+  {
+   "name": "queen_paars",
+   "folder": "vinyl/queen_new_scan",
+   "discogs": "https://www.discogs.com/release/27552009",
+   "format": "vinyl",
+   "packaging": "auto",
+   "tier": "groot",
+   "slots": [
+    {
+     "part": "front",
+     "files": [
+      "2021_queen_for_a_day_white_vinyl_20261114_0001.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0002.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0003.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0004.tif"
+     ]
+    },
+    {
+     "part": "back",
+     "files": [
+      "2021_queen_for_a_day_white_vinyl_20261114_0005.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0006.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0007.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0008.tif"
+     ]
+    },
+    {
+     "part": "insert",
+     "files": [
+      "2021_queen_for_a_day_white_vinyl_20261114_0009.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0010.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0011.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0012.tif"
+     ]
+    },
+    {
+     "part": "insert",
+     "files": [
+      "2021_queen_for_a_day_white_vinyl_20261114_0013.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0014.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0015.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0016.tif"
+     ]
+    },
+    {
+     "part": "sticker",
+     "files": [
+      "2021_queen_for_a_day_white_vinyl_20261114_0017.tif"
+     ]
+    },
+    {
+     "part": "sidea",
+     "files": [
+      "2021_queen_for_a_day_white_vinyl_sidea_label_20261114_0018.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0019.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0020.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0021.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0022.tif"
+     ]
+    },
+    {
+     "part": "sideb",
+     "files": [
+      "2021_queen_for_a_day_white_vinyl_20261114_0023.tif",
+      "2021_queen_for_a_day_white_vinyl_sideb_label_20261114_0023.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0024.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0025.tif",
+      "2021_queen_for_a_day_white_vinyl_20261114_0026.tif"
+     ]
+    }
+   ],
+   "approved": false
   }
  ]
 }
