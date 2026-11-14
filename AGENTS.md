@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.39 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.40 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -149,6 +149,8 @@ Extra feiten:
 - Route: `scan_background` (rand van de scan wit+kleurloos = klep, anders vel); ≥2 van elk bij een plaatkant → vel-scans apart samenvoegen, `scan_feiten` geeft `cut_circle_px`, `map_circle` (SIFT op 1/4, gelijkvormig, schaal 1) legt hem op de klep-versie, `scan_feiten --cut-circle`. Getest: US blauw optie A (map vinyl/us_blauw_optieA): 297,3 mm, randstreep weg.
 - Indelen: vel-scans bij de stapel van hun klep-scan (`background` in scan_vakken).
 - Labelscan (label midden op het glas) als extra scan in het vak: label 10× scherper (sharpest wins). Oorzaak wazig label: in kwartscans ligt het label tegen de glasrand en niet plat.
+
+- Indelen (0.5.40): barcode wint van hoesfoto in één stapel; zwakke overlap mag bij een onvolledige stapel als die daardoor ≥ 305 mm wordt (`complete`). US wit herscan (us_new_white_back3, 18 scans) goed ingedeeld.
 
 ## Open
 - ~~Verkeerd gevouwen hoes melden~~: opgelost sinds 0.5.29 (smalle randen per stuk van een zijde bijsnijden); André 14 nov: "De back is perfect".

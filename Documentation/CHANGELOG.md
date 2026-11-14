@@ -1,3 +1,10 @@
+# 0.5.40 — Arranging: barcode beats a cover look-alike; a sleeve turned half-way stays one stack
+
+- **A barcode outweighs a cover photo.** A back can show the cover small; when one scan of a stack has the release barcode and another looks like the Discogs cover, the stack is the back (it was "conflicting facts").
+- **A sleeve turned half a turn between its scans stays one stack.** The two halves share little print, which looked like "the cover printed again on an insert". A weak but real overlap now joins a stack that is not yet a whole sleeve, if the stack thereby becomes one (at least 305 mm both ways). Two 29 cm booklet pages never become a sleeve together, so they stay apart.
+- Urban Solitude white, rescanned on 14 November (18 scans): all in the right slot by themselves, label scans with the right side. Reference arrange test unchanged.
+- Found while comparing: a light yellow sheet is too light for white vinyl and a cream sleeve (thin rim line on the record; a strip of background on the front). Use purple or dark for those.
+
 # 0.5.39 — Help: which sheet behind which part
 
 - **Help has a table "Which sheet behind the part"**: black vinyl and dark sleeves on the white lid; white or light vinyl, sleeves, cards and inserts on a purple or dark sheet (not light yellow); translucent blue/green with an orange or yellow sheet, magenta/red with green, yellow with blue or purple, clear with matt black (all option A); the label in the middle of the glass on the white lid; a sticker on its own plastic sleeve. Plain, matt, no print.

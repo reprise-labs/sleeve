@@ -278,6 +278,16 @@ def background(sm):
     return 'lid' if white.mean() > .25 else 'sheet'
 
 
+def complete(g, feats):
+    """Bedekt deze stapel al een hele hoes (minstens 305 mm in beide richtingen)? Zo niet, dan mag een zwakke maar
+    echte overlap erbij: een hoes die halverwege een halve slag is gedraaid, deelt weinig drukwerk tussen de twee
+    helften (US wit voorkant: 39 punten tegen 151 binnen een helft) - maar alleen als de stapel daardoor een hele
+    hoes wordt. Een insert met de hoes erop komt na een complete hoes-stapel en blijft apart; twee boekjespagina's
+    van 29 cm worden samen geen hoes en blijven ook apart (US groen)."""
+    e = extent_mm(g, feats) if len(g) > 1 else None
+    return e is not None and min(e) >= 305
+
+
 def stacks(scans, feats, discs):
     """Deelscans in bestandsvolgorde tot stapels: zie de feiten bovenaan."""
     order = sorted(scans, key=number_key)
@@ -289,7 +299,7 @@ def stacks(scans, feats, discs):
         new = (best < MIN_LINK
                or discs.get(s) != discs.get(g[0])
                or any(v[0] >= MIN_LINK and v[1] < SAME_PLACE_MM and v[2] < SAME_PLACE_DEG for v in links.values())
-               or (strengths[-1] and best < WEAK * statistics.median(strengths[-1])))
+               or (strengths[-1] and best < WEAK * statistics.median(strengths[-1]) and (complete(g, feats) or not complete(g + [s], feats))))
         if new:
             groups.append([s]); strengths.append([])
         else:
@@ -381,12 +391,15 @@ def main():
     named = []
     for g in groups:
         parts = {facts[s][0] for s in g if s in facts}
+        if 'back' in parts and 'front' in parts:
+            # Feit: een barcode staat alleen op de achterkant; een achterkant kan wel de hoes klein afbeelden
+            parts = {'back'}
         part, reason, score = 'unknown', 'no fact for this part yet: choose it', 0
         if fmt != 'cd' and g and statistics.median(rims.get(s, 0.0) for s in g) >= RECORD_RIM:
             # de rand van een plaat weegt zwaarder dan een Discogs-foto: een label toont vaak de hoes
             part, reason = 'side', 'the rim of a 30 cm record is on these scans'
         elif len(parts) == 1:
-            part = parts.pop(); src = next(s for s in g if s in facts); reason = facts[src][1] + f' ({os.path.basename(src)})'
+            part = parts.pop(); src = next(s for s in g if s in facts and facts[s][0] == part); reason = facts[src][1] + f' ({os.path.basename(src)})'
             score = best_photo(g)[1]
         elif len(parts) > 1:
             reason = 'conflicting facts: ' + ', '.join(sorted(parts))
