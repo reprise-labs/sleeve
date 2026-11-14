@@ -54,10 +54,10 @@ extension StudioModel {
         launch(action:"manualCrop",rowsOverride:[MediaItem(url:source,part:part)],extra:["sourceSignature":signature,"cropX":x,"cropY":y,"cropDiameter":diameter,"cropPart":part])
         if !busy && editingSession != nil {finishEditing(success:false);lastEditingWasRetry=false}
     }
-    func retryPart(target:MediaItem,sources:[MediaItem],settings:WorkspaceSnapshot) {
+    func retryPart(target:MediaItem,sources:[MediaItem],settings:WorkspaceSnapshot,seamLevel:Bool=false) {
         guard !sources.isEmpty,prepareEditing(target,retry:true) else{return}
         let rows=sources.map{MediaItem(url:$0.url,part:target.part)}
-        launch(action:"scan",rowsOverride:rows,extra:["rerunPart":target.part,"discogs":settings.discogs,"variant":settings.variant,"useNames":settings.useNames,"useStand":settings.useStand,"useColour":settings.useColour])
+        launch(action:"scan",rowsOverride:rows,extra:["rerunPart":target.part,"discogs":settings.discogs,"variant":settings.variant,"useNames":settings.useNames,"useStand":settings.useStand,"useColour":settings.useColour,"seamLevel":seamLevel])
         if !busy && editingSession != nil {finishEditing(success:false);lastEditingWasRetry=false}
     }
     @discardableResult func finishEditing(success:Bool)->Bool {

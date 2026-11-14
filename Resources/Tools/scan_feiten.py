@@ -414,6 +414,36 @@ def rim_end(bgr, alpha, X, Y, r_outer, px_mm, n=144, reach_mm=5.0, flat_de=2.0):
     return 0.0 if not tinted.any() else float(ds[np.nonzero(tinted)[0].max()] + 0.125)
 
 
+def swap_pixels(path, shape_full, crop, shape, result, disc, rect):
+    """Optie naad-gelijktrekken: de randen zijn op het gewone beeld gevonden; dezelfde uitsnede (zelfde venster,
+    hoek en bijsnijding) uit het gelijkgetrokken beeld van precies hetzelfde canvas. Alleen de kleur/toon
+    verandert, de vorm en de maat niet."""
+    other, _ = load(path)
+    if other.shape != tuple(shape_full[:2]) + (3,):
+        result.setdefault('notes', []).append('seam levelling skipped: the levelled image is not the same canvas')
+        return crop
+    if shape == 'disc':
+        x0, y0, n = disc
+        if x0 is None or n is None:
+            return crop
+        win = np.zeros((n, n, 3), np.uint8)
+        sx0, sy0 = max(0, x0), max(0, y0); sx1, sy1 = min(other.shape[1], x0 + n), min(other.shape[0], y0 + n)
+        win[sy0 - y0:sy1 - y0, sx0 - x0:sx1 - x0] = other[sy0:sy1, sx0:sx1]
+        out = crop.copy(); out[:, :, :3] = win[:crop.shape[0], :crop.shape[1]]
+    else:
+        ang, T, B, L, R, tr = rect
+        Hf, Wf = other.shape[:2]
+        big = cv2.warpAffine(other, cv2.getRotationMatrix2D((Wf / 2, Hf / 2), ang, 1.0), (Wf, Hf), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        out = big[int(round(T)) + tr[0]:int(round(B)) - tr[2], int(round(L)) + tr[3]:int(round(R)) - tr[1]]
+        if out.shape[:2] != crop.shape[:2]:
+            result.setdefault('notes', []).append('seam levelling skipped: the cut did not line up')
+            return crop
+        if crop.ndim == 3 and crop.shape[2] == 4:
+            out = np.dstack([out, crop[:, :, 3]])
+    result['seam_levelled'] = True
+    return out
+
+
 def soft_disc(n, r):
     """Een echte cirkel (straal r px, midden n/2) met een zachte rand van één pixel. cv2.circle tekent een
     grote cirkel als 72-hoek: tot 0,14 mm buiten de cirkel bij een lp (zichtbaar als knikjes, 14 nov)."""
@@ -679,6 +709,7 @@ def main():
     p.add_argument('--format', choices=sorted(SHAPES), default=None, help='vinyl or cd (default: cd for cd parts, else vinyl)')
     p.add_argument('--overlay', help='write a preview with the found shape')
     p.add_argument('--out', help='write the crop at full resolution')
+    p.add_argument('--pixels', help='same canvas, other tones (seam levelling): edges are found on IMAGE, the pixels come from here')
     a = p.parse_args()
     meta = json.load(open(a.image + '.scans.json'))
     dpi = meta['dpi']
@@ -987,6 +1018,10 @@ def main():
             if any(trimmed):
                 result['edge_lines_trimmed_px'] = trimmed
                 print('edge lines trimmed (top, right, bottom, left px):', trimmed)
+        if a.pixels:
+            crop = swap_pixels(a.pixels, full_bgr.shape, crop, shape, result,
+                               disc=(locals().get('x0g'), locals().get('y0g'), locals().get('n2')) if F > 1.0 else (locals().get('x0f'), locals().get('y0f'), locals().get('n')),
+                               rect=None if shape == 'disc' else (ang, T * F, B * F, L * F, Rr * F, locals().get('trimmed', (0, 0, 0, 0)) if shape != 'disc' else None))
         cv2.imwrite(a.out, crop)
         result['dpi'] = round(dpi * F, 2)
         json.dump(result, open(a.out + '.feiten.json', 'w'), indent=1)

@@ -222,6 +222,7 @@ def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0,
  if fmt:cmd+=['--format',fmt]
  if release_dpi:cmd+=['--release-dpi',str(release_dpi)]
  if target:cmd+=['--target',str(target)]
+ if req.get('seamLevel'):cmd+=['--seam-level']
  work.mkdir(parents=True,exist_ok=True)
  process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
  OCR_CHILDREN.add(process)

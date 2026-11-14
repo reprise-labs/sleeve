@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.32 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.33 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -135,6 +135,9 @@ Extra feiten:
 - `soft_disc`: masker als echte cirkel; cv2.circle tekent een grote cirkel als 72-hoek (tot 0,13 mm naar binnen).
 - Indelen: met front én back gevonden wordt een ander vel insert (scans bedekken < 520 mm) of inside (> 580 mm, `extent_mm`); geen insert-namen als er een inside is. Cd-back/inlay: geen feit (beide ±150 x 118).
 - `Source/StudioHelp.swift`: hulpvenster + `helpTopic(for:)` (melding → onderwerp; alle 17 meldingsvormen getest). Nieuwe melding in de route? Voeg een onderwerp en een regel toe.
+
+## 14 nov (0.5.33): naad-gelijktrekken als optie
+- Reprocess Part… → vinkje → bridge `seamLevel` → route `--seam-level`: tweede stitch met `SLEEVE_SEAM_LEVEL=1` naar `*_raw_level.png`; alleen als `scans.json` (hoeken) gelijk is aan de gewone run. `scan_feiten.py --pixels`: randen op het gewone beeld, pixels uit het gelijkgetrokken beeld (`swap_pixels`: zelfde venster/hoek/bijsnijding).
 
 ## Open
 - **Sticker uitsnijden (zijproject, André vergeet het steeds):** vak `sticker` bestaat in de bridge, maar `scan_feiten.py` heeft er geen vorm/maat voor.

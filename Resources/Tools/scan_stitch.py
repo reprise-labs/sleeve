@@ -452,6 +452,8 @@ GLASS_MAX = 0.15       # hooguit 15% correctie door het lichtpatroon
 
 GLASS_FOR_RECORDS = False   # nog uit: eerst de naden en groeven (André, 12 nov); doorschijnend vinyl apart bekijken
 SEAM_LEVEL = False   # uit: verschoof de toon langs de scanranden en daarmee de gevonden hoesrand (Queen-insert,
+if os.environ.get('SLEEVE_SEAM_LEVEL') == '1':
+    SEAM_LEVEL = True  # optie 'Level tone across the seams' (0.5.33): alleen voor de pixels, de randen komen uit een gewone run
                      # Deena front 1-1,4 mm in de vaste toets, 13 nov); op de backs maakte het nauwelijks verschil
 GLASS_FILE = '.sleeve-glas.json'   # het gemeten lichtpatroon, bij de scans bewaard (zelfde scanner, zelfde sessie)
 

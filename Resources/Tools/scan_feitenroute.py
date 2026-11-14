@@ -324,11 +324,19 @@ def side_letter(text):
     return None
 
 
+def facts_levelled(crop):
+    try:
+        return bool(json.load(open(crop + '.feiten.json')).get('seam_levelled'))
+    except (OSError, ValueError):
+        return False
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('scans', nargs='+'); p.add_argument('--part', required=True)
     p.add_argument('--discogs', default=''); p.add_argument('--out', required=True); p.add_argument('--work', required=True)
     p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default=''); p.add_argument('--release-dpi', type=float, default=0.0); p.add_argument('--year', default='')
+    p.add_argument('--seam-level', action='store_true')       # optie: toon langs de naden gelijktrekken (randen uit de gewone run)
     p.add_argument('--target', default='')                 # beslissing: precies dit bestand vervangen (niet een ander onderdeel met dezelfde naam)
     a = p.parse_args()
     folder = os.path.dirname(os.path.abspath(a.scans[0]))
@@ -348,8 +356,9 @@ def main():
     result_fmt = fmt
     os.makedirs(a.work, exist_ok=True)
     raw = os.path.join(a.work, f'{a.part}_raw.png'); crop = os.path.join(a.work, f'{a.part}_crop.png')
+    level_raw = os.path.join(a.work, f'{a.part}_raw_level.png'); levelled = False
     up = os.path.join(a.work, f'{a.part}_up.png')
-    for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):   # nooit een oud tussenbestand gebruiken
+    for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', crop, crop + '.feiten.json', up):   # nooit een oud tussenbestand gebruiken
         if os.path.exists(f):
             os.remove(f)
     result = {'part': a.part, 'scans': a.scans, 'verdict': 'GOED', 'why': [fmt_note] if fmt_note else [], 'choices': [], 'decision': decision}
@@ -405,6 +414,21 @@ def main():
         step(f'merging {len(scans_in)} scans')
         is_disc = SF.SHAPES.get(fmt, SF.SHAPES['vinyl']).get(feit_part, ('rect',))[0] == 'disc'
         st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'] + (['--plaat-onderdeel'] if is_disc else []), capture_output=True, text=True)
+        if a.seam_level and st.returncode == 0:
+            # Optie: nog een keer samenvoegen met de toon langs de naden gelijkgetrokken. De randen worden op de
+            # gewone versie gezocht (gelijktrekken verschoof eerder de gevonden rand: Queen-insert 1,2 mm); alleen
+            # de pixels komen uit deze versie, als die precies op hetzelfde canvas ligt.
+            step('merging again with the tone levelled across the seams')
+            lv = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), level_raw] + scans_in + ['--vorm', 'ruw'] + (['--plaat-onderdeel'] if is_disc else []),
+                                capture_output=True, text=True, env=dict(os.environ, SLEEVE_SEAM_LEVEL='1'))
+            try:
+                same = lv.returncode == 0 and json.load(open(raw + '.scans.json'))['scans'] == json.load(open(level_raw + '.scans.json'))['scans']
+            except (OSError, ValueError, KeyError):
+                same = False
+            if same:
+                levelled = True
+            else:
+                result['why'].append('the tone could not be levelled across the seams (the second merge did not line up exactly); made without it')
         for q in scans_in:
             if q not in a.scans and os.path.exists(q):
                 os.remove(q)
@@ -425,7 +449,9 @@ def main():
         print(json.dumps(result)); return
     if not already:
         step('finding the edges and cutting out')
-    fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', fmt, '--out', crop], capture_output=True, text=True) if not already else subprocess.CompletedProcess([], 0, '', '')
+    fe = subprocess.run([PY, os.path.join(HERE, 'scan_feiten.py'), raw, feit_part, '--format', fmt, '--out', crop] + (['--pixels', level_raw] if levelled else []), capture_output=True, text=True) if not already else subprocess.CompletedProcess([], 0, '', '')
+    if levelled and facts_levelled(crop):
+        result['applied'] = (result.get('applied', '') + ' tone levelled across the seams').strip()
     try:
         facts = json.load(open(crop + '.feiten.json'))
     except (OSError, ValueError):
@@ -669,7 +695,7 @@ def main():
         if result.get('why_note'):
             result['applied'] = (result.get('applied', '') + ' ' + result['why_note']).strip()
         result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
-        for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):
+        for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', crop, crop + '.feiten.json', up):
             if os.path.exists(f):
                 os.remove(f)
         print(json.dumps(result, ensure_ascii=False)); return
@@ -701,7 +727,7 @@ def main():
     if result.get('why_note'):
         result['applied'] = (result.get('applied', '') + ' ' + result['why_note']).strip()
     result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)]
-    for f in (raw, raw + '.scans.json', crop, crop + '.feiten.json', up):   # tussenbestanden opruimen (1200 dpi: ±1,5 GB)
+    for f in (raw, raw + '.scans.json', level_raw, level_raw + '.scans.json', crop, crop + '.feiten.json', up):   # tussenbestanden opruimen (1200 dpi: ±1,5 GB)
         if os.path.exists(f):
             os.remove(f)
     print(json.dumps(result, ensure_ascii=False))
