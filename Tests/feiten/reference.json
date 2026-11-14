@@ -1833,15 +1833,15 @@
      ]
     }
    ],
-   "approved": false,
+   "approved": true,
    "recorded": {
     "version": "0.5.29",
     "date": "2026-11-14"
    },
    "approval": {
     "by": "André",
-    "date": "2026-11-12",
-    "seen": "keuring 0.5.27 (beelden gelijk aan 0.5.26)"
+    "date": "2026-11-14",
+    "seen": "0.5.29: witte-klep-randen eraf (0,5-1,6 mm), rand voor rand vergeleken"
    }
   },
   {
@@ -7294,15 +7294,15 @@
      ]
     }
    ],
-   "approved": false,
+   "approved": true,
    "recorded": {
     "version": "0.5.29",
     "date": "2026-11-14"
    },
    "approval": {
     "by": "André",
-    "date": "2026-11-12",
-    "seen": "keuring 0.5.27 (beelden gelijk aan 0.5.26)",
+    "date": "2026-11-14",
+    "seen": "0.5.29: witte-klep-randen eraf (0,5-1,6 mm), rand voor rand vergeleken",
     "note": "alles goed behalve de back"
    }
   },
@@ -18874,15 +18874,15 @@
      ]
     }
    ],
-   "approved": false,
+   "approved": true,
    "recorded": {
     "version": "0.5.29",
     "date": "2026-11-14"
    },
    "approval": {
     "by": "André",
-    "date": "2026-11-12",
-    "seen": "keuring 0.5.27 (beelden gelijk aan 0.5.26)"
+    "date": "2026-11-14",
+    "seen": "0.5.29: witte-klep-randen eraf (0,5-1,6 mm), rand voor rand vergeleken"
    }
   },
   {
@@ -21316,15 +21316,15 @@
      ]
     }
    ],
-   "approved": false,
+   "approved": true,
    "recorded": {
     "version": "0.5.29",
     "date": "2026-11-14"
    },
    "approval": {
     "by": "André",
-    "date": "2026-11-12",
-    "seen": "keuring 0.5.27 (beelden gelijk aan 0.5.26)"
+    "date": "2026-11-14",
+    "seen": "0.5.29: witte-klep-randen eraf (0,5-1,6 mm), rand voor rand vergeleken"
    }
   },
   {
@@ -29225,10 +29225,15 @@
      ]
     }
    ],
-   "approved": false,
+   "approved": true,
    "recorded": {
     "version": "0.5.29",
     "date": "2026-11-14"
+   },
+   "approval": {
+    "by": "André",
+    "date": "2026-11-14",
+    "seen": "0.5.29: witte-klep-randen eraf (0,5-1,6 mm), rand voor rand vergeleken"
    }
   },
   {
