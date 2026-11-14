@@ -171,6 +171,8 @@ final class PipeReader: @unchecked Sendable {
     @Published var emptySlots: [ScanSlot] = []
     @Published var suggesting = false
     @Published var suggestStatus = ""
+    /// Waarom Sleeve een stapel zo noemde (of geen naam gaf), per vak.
+    @Published var slotNotes: [String:String] = [:]
     var suggestProcess:Process?
     var showQueue: Bool {get{panel == .queue} set{if newValue{panel = .queue}else if panel == .queue{panel=nil}}}
     var showReview: Bool {get{panel == .review} set{if newValue{panel = .review}else if panel == .review{panel=nil}}}
@@ -231,7 +233,7 @@ final class PipeReader: @unchecked Sendable {
         cancelReleaseAdvice(clear:true)
         saveExistingProject();restoringProject=true;defer{restoringProject=false}
         panel=nil;projectID=UUID();projectURL=nil;editionTitle="";runs=[];reviews=[:];projectSaveText="Not saved yet"
-        errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];emptySlots=[];suggestStatus="";selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Ready for a new release";lastJobFolder=nil
+        errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];emptySlots=[];suggestStatus="";slotNotes=[:];selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Ready for a new release";lastJobFolder=nil
         releaseInfo=nil;releaseYear="";packaging="auto";releaseConfirmed=false;releaseStatus="";mediaFormat="auto"
         mode = .scans   // een nieuwe release begint altijd bij Process Scans (bleef in Adjust Color hangen)
     }

@@ -1,3 +1,13 @@
+# 0.5.31 — Arrange Scans sorts the scans itself
+
+Arranging meant dragging every partial scan into its slot (16 to 30 drags per release). Sleeve now does the sorting; you check it.
+
+- **Stacks first.** Partial scans of one part share print, so Sleeve matches them on small copies (2 px/mm, scale 1: same scanner, same dpi) and walks them in file order, the way you scan (front, back, side A, side B …). A new part starts where a scan has no overlap with the stack so far, where it lies at the same place on the glass as a scan already in the stack (side B after side A, two identical inserts), or where it matches much more weakly than the stack does (the cover printed again on an insert). File order sorts like the Finder: `00.jpeg` before `00 1.jpeg`.
+- **Then names, only on facts:** the barcode makes the whole stack the back (and the stack that matches the same Discogs photo is the back scanned again); the Discogs cover photos make the front; the continuous rim of a 30 cm record makes a side; a 120 mm disc makes the CD. Sides get A, B, C, D in scan order; after processing, Sleeve reads the letter on the label and doubts if it differs.
+- **No name when it is not certain.** If more than one stack looks like the cover (an insert with the cover on it), none is called front. A stack without a name gets a slot that says "choose the part" with the reason; one click instead of four drags.
+- **Move a whole slot** to another slot with one menu, for a part that came in two stacks.
+- Measured on the 17 releases of the reference test (`Tests/feiten/indeling.py`, a few minutes, nothing processed): no scan in a wrong slot; 6 releases completely right; in the others the stacks are right but inserts, an inside and CD backs without a barcode on Discogs have no name; Deena's inside comes in two stacks.
+
 # 0.5.30 — Five bugs fixed: decisions, rotating, remembered choices, a rare merge crash, record colour
 
 Found in a bug hunt through the facts route (14 November); each one reproduced first, then fixed and checked.

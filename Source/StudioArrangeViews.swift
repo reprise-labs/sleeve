@@ -11,7 +11,7 @@ struct StudioArrangeView: View {
             HStack(alignment:.top) {
                 VStack(alignment:.leading,spacing:4) {
                     Text("Arrange Scans").font(.system(size:20,weight:.semibold,design:.serif))
-                    Text("Drag each scan into the slot it belongs to. Sleeve follows this exactly and doesn’t guess.").font(.caption).foregroundStyle(.secondary)
+                    Text("Sleeve puts the scans of one part together and names a slot only on facts. Check the names, choose a part for an unnamed slot, and drag what is wrong.").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                     .help("Let Sleeve fill the slots for the scans that aren’t in a slot yet")
@@ -79,9 +79,19 @@ private struct SlotCard: View {
                 Menu(partLabel(slot.part)) {
                     ForEach(slotParts,id:\.self){part in Button(partLabel(part)){model.setSlotPart(slot.id,part)}}
                 }.frame(width:150)
-                Text(slot.part.hasPrefix("side") || slot.part.hasPrefix("cd") ? "record" : slot.part=="unknown" ? "Sleeve decides" : "cover").font(.caption2).foregroundStyle(.secondary)
+                Text(slot.part.hasPrefix("side") || slot.part.hasPrefix("cd") ? "record" : slot.part=="unknown" ? (slot.items.isEmpty ? "" : "choose the part") : "cover").font(.caption2).foregroundStyle(slot.part=="unknown" ? studioAccent : .secondary)
                 Spacer()
+                if !slot.items.isEmpty && model.slots.count>1 {
+                    Menu {
+                        ForEach(model.slots.filter{$0.id != slot.id}) {other in
+                            Button(partLabel(other.part)+(other.items.isEmpty ? " (empty)" : " (\(other.items.count) scans)")){model.moveSlot(slot.id,to:other.id)}
+                        }
+                    } label:{Image(systemName:"arrow.right.square")}.menuStyle(.borderlessButton).fixedSize().help("Move all scans of this slot to another slot")
+                }
                 Button {model.removeSlot(slot.id)} label:{Image(systemName:"trash")}.buttonStyle(.plain).foregroundStyle(.secondary).help("Remove slot (its scans go back to ‘Not in a slot’)")
+            }
+            if let note=model.slotNotes[slot.id],!slot.items.isEmpty {
+                Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal:false,vertical:true)
             }
             if slot.items.isEmpty {
                 Text("Drop scans here").font(.caption).foregroundStyle(.secondary).frame(maxWidth:.infinity,minHeight:86)

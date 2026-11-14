@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.30 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.31 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -124,8 +124,13 @@ Extra feiten:
 - Na een beslissing op een plaatkant: `scan_kleur_kanten.py nieuw ander --first-only` (alleen de nieuwe kant naar de andere). Lege ring of geen alfakanaal: niets aanpassen.
 - Nog open uit de bugjacht: geheugenreservering render bij 1200 dpi (FieldGain niet meegeteld), dubbel rekenwerk bij hoezen in de keuzelus, dode code (`tone_fields`, `seam_level`, `square`).
 
+## 14 nov (0.5.31): automatisch indelen
+- `scan_vakken.py`: eerst stapels (SIFT op 2 px/mm, schaal 1, bestandsvolgorde zoals de Finder; nieuw onderdeel bij geen overlap, zelfde plek < 12 mm / < 20°, of overeenkomst < 0,35 x de mediaan van de stapel), dan namen op feiten (barcode → back, + stapels op dezelfde Discogs-foto; hoesfoto's (primary + foto's die erop lijken) → front, maar niet als meer stapels erop lijken; plaatrand r 147-151 mm doorlopend (mediaan ≥ 0,21) → kant, A/B/C/D op volgorde; cd 120 mm).
+- Gemeten: overlap alleen, overeenkomst van de hele overlap en mate van overlap scheiden kant A/B en herhaalde hoes NIET (label = zelfde ontwerp, insert = afdruk van de hoes). Plek op het glas en sterkte van de overeenkomst wel.
+- Toets: `Tests/feiten/indeling.py` (±8 min). Stand: 0 fout, 6 helemaal goed, rest naamloze stapels (inserts, inside, cd-backs zonder barcode), Deena inside in 2 stapels.
+- Open: inserts/inside/inlay een naam geven (maat? Discogs-foto's?), cd-back (150 mm breed) herkennen.
+
 ## Open
-- **Automatisch indelen (gepland 0.5.31):** scans eerst groeperen op overlap (gedeeld drukwerk), dan elke stapel benoemen op feiten (barcode = back, Discogs-hoesfoto = front, plaat ±30 cm = kant, letter van het label, cd 120 mm). André scant meestal in volgorde front, back, kant A, kant B (±4 deelscans elk): de bestandsvolgorde is een hint ter controle, geen beslissing. Wat niet vaststaat blijft een naamloze stapel die je in één keer in een vak sleept.
 - **Sticker uitsnijden (zijproject, André vergeet het steeds):** vak `sticker` bestaat in de bridge, maar `scan_feiten.py` heeft er geen vorm/maat voor.
 - **Verkeerd gevouwen hoes melden:** Fake back: de voorkant steekt bovenaan 0,4-0,7 mm boven de achterkant uit; Sleeve snijdt op de buitenkant van die strook en zegt GOED. André snijdt dat met de hand bij, maar wil een melding. Kenmerk: een dun wit snijlijntje langs de hele zijde, binnen 1 mm van de snede, met drukwerk erboven dat niet aansluit. Eerst melden (TWIJFEL), pas daarna eventueel zelf snijden; altijd met de vaste toets.
 - **Blauw vinyl kant A:** TWIJFEL, rand op 11 plekken 1,3-1,7 mm naast de cirkel (doorschijnend vinyl op de witte klep).

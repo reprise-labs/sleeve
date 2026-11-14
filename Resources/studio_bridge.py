@@ -700,16 +700,18 @@ def main():
  if action=='suggestGroups':
   # vakken vooraf invullen op feiten (barcode, Discogs-hoesfoto, cd van 120 mm); de rest blijft leeg
   files=[r['path'] for r in req.get('inputs',[]) if not r.get('reference')]
-  if not req.get('discogs') or not files:emit('complete',message='Drag the scans into the slots.');return
-  emit('status',message='Looking for facts: barcode, Discogs cover photo, disc…')
-  cmd=[sys.executable,str(TOOLS/'scan_vakken.py'),release_url(req['discogs']),str(req.get('format') or ''),','.join(req.get('slots') or []),*files]
+  if not files:emit('complete',message='Drag the scans into the slots.');return
+  emit('status',message='Sorting the scans into stacks: overlap, barcode, Discogs cover photo, record rim…')
+  fmt_=str(req.get('format') or '');fmt_=fmt_ if fmt_ in ('cd','vinyl') else ''
+  cmd=[sys.executable,str(TOOLS/'scan_vakken.py'),release_url(req['discogs']) if req.get('discogs') else '',fmt_,','.join(req.get('slots') or []),*files]
   try:out=subprocess.run(cmd,capture_output=True,text=True,timeout=120+45*len(files))
   except subprocess.TimeoutExpired:emit('complete',message='Looking for facts took too long. Drag the scans into the slots.');return
   try:res=json.loads(out.stdout.strip().splitlines()[-1])
   except (ValueError,IndexError):emit('complete',message='No slots filled in. Drag the scans into the slots.');return
-  emit('groups',groups=res.get('groups',[]))
-  done=[f"{g['part']}: {Path(f).name} ({res['why'].get(f,'')})" for g in res.get('groups',[]) for f in g['files']]
-  emit('complete',message=('Filled in on facts: '+'; '.join(done)+'. Check them and drag the rest.') if done else 'No facts found to fill in slots. Drag the scans into the slots.');return
+  groups=res.get('groups',[]);emit('groups',groups=groups)
+  named=sum(g['part']!='unknown' for g in groups);loose=len(files)-sum(len(g['files']) for g in groups)
+  msg=(f"{len(groups)} slots made: {named} named on facts" + (f", {len(groups)-named} to name (choose the part)" if len(groups)>named else '') + (f"; {loose} scans could not be read" if loose>0 else '') + '. Check them before processing.') if groups else 'No stacks made. Drag the scans into the slots.'
+  emit('complete',message=msg);return
  if action=='releaseInfo':
   import scan_release as RI,scan_naam as N
   emit('status',message='Fetching the release from Discogs…')

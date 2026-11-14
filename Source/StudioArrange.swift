@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 
 /// Voorstel van Sleeve voor één vak: deze scans samen, eventueel met de gelezen kant.
-struct SuggestedGroup: Decodable { var files:[String]; var part:String }
+struct SuggestedGroup: Decodable { var files:[String]; var part:String; var why:String? }
 
 /// Een vak in het indelingsscherm: één onderdeel (Front, Side A …) met zijn scans.
 struct ScanSlot: Identifiable, Hashable {
@@ -62,6 +62,7 @@ extension StudioModel {
     }
     func setSlotPart(_ slot:String,_ part:String) {
         guard !busy else{return}
+        slotNotes[slot]=nil
         for i in inputs.indices where inputs[i].group==slot {inputs[i].part=part}
         if let e=emptySlots.firstIndex(where:{$0.id==slot}) {emptySlots[e].part=part}
         proposals=[]
@@ -69,13 +70,21 @@ extension StudioModel {
     func removeSlot(_ slot:String) {
         guard !busy else{return}
         for i in inputs.indices where inputs[i].group==slot {inputs[i].group=nil;inputs[i].part="unknown"}
-        emptySlots.removeAll{$0.id==slot}
+        emptySlots.removeAll{$0.id==slot};slotNotes[slot]=nil
         proposals=[]
     }
     func clearArrangement() {
         guard !busy else{return}
         for i in inputs.indices {inputs[i].group=nil;if !inputs[i].reference {inputs[i].part="unknown"}}
-        emptySlots=[];proposals=[]
+        emptySlots=[];proposals=[];slotNotes=[:]
+    }
+    /// Alle scans van een vak in één keer naar een ander vak (bv. één onderdeel dat in twee stapels kwam).
+    func moveSlot(_ from:String, to:String) {
+        guard !busy,from != to else{return}
+        let part=slotPart(to)
+        for i in inputs.indices where inputs[i].group==from {inputs[i].group=to;inputs[i].part=part}
+        emptySlots.removeAll{$0.id==to||$0.id==from};slotNotes[from]=nil;slotNotes[to]=nil
+        proposals=[]
     }
     /// Voorstel van Sleeve toepassen op scans die nog in geen vak zitten (wat jij al
     /// indeelde, blijft staan).
@@ -89,6 +98,7 @@ extension StudioModel {
             let slot=emptySlots.first(where:{$0.part==part})?.id ?? UUID().uuidString
             for i in free {inputs[i].group=slot;inputs[i].part=part}
             emptySlots.removeAll{$0.id==slot}
+            if let why=group.why,!why.isEmpty {slotNotes[slot]=why}
         }
     }
 
@@ -110,7 +120,7 @@ extension StudioModel {
                 if let groups=event.groups {self.applySuggestion(groups)}
                 if event.event=="complete" || event.event=="error" || event.event=="status" {self.suggestStatus=event.message ?? self.suggestStatus}
             }}
-            suggesting=true;suggestStatus="Filling in slots on facts…";suggestProcess=process
+            suggesting=true;suggestStatus="Sorting the scans into stacks…";suggestProcess=process
             try process.run()
             DispatchQueue.global(qos:.utility).async {[weak self] in
                 while true {let data=pipe.fileHandleForReading.availableData;if data.isEmpty{break};reader.accept(data)}
@@ -119,7 +129,7 @@ extension StudioModel {
                     try? FileManager.default.removeItem(at:cache)
                     guard let self else{return}
                     self.suggesting=false;self.suggestProcess=nil
-                    if process.terminationStatus != 0 && self.suggestStatus=="Filling in slots on facts…" {self.suggestStatus="The suggestion didn’t finish. You can drag the scans into slots yourself."}
+                    if process.terminationStatus != 0 && self.suggestStatus=="Sorting the scans into stacks…" {self.suggestStatus="The suggestion didn’t finish. You can drag the scans into slots yourself."}
                 }
             }
         } catch {suggesting=false;suggestStatus="The suggestion couldn’t be started.";try? FileManager.default.removeItem(at:cache)}
