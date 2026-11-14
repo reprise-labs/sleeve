@@ -1613,6 +1613,11 @@ def main_with_resources(resources,lease=None):
         allowed=None
         if seams is not None:best[:]=np.where(seams<255,seams,best)
         if os.environ.get('STITCH_BEST'):cv2.imwrite(os.environ['STITCH_BEST'],(best.astype(np.float32)*(255/max(1,len(ks)-1))).astype(np.uint8))   # hulpbeeld: welke deelscan per plek
+        if os.environ.get('STITCH_CHOICE_ONLY'):
+            # voortoets (Tests/feiten/snel.py): alleen de keuze welke deelscan waar, op rekenschaal; geen eindbeeld
+            lab_=np.full(best.shape,255,np.uint8)
+            for n_,k_ in enumerate(ks):lab_[(best==n_)&masks[k_]]=k_   # nummer van de scan in de invoer: gelijk tussen versies
+            cv2.imwrite(os.environ['STITCH_CHOICE_ONLY'],lab_);sys.exit(0)
         if not a.geen_kleur:
             progress('Levelling tone across the seams')
             if SEAM_LEVEL and seam_level(img,masks,ks,best,height,width,px_mm,log=lambda t:print(t,flush=True)):

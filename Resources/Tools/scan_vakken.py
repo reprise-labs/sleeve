@@ -211,6 +211,37 @@ def record_rim(im):
     return best
 
 
+def card_size(scan, work):
+    """Maat (mm) van het kaartje op één cd-scan, gemeten zoals bij het uitsnijden (scan_feiten, als achterkaart
+    van een jewelcase: 136-154 x 114-120 mm). Geeft (breedte, hoogte) of None als zo'n kaart er niet in ligt."""
+    import shutil as _sh
+    d = tempfile.mkdtemp(dir=work); src = os.path.join(d, 'scan' + os.path.splitext(scan)[1])
+    try:
+        os.symlink(os.path.abspath(scan), src)
+        dpi = scan_dpi.read(scan)
+        if not dpi:
+            return None
+        from PIL import Image
+        Image.MAX_IMAGE_PIXELS = None
+        with Image.open(scan) as im:
+            w, h = im.size
+            im.convert('RGBA').save(os.path.join(d, 'raw.png'))
+        json.dump({'scale': 1, 'dpi': dpi, 'scans': [{'scan': 'scan', 'corners': [[0, 0], [w, 0], [w, h], [0, h]]}]}, open(os.path.join(d, 'raw.png.scans.json'), 'w'))
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'scan_feiten.py'), os.path.join(d, 'raw.png'), 'back', '--format', 'cd'], capture_output=True, text=True, timeout=300)
+        try:
+            res = json.loads(r.stdout[r.stdout.index('{'):r.stdout.rindex('}') + 1]) if '{' in r.stdout else {}
+        except ValueError:
+            res = {}
+        box = res.get('precise_mm') or res.get('box_mm')
+        if res.get('verdict') == 'FOUT' or not box or len(box) < 4:
+            return None
+        return box[2], box[3]
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    finally:
+        _sh.rmtree(d, ignore_errors=True)
+
+
 def real(M):
     """Een echte overeenkomst met een Discogs-foto heeft een schaal; schaal 0 is een ontaarde oplossing."""
     return M is not None and float(np.hypot(M[0, 0], M[1, 0])) > .05
@@ -362,6 +393,20 @@ def main():
             for x in open_:
                 if x[0] == 'unknown' and size[id(x)] and max(size[id(x)]) < 520:
                     x[0], x[2] = 'insert', 'front and back are found and this is another sheet: an insert'
+    # Cd (jewelcase): er zijn precies twee delen van ±150 mm breed, de achterkaart en het inlay (de twee kanten van
+    # het kaartje in de lade). Is de achterkaart gevonden, dan is een andere losse scan met zo'n kaart het inlay.
+    # Een vierkant kaartje van 120 mm kan insert, inside of de achterkant van een promo zijn: geen naam.
+    if fmt == 'cd' and any(x[0] == 'back' for x in named) and not any(x[0] == 'inlay' for x in named):
+        wide = []
+        with tempfile.TemporaryDirectory() as work2:
+            for x in named:
+                if x[0] == 'unknown' and len(x[1]) == 1:
+                    sz = card_size(x[1][0], work2)
+                    if sz and 145 <= max(sz) <= 154 and 114 <= min(sz) <= 120:   # ±150 x 118 (een boekje van 120 mm kwam op de ondergrens 136 uit)
+                        wide.append((x, sz))
+        if len(wide) == 1:
+            x, sz = wide[0]
+            x[0], x[2] = 'inlay', f'the back is found; this card is {max(sz):.0f} x {min(sz):.0f} mm, the other card of that size in a jewel case: the inlay'
     named = [x[:3] for x in named]
     if fmt == 'cd':                       # één cd-schijf: meer stapels met een cd is geen feit meer
         cds = [x for x in named if x[0] == 'cd']

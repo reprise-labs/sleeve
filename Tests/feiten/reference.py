@@ -10,6 +10,9 @@ verbetering voor de ene hoes niet ongemerkt een andere.
   reference.py run [naam ...]           maken en vergelijken (zonder naam: alle snelle)
                [--groot]                ook de grote releases (1200 dpi, duurt lang, ±5 GB vrij nodig)
                [--keep MAP]             de gemaakte beelden bewaren in MAP (om te bekijken)
+  reference.py run ... --hoezen        alleen hoezen en vellen (platen/cd's niet; als snel.py zegt dat die gelijk zijn)
+  reference.py ... [--no-cache]          altijd opnieuw samenvoegen (standaard: samengevoegde beelden uit de cache
+                                        zolang de samenvoeg-code gelijk is; zie ook snel.py voor het samenvoegen)
   reference.py record naam ... [--approved]
                                         de uitkomst van nu vastleggen (na akkoord van André: --approved)
 
@@ -26,6 +29,7 @@ SIZE_MM = 0.3            # zoveel mag een maat verschillen (meetruis van de rand
 ANGLE = 1.0              # graden: zoveel mag de stand van een plaat of cd verschillen
 THUMB = 24               # beeldafdruk: 24 x 24 grijswaarden
 THUMB_DIFF = 6.0         # gemiddeld verschil (0-255) waarboven het beeld echt anders is
+CACHE_STITCH = Path.home() / 'Library/Caches/com.repriselabs.Sleeve/reference/stitch'   # samengevoegde beelden hergebruiken zolang de samenvoeg-code gelijk is (--no-cache: uit)
 REMEMBERED = ('.anouk-referenties.json', '.sleeve-beslissingen.json', '.sleeve-release.json', '.sleeve-glas.json')
 
 
@@ -58,11 +62,16 @@ def thumb(path):
     return cv2.resize(g, (THUMB, THUMB), interpolation=cv2.INTER_AREA).astype(int).ravel().tolist()
 
 
-def make(case, keep=None):
+DISC_PARTS = ('sidea', 'sideb', 'sidec', 'sided', 'cd', 'cd1', 'cd2')
+
+
+def make(case, keep=None, sleeves_only=False):
     """De release maken via de bridge; geeft {sleutel: uitkomst} of een foutmelding (str)."""
     folder = SCANS / case['folder']
     rows = []
     for i, slot in enumerate(case['slots']):
+        if sleeves_only and slot['part'] in DISC_PARTS:
+            continue                                       # --hoezen: platen en cd's niet maken (voortoets: onveranderd)
         for f in slot['files']:
             if not (folder / f).is_file():
                 return f'scans not on this Mac: {folder / f}'
@@ -78,8 +87,11 @@ def make(case, keep=None):
                'format': case.get('format', 'auto'), 'packaging': case.get('packaging', 'auto'), 'year': '', 'output': str(out)}
         (work / 'request.json').write_text(json.dumps(req))
         py = Path.home() / 'Library/Application Support/com.repriselabs.Sleeve/Runtime/bin/python3'
+        env = dict(os.environ)
+        if CACHE_STITCH:
+            env['SLEEVE_STITCH_CACHE'] = str(CACHE_STITCH)
         p = subprocess.run([str(py) if py.exists() else sys.executable, str(ROOT / 'Resources/studio_bridge.py'), str(work / 'request.json')],
-                           capture_output=True, text=True, timeout=3 * 3600)
+                           capture_output=True, text=True, timeout=3 * 3600, env=env)
         found = list(out.glob('*/Studio-verwerking.json'))
         if not found:
             last = [json.loads(s).get('message', '') for s in p.stdout.splitlines() if s.startswith('{"event": "error"')]
@@ -137,7 +149,12 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('command', choices=['list', 'run', 'record']); p.add_argument('names', nargs='*')
     p.add_argument('--groot', action='store_true'); p.add_argument('--keep'); p.add_argument('--approved', action='store_true')
+    p.add_argument('--no-cache', action='store_true', help='always merge again (do not reuse merged images)')
+    p.add_argument('--hoezen', action='store_true', help='only sleeves and sheets (records and CDs not made; use when snel.py says they are unchanged)')
     a = p.parse_args()
+    global CACHE_STITCH
+    if a.no_cache:
+        CACHE_STITCH = None
     data = json.loads(REF.read_text())
     cases = {c['name']: c for c in data['cases']}
     unknown = [n for n in a.names if n not in cases]
@@ -156,12 +173,16 @@ def main():
     bad = skipped = 0
     for c in chosen:
         t0 = time.time(); print(f"== {c['name']}", flush=True)
-        got = make(c, a.keep)
+        got = make(c, a.keep, a.hoezen)
         if isinstance(got, str):
             print('   SKIPPED:' if got.startswith('scans not') else '   FAILED:', got, flush=True)
             skipped += got.startswith('scans not'); bad += not got.startswith('scans not'); continue
         if a.command == 'record':
-            c['expect'] = list(got.values()); c['approved'] = bool(a.approved)
+            if a.hoezen:                                   # alleen hoezen en vellen vervangen; platen en cd's blijven
+                c['expect'] = [e for e in c.get('expect', []) if e['part'] in DISC_PARTS] + list(got.values())
+            else:
+                c['expect'] = list(got.values())
+            c['approved'] = bool(a.approved)
             c['recorded'] = {'version': version(), 'date': datetime.date.today().isoformat()}
             REF.write_text(json.dumps(data, ensure_ascii=False, indent=1) + '\n')
             for g in got.values():
@@ -170,6 +191,8 @@ def main():
             want = {key(e['part'], e['files']): e for e in c.get('expect', [])}
             if not want:
                 print('   nothing recorded yet for this release (use: record)'); bad += 1; continue
+            if a.hoezen:
+                want = {k: v for k, v in want.items() if v['part'] not in DISC_PARTS}
             for k in sorted(set(want) | set(got)):
                 if k not in got:
                     print(f"   DIFFERENT {want[k]['part']}: not made any more"); bad += 1

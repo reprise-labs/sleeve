@@ -66,6 +66,14 @@ let helpTopics: [HelpTopic] = [
     HelpTopic(id:"hung", title:"“stopped after … minutes without a result”",
               meaning:"Processing this part took far too long and was stopped; the other parts went on.",
               fix:["Process this part again (Reprocess Part…). If it happens again, save the log and send it."]),
+    HelpTopic(id:"no-sticker", title:"“no sticker found”",
+              meaning:"Sleeve looks for a closed rectangle with rounded corners (the printed frame of a Music On Vinyl sticker, or the sticker's own edge) or a round edge all around. Neither was found in this scan.",
+              fix:["Scan the sticker well inside the glass, with the plastic sleeve flat and the lid closed.",
+                   "Check that this scan is in the Sticker slot and that the whole sticker is on it."]),
+    HelpTopic(id:"sticker-edge", title:"“the edge of the sticker is not equally visible on all four sides”",
+              meaning:"The printed frame was found, but the sticker's own edge around it could not be seen on every side (for example a gold sticker on a gold or yellow sleeve).",
+              fix:["Put a contrasting sheet behind the plastic sleeve and scan again.",
+                   "If the result looks right to you, choose ‘Keep as it is’."]),
     HelpTopic(id:"discogs", title:"“… could not be read from Discogs”",
               meaning:"Discogs couldn't be reached. Sleeve went on with what it knows; a name or the upright position may be missing.",
               fix:["Check the internet connection and process again later."]),
@@ -83,7 +91,8 @@ func helpTopic(for reason: String) -> String? {
         ("the label was set straight on the title only", "title-only"),
         ("which way is up", "upright"), ("the label says side", "side-letter"),
         ("was left out", "left-out"), ("no resolution", "no-dpi"), ("not an opened gatefold", "not-gatefold"),
-        ("stopped after", "hung"), ("discogs", "discogs"),
+        ("stopped after", "hung"), ("no sticker found", "no-sticker"), ("edge of the sticker", "sticker-edge"),
+        ("round edge is visible", "sticker-edge"), ("discogs", "discogs"),
     ]
     return rules.first(where: {r.contains($0.0)})?.1
 }
@@ -143,6 +152,7 @@ struct StudioHelpView: View {
         ("Record side", "4", "Each scan a quarter of the record, with the edge and background; a quarter turn is fine."),
         ("CD booklet, card, back card", "1", "Straight (within a few degrees), background all around."),
         ("CD", "1", "In the middle of the glass, printed side down."),
+        ("Sticker", "1", "The sticker on its plastic sleeve, well inside the glass; put the scan in a Sticker slot."),
     ]
     var body: some View {
         VStack(alignment:.leading, spacing:0) {

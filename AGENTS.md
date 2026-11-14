@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.33 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.35 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -139,9 +139,14 @@ Extra feiten:
 ## 14 nov (0.5.33): naad-gelijktrekken als optie
 - Reprocess Part… → vinkje → bridge `seamLevel` → route `--seam-level`: tweede stitch met `SLEEVE_SEAM_LEVEL=1` naar `*_raw_level.png`; alleen als `scans.json` (hoeken) gelijk is aan de gewone run. `scan_feiten.py --pixels`: randen op het gewone beeld, pixels uit het gelijkgetrokken beeld (`swap_pixels`: zelfde venster/hoek/bijsnijding).
 
+## 14 nov (0.5.34): snellere toets, inlay
+- `Tests/feiten/snel.py`: voortoets voor wijzigingen in het samenvoegen (keuzekaart op rekenschaal, oud vs nieuw; oude kaarten bewaard in ~/Library/Caches/com.repriselabs.Sleeve/reference/choice). Haak in scan_stitch: `STITCH_CHOICE_ONLY`.
+- `reference.py`: cache van samengevoegde beelden (`SLEEVE_STITCH_CACHE`, route `stitch_cache_get/put`, max 3 GB, alleen bij ≥ 8 GB vrij), `--hoezen`, `--no-cache`. Niet `--keep` gebruiken bij weinig schijfruimte (volle schijf op 14 nov).
+- Naadregel (naad tot 15 mm verleggen waar scans op de naad verschillen; eilandjes opnemen) GEPROBEERD EN WEGGEHAALD: verschoof gevonden randen (Deena back +1,3 mm, Queen-insert −0,8 mm) en gaf dubbele letters waar de naad langs een tekstregel ging. André: "beter scannen ipv verbeteren na afloop".
+- Sticker (0.5.35): `scan_sticker.py` (kader → rand op vaste afstand rondom, eerste duidelijke sprong op alle zijden; of rand zelf; of cirkel in 180 richtingen; hoeken op kleur), route `sticker_route` (rechtop via scan_rechtop, cirkel met --disc). Getest op 7 chatbeelden van André; originele scans met dpi nog nodig. Strook zonder kader nog niet echt gezien. Indelen herkent een sticker nog niet (jij zet hem in het vak Sticker).
+
 ## Open
-- **Sticker uitsnijden (zijproject, André vergeet het steeds):** vak `sticker` bestaat in de bridge, maar `scan_feiten.py` heeft er geen vorm/maat voor.
-- **Verkeerd gevouwen hoes melden:** Fake back: de voorkant steekt bovenaan 0,4-0,7 mm boven de achterkant uit; Sleeve snijdt op de buitenkant van die strook en zegt GOED. André snijdt dat met de hand bij, maar wil een melding. Kenmerk: een dun wit snijlijntje langs de hele zijde, binnen 1 mm van de snede, met drukwerk erboven dat niet aansluit. Eerst melden (TWIJFEL), pas daarna eventueel zelf snijden; altijd met de vaste toets.
+- ~~Verkeerd gevouwen hoes melden~~: opgelost sinds 0.5.29 (smalle randen per stuk van een zijde bijsnijden); André 14 nov: "De back is perfect".
 - **Blauw vinyl kant A:** TWIJFEL, rand op 11 plekken 1,3-1,7 mm naast de cirkel (doorschijnend vinyl op de witte klep).
 - **Donker vinyl op een gekleurd vel:** `rim_end` kan daar glans voor doorschijnen aanzien; nog niet getest.
 - **Rand niet gezien telt niet als twijfel:** `scan_feiten.py` zet bij een zijde zonder zichtbare rand (`weak_sides`, of sectoren bij een plaat) wel TWIJFEL, maar zonder reden; `scan_feitenroute.py` kijkt alleen naar redenen, dus het onderdeel wordt GOED. Eerst met de vaste toets meten hoeveel onderdelen dit raakt, dan beslissen.

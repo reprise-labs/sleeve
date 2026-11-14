@@ -11,7 +11,7 @@ Gebruik (vanuit studio_bridge.py):
   [--decision '{"crop":"square","rotate":90}']
 Schrijft op stdout één JSON-regel met de uitkomst.
 """
-import argparse, json, math, os, re, subprocess, sys, tempfile
+import argparse, json, math, os, re, shutil, subprocess, sys, tempfile
 import numpy as np, cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -324,6 +324,143 @@ def side_letter(text):
     return None
 
 
+STITCH_FILES = ('scan_stitch.py', 'scan_blend.py', 'scan_fields.py', 'scan_memory.py', 'scan_progress.py', 'scan_dpi.py', 'scan_edges.py', 'scan_cutout.py')
+
+
+def stitch_key(scans, halved, disc):
+    """Sleutel van een samengevoegd beeld: de scans (naam, grootte, tijd), de opties en de samenvoeg-code."""
+    import hashlib
+    h = hashlib.sha1()
+    for f in STITCH_FILES:
+        p = os.path.join(HERE, f)
+        if os.path.exists(p):
+            h.update(open(p, 'rb').read())
+    for s in sorted(scans):
+        st = os.stat(s); h.update(f'{os.path.abspath(s)}|{st.st_size}|{int(st.st_mtime)}'.encode())
+    h.update(f'{halved}|{disc}|{os.environ.get("SLEEVE_SEAM_LEVEL", "")}'.encode())
+    return h.hexdigest()
+
+
+def stitch_cache_get(scans, halved, disc, raw):
+    """Vaste toets: een eerder samengevoegd beeld van precies deze scans met precies deze code hergebruiken."""
+    d = os.environ.get('SLEEVE_STITCH_CACHE')
+    if not d:
+        return None
+    k = os.path.join(d, stitch_key(scans, halved, disc))
+    if not all(os.path.exists(k + x) for x in ('.png', '.png.scans.json', '.log')):
+        return None
+    shutil.copyfile(k + '.png', raw); shutil.copyfile(k + '.png.scans.json', raw + '.scans.json')
+    os.utime(k + '.png')                                   # laatst gebruikt (voor het opruimen)
+    return subprocess.CompletedProcess([], 0, open(k + '.log').read(), '')
+
+
+def stitch_cache_put(scans, halved, disc, raw, log):
+    d = os.environ.get('SLEEVE_STITCH_CACHE')
+    if not d or not os.path.exists(raw + '.scans.json'):
+        return
+    try:
+        os.makedirs(d, exist_ok=True)
+        # nooit de schijf vol: alleen bewaren als er daarna nog ruim plek is voor het samenvoegen zelf
+        if shutil.disk_usage(d).free < 8e9 + os.path.getsize(raw):
+            return
+        k = os.path.join(d, stitch_key(scans, halved, disc))
+        shutil.copyfile(raw, k + '.png'); shutil.copyfile(raw + '.scans.json', k + '.png.scans.json'); open(k + '.log', 'w').write(log)
+        # binnen het budget blijven: de langst niet gebruikte eerst weg
+        budget = float(os.environ.get('SLEEVE_STITCH_CACHE_GB', '3')) * 1e9
+        items = sorted((os.path.getmtime(p), p) for p in (os.path.join(d, f) for f in os.listdir(d)) if p.endswith('.png') and not p.endswith('.scans.json'))
+        total = sum(os.path.getsize(p) for _, p in items)
+        for _, p in items:
+            if total <= budget:
+                break
+            total -= os.path.getsize(p)
+            for x in ('', '.scans.json'):
+                try: os.remove(p + x)
+                except OSError: pass
+            try: os.remove(p[:-4] + '.log')
+            except OSError: pass
+    except OSError:
+        pass                                               # schijf vol: zonder cache verder
+
+
+def sticker_route(a, decision):
+    """Sticker (eigen scan, de sticker op zijn plastic hoes): uitsnijden op feiten (scan_sticker.py: kader en rand,
+    of cirkel), rechtzetten op de tekst (artiest en titel van de release, of andere duidelijk leesbare tekst; een
+    ronde sticker op de graad, zoals een label), met transparante hoeken bewaren."""
+    os.makedirs(a.work, exist_ok=True)
+    crop = os.path.join(a.work, 'sticker_crop.png'); up = os.path.join(a.work, 'sticker_up.png')
+    result = {'part': 'sticker', 'scans': a.scans, 'verdict': 'GOED', 'why': [], 'choices': [], 'decision': decision}
+    if len(a.scans) > 1:
+        result['why'].append(f'a sticker is one scan; only {os.path.basename(a.scans[0])} was used')
+    dpi = scan_resolution(a.scans[0], a.release_dpi) or 0.0
+    step('finding the edge of the sticker')
+    r = subprocess.run([PY, os.path.join(HERE, 'scan_sticker.py'), a.scans[0], '--out', crop] + (['--dpi', str(dpi)] if dpi else []), capture_output=True, text=True)
+    try:
+        st = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        st = {'verdict': 'FOUT', 'why': [(r.stderr or 'sticker not found').strip().splitlines()[-1]]}
+    if st.get('verdict') == 'FOUT' or not os.path.exists(crop):
+        result.update(verdict='FOUT', why=st.get('why', ['sticker not found'])); print(json.dumps(result, ensure_ascii=False)); return
+    result['why'] += st.get('why', []); result['shape'] = st.get('shape')
+    img = cv2.imread(crop, cv2.IMREAD_UNCHANGED)
+    words_note = None
+    try:
+        words = release_words(a.discogs) if a.discogs else []
+    except Exception as e:
+        words, words_note = [], f'which way is up: the text of the release could not be fetched from Discogs ({e})'
+    circle = st.get('shape') == 'circle'
+    if decision.get('rotate') in ROTATE or decision.get('rotate') == 0:
+        if decision['rotate']:
+            img = cv2.rotate(img, ROTATE[decision['rotate']])
+        result['applied'] = f'rotated {decision["rotate"]}'
+    else:
+        step('reading text to set it upright (macOS text recognition)')
+        json.dump(words, open(os.path.join(a.work, 'words.json'), 'w'))
+        args = [PY, os.path.join(HERE, 'scan_rechtop.py'), crop, '--words', os.path.join(a.work, 'words.json'), '--out', up]
+        if circle:
+            args += ['--disc', '--dpi', str(dpi or 300.0)]
+        ro = subprocess.run(args, capture_output=True, text=True)
+        try:
+            upright = json.loads(ro.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            upright = {'verdict': 'TWIJFEL'}
+        result['upright'] = {k: upright.get(k) for k in ('rotate_clockwise', 'verdict', 'read_upright')}
+        if upright.get('verdict') in ('GOED', 'LEESBAAR') and os.path.exists(up):
+            img = cv2.imread(up, cv2.IMREAD_UNCHANGED)
+            result['applied'] = 'upright from ' + ('known text of the release' if upright.get('verdict') == 'GOED' else 'readable text')
+        else:
+            result['why'].append(words_note or 'which way is up: no text could be read clearly')
+    if result['why'] and decision.get('crop') == 'keep':
+        result['applied'] = (result.get('applied', '') + ' kept as it is').strip(); result['why'] = []
+    if result['why']:
+        result['verdict'] = 'TWIJFEL'; result['choices'] = ['keep'] + (['rotate90', 'rotate180', 'rotate270'] if any(w.startswith('which way is up') for w in result['why']) else [])
+    name = None
+    if a.discogs:
+        try:
+            import scan_naam as N
+            name = N.naam(a.discogs, 'sticker', a.variant, a.year)
+        except Exception as e:
+            result['name_note'] = str(e)
+    name = name or f'{os.path.splitext(os.path.basename(a.scans[0]))[0]}_sticker'
+    os.makedirs(a.out, exist_ok=True)
+    path = a.target or os.path.join(a.out, name + '.png'); n = 2
+    while not a.target and os.path.exists(path) and not a.decision:
+        path = os.path.join(a.out, f'{name}_{n}.png'); n += 1
+    cv2.imwrite(path, img)
+    if dpi:
+        try:
+            from PIL import Image
+            with Image.open(path) as im_:
+                im_.load(); im_.save(path, dpi=(dpi, dpi))
+        except Exception:
+            pass
+    result['path'] = path; result['dpi'] = dpi
+    result['size_mm'] = [round(img.shape[1] / dpi * 25.4, 1), round(img.shape[0] / dpi * 25.4, 1)] if dpi else None
+    for f in (crop, up):
+        if os.path.exists(f):
+            os.remove(f)
+    print(json.dumps(result, ensure_ascii=False))
+
+
 def facts_levelled(crop):
     try:
         return bool(json.load(open(crop + '.feiten.json')).get('seam_levelled'))
@@ -343,6 +480,8 @@ def main():
     decision = json.loads(a.decision) if a.decision else remembered(folder, a.scans)
     if a.decision:
         save_decision(folder, a.scans, a.part, decision)
+    if a.part == 'sticker':
+        sticker_route(a, decision); return
     import scan_feiten as SF
     fmt_note = None
     fmt = a.format
@@ -413,7 +552,13 @@ def main():
             result['why_note'] = f'{len(a.scans)} scans ({total_px / 1e6:.0f} Mpx) do not fit in memory together; made at {d0 / 2:.0f} dpi'
         step(f'merging {len(scans_in)} scans')
         is_disc = SF.SHAPES.get(fmt, SF.SHAPES['vinyl']).get(feit_part, ('rect',))[0] == 'disc'
-        st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'] + (['--plaat-onderdeel'] if is_disc else []), capture_output=True, text=True)
+        cached = stitch_cache_get(a.scans, scans_in != a.scans, is_disc, raw)
+        if cached is not None:
+            st = cached                                     # alleen in de vaste toets (SLEEVE_STITCH_CACHE)
+        else:
+            st = subprocess.run([PY, os.path.join(HERE, 'scan_stitch.py'), raw] + scans_in + ['--vorm', 'ruw'] + (['--plaat-onderdeel'] if is_disc else []), capture_output=True, text=True)
+            if st.returncode == 0:
+                stitch_cache_put(a.scans, scans_in != a.scans, is_disc, raw, st.stdout)
         if a.seam_level and st.returncode == 0:
             # Optie: nog een keer samenvoegen met de toon langs de naden gelijkgetrokken. De randen worden op de
             # gewone versie gezocht (gelijktrekken verschoof eerder de gevonden rand: Queen-insert 1,2 mm); alleen

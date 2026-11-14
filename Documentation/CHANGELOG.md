@@ -1,3 +1,17 @@
+# 0.5.35 — Stickers
+
+- **A sticker is cut out from its own scan** (Sticker slot; the sticker sits on its plastic sleeve). `scan_sticker.py` works on facts: a closed rectangle with rounded corners (the printed frame of a Music On Vinyl sticker), with the sticker's edge at the same distance all around it (found on all four sides at once, the nearest edge that is clear on every side); or a closed rounded rectangle that is itself the edge (a strip without a frame); or a round edge that runs all around, perpendicular to the radius, measured in 180 directions. The shape of the frame, made larger all around, gives the corners; corners are then checked on colour (the corner of a sticker can be rounder than its frame). Saved with transparent corners and the size in mm.
+- **Upright on the text:** artist and title of the release (Discogs), or other clearly readable text; a round sticker is set upright to the degree, like a record label. Dark stickers whose text macOS cannot read give doubt with the turn choices.
+- Tested on André's 7 examples (6 framed rectangles, 1 round; chat images without resolution): all cut cleanly; 5 of 6 set upright on the release text.
+- Help: Sticker in the scan table, and two messages explained.
+
+# 0.5.34 — A faster reference test; the CD inlay is named when arranging
+
+- **Quick test for merging** (`Tests/feiten/snel.py`): for every part of the reference test, only the choice "which partial scan where" is computed at working size, with the code of now and of the last commit, and compared. A few minutes per release instead of a full run; it ends with the releases that need the full test.
+- **The full test reuses merged images** while the merging code is unchanged (cache, at most 3 GB, and only while at least 8 GB stays free), and `--hoezen` makes and compares only sleeves and sheets when the quick test says records and CDs are unchanged.
+- **The CD inlay gets its name when arranging.** A jewel case has exactly two cards of ±150 mm: the back and the inlay. Once the back is found (barcode), another loose scan with such a card is the inlay. A square 120 mm card can be insert, inside or the back of a promo: no name.
+- Tried and not kept: letting a seam move up to 15 mm where two partial scans differ on it (to hide a step in a line where a sheet did not lie flat). It fixed one insert but moved found edges by 1 mm or more on others (Deena back +1.3 mm, Queen insert −0.8 mm). Scanning flat solves the cause; Sleeve does not hide it afterwards.
+
 # 0.5.33 — Seam levelling as an option
 
 - **"Level tone across the seams"** in Reprocess Part… For a light or dark band where two partial scans meet. Seam levelling was switched off in 0.5.29 because it moved the found edge (Queen insert 1.2 mm). Now Sleeve first merges as usual and finds the edges on that; then it merges a second time with the tone levelled and takes only the pixels from that version, with exactly the same cut. If the two merges do not lie on exactly the same canvas, the normal result stays and you get a note. Tested on the Queen insert: same size to the pixel (303.7 × 308.7 mm), tone corrected smoothly by about ±4 levels. It takes about twice as long, so it is only for a part that needs it.
