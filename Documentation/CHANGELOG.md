@@ -1,3 +1,13 @@
+# 0.5.41 — Arranging twice as fast; Queen For A Day (2021) arranged by itself; sticker edge per side
+
+- **Arranging is about twice as fast.** Each Discogs photo is measured once instead of once for every scan, and the scans are made small and read for a barcode three at a time. Queen For A Day, 27 scans at 600 dpi: 92 → 47 seconds, the same slots and names.
+- **Scan order from the number at the end of the file name** ("…_0018.tif"): label scans no longer sort after everything else.
+- **A front needs the cover at full size.** A Discogs photo counts as a cover photo only when the cover fills it (at least 70% of its width), and the cover must show at least 250 mm wide on an LP scan (96 mm on a CD). The two lyric sheets of Queen For A Day print the cover small; they are inserts, not fronts.
+- **A sticker is checked before insert/inside**, so a sticker scan is never called insert.
+- **Sticker edge per side.** The cut moved in until the band just inside it had the sticker's colour, measured over all four sides together; one side could keep a hair of background (Queen: 6–8 pixels of grey along the bottom). Each side is now checked on its own. Checked on 7 stickers: only background goes.
+- Queen For A Day 2021, new scans (white vinyl on purple, 4 + 1 per record side, sticker): all 27 scans in the right slot by themselves; 7 of 7 parts GOED.
+- Test switch (off by default): SLEEVE_GLASS_RECORDS=1 applies the glass light pattern to records too.
+
 # 0.5.40 — Arranging: barcode beats a cover look-alike; a sleeve turned half-way stays one stack
 
 - **A barcode outweighs a cover photo.** A back can show the cover small; when one scan of a stack has the release barcode and another looks like the Discogs cover, the stack is the back (it was "conflicting facts").

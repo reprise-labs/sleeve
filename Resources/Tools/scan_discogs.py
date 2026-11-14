@@ -60,6 +60,18 @@ def on_white(rgba):
     return (bgr * a + 255 * (1 - a)).astype(np.uint8)
 
 
+_PHOTO_FEATS = {}
+
+
+def _photo_feats(sift, im):
+    """Punten van een Discogs-foto: één keer berekenen (dezelfde foto wordt met elke scan vergeleken)."""
+    import hashlib
+    key = (im.shape, hashlib.blake2b(np.ascontiguousarray(im).tobytes(), digest_size=16).digest())
+    if key not in _PHOTO_FEATS:
+        _PHOTO_FEATS[key] = sift.detectAndCompute(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), None)
+    return _PHOTO_FEATS[key]
+
+
 def matches(ours, imgs, with_coverage=False):
     """Alle Discogs-foto's die passen: [(overeenkomsten, index, transformatie ons -> discogs)], beste eerst."""
     sift = cv2.SIFT_create(4000)
@@ -69,7 +81,7 @@ def matches(ours, imgs, with_coverage=False):
     if d1 is None or len(d1) < 10:
         return found
     for n, im in enumerate(imgs):
-        k2, d2 = sift.detectAndCompute(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), None)
+        k2, d2 = _photo_feats(sift, im)
         if d2 is None or len(d2) < 10:
             continue
         m = cv2.BFMatcher().knnMatch(d1, d2, k=2)

@@ -38,6 +38,7 @@ import scan_discogs as D
 OCR = os.path.join(HERE, 'sleeve_ocr')
 THUMB = 1600
 MIN_FRONT = 30          # overeenkomende punten met de hoesfoto
+FRONT_MIN_MM = {'vinyl': 250, 'cd': 96}   # zo breed staat de hoesfoto op de voorkant zelf (lp-hoes 305-318 mm, cd 120-125 mm: 80%)
 PXMM = 2.0              # stapels: kleine beelden op 2 px/mm (genoeg drukwerk, snel)
 MIN_LINK = 15           # zoveel overeenkomende punten = overlap
 SAME_PLACE_MM, SAME_PLACE_DEG = 12.0, 20.0
@@ -99,9 +100,20 @@ def number_key(path):
     """Bestandsvolgorde zoals de scanner nummert en de Finder sorteert: 'Scan' voor 'Scan 1' voor 'Scan 2'
     voor 'Scan 10' ('00.jpeg' is de eerste, daarna '00 1.jpeg'; voorheen kwam '00.jpeg' als laatste)."""
     stem = os.path.splitext(os.path.basename(path))[0]
+    # Feit: de scanner nummert elke scan; dat volgnummer is het laatste getal in de naam (Scan 12, 00 12,
+    # IMG_20261112_0012, queen_sidea_label_20261114_0018). Een eigen woord in de naam (sidea_label) verandert
+    # de volgorde niet: die labelscan hoort tussen 0017 en 0019 (Queen, 14 nov).
+    nums = re.findall(r'\d+', stem)
+    seq = int(nums[-1]) if nums else 0
     m = re.match(r'^(.*\S)\s+(\d+)$', stem)
-    base, n = (m.group(1), int(m.group(2))) if m else (stem, 0)
-    return ([int(x) if x.isdigit() else x.lower() for x in re.split(r'(\d+)', base)], n)
+    if m:                                                  # 'Scan 12' / '00 12'
+        seq = int(m.group(2)); base = m.group(1)
+    elif re.fullmatch(r'\D*', stem):                       # 'Scan' / '00' zonder volgnummer: de eerste
+        seq = 0; base = stem
+    else:
+        base = stem
+    nat = [(0, int(x)) if x.isdigit() else (1, x.lower()) for x in re.split(r'(\d+)', base) if x]
+    return (seq, nat)
 
 
 def small(path, work):
@@ -332,21 +344,29 @@ def main():
     # Discogs-foto's van de hoes: de hoofdfoto en de foto's die er duidelijk op lijken (vaak twee hoesfoto's)
     front_photos = set()
     if primary is not None:
-        front_photos = {primary} | {n for k, n, M in D.matches(imgs[primary], imgs) if k >= 40 and real(M)}
+        # alleen foto's waarin de hoes de hele foto vult (een foto van een tekstvel met de hoes er klein op telt niet:
+        # Queen 2021, foto's 2 en 3)
+        front_photos = {primary} | {n for k, n, M in D.matches(imgs[primary], imgs)
+                                    if k >= 40 and real(M) and imgs[primary].shape[1] * float(np.hypot(M[0, 0], M[1, 0])) >= .7 * imgs[n].shape[1]}
     facts, why, feats, discs, rims, photo, backs = {}, {}, {}, {}, {}, {}, {}
     with tempfile.TemporaryDirectory() as work:
+        # Verkleinen en barcode lezen zijn losse programma's (sips, sleeve_ocr): drie scans tegelijk
+        from concurrent.futures import ThreadPoolExecutor
+        def prep(s):
+            return small(s, work), thumb(s, work), (barcodes(s) if codes else [])
+        with ThreadPoolExecutor(3) as pool:
+            pre = dict(zip(scans, pool.map(prep, scans)))
         for n, s in enumerate(scans):
             print(f'SLEEVE_STEP looking at scan {n + 1} of {len(scans)}', file=sys.stderr, flush=True)
-            sm = small(s, work)
+            sm, (im, scale), bcs = pre[s]
             if sm is not None:
                 feats[s] = features(sm)
                 backs[s] = background(sm)
                 if fmt != 'cd':
                     rims[s] = record_rim(sm)
             found = []
-            if codes and any(same_barcode(b, c) for b in barcodes(s) for c in codes):
+            if codes and any(same_barcode(b, c) for b in bcs for c in codes):
                 found.append(('back', 'the release barcode is on this scan'))
-            im, scale = thumb(s, work)
             if im is None:
                 continue
             if imgs:
@@ -354,7 +374,16 @@ def main():
                 if m:
                     photo[s] = (m[0][1], m[0][0])          # de Discogs-foto die het best op deze scan past
                 if m and m[0][1] in front_photos and m[0][0] >= MIN_FRONT:
-                    found.append(('front', f'matches the Discogs cover photo ({m[0][0]} points)'))
+                    # Feit: op de voorkant staat de hoesfoto op ware grootte (±31 cm); een tekstvel of insert met de
+                    # hoes erop toont hem kleiner (Queen 2021: twee tekstvellen met de hoesfoto). Grootte van de
+                    # Discogs-foto in deze scan: zijn breedte via de overeenkomst (schaal) en de resolutie in mm.
+                    dpi_ = scan_dpi.read(s)
+                    sM = float(np.hypot(m[0][2][0, 0], m[0][2][1, 0]))
+                    shown = (imgs[m[0][1]].shape[1] / sM) / (dpi_ * scale / 25.4) if dpi_ and sM > 0 else None
+                    if shown is None or shown >= FRONT_MIN_MM.get(fmt, 96):
+                        found.append(('front', f'matches the Discogs cover photo ({m[0][0]} points' + (f', shown {shown:.0f} mm wide)' if shown else ')')))
+                    else:
+                        why[s] = f'shows the cover photo only {shown:.0f} mm wide: a print of the cover, not the sleeve'
             if fmt == 'cd':
                 dpi = scan_dpi.read(s)
                 if dpi and has_cd(im, dpi * scale / 25.4):
@@ -445,6 +474,14 @@ def main():
                     x[0], x[2] = 'unknown', f'also looks like the {part}, but {os.path.basename(keep[1][0])} matches better: choose it'
     # Een release heeft één front en één back. Zijn beide gevonden, dan is elk ander vel (geen plaat, geen cd)
     # een insert, of de binnenkant van een uitklaphoes als het samen breder is dan 45 cm (±62 x 31 cm).
+    # Sticker: een losse scan met een kleine gesloten vorm met afgeronde hoeken of een cirkel (zijn plastic hoes eromheen)
+    if not any(x[0] == 'sticker' for x in named):
+        with tempfile.TemporaryDirectory() as work3:
+            for x in named:
+                if x[0] == 'unknown' and len(x[1]) == 1:
+                    why_ = is_sticker(x[1][0], work3)
+                    if why_:
+                        x[0], x[2] = 'sticker', f'{why_} lies on this scan'
     # De maat is wat de deelscans samen bedekken (glas, dus ruimer dan het vel): een vel van 30 cm in 4 delen
     # 330-460 mm, een opengeklapte hoes ±670 mm (gemeten op de vaste toets). Ligt er een binnenkant in de
     # release, dan krijgt geen andere stapel 'insert': een los stuk van die binnenkant zou anders insert heten.
@@ -472,14 +509,6 @@ def main():
         if len(wide) == 1:
             x, sz = wide[0]
             x[0], x[2] = 'inlay', f'the back is found; this card is {max(sz):.0f} x {min(sz):.0f} mm, the other card of that size in a jewel case: the inlay'
-    # Sticker: een losse scan met een kleine gesloten vorm met afgeronde hoeken of een cirkel (zijn plastic hoes eromheen)
-    if not any(x[0] == 'sticker' for x in named):
-        with tempfile.TemporaryDirectory() as work3:
-            for x in named:
-                if x[0] == 'unknown' and len(x[1]) == 1:
-                    why_ = is_sticker(x[1][0], work3)
-                    if why_:
-                        x[0], x[2] = 'sticker', f'{why_} lies on this scan'
     named = [x[:3] for x in named]
     if fmt == 'cd':                       # één cd-schijf: meer stapels met een cd is geen feit meer
         cds = [x for x in named if x[0] == 'cd']

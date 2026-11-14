@@ -198,6 +198,19 @@ def main():
             if len(b_) and float(np.linalg.norm(np.median(b_, 0) - st_c)) < 30:
                 break
             o -= 1
+        # Per zijde nog eens: de strook net binnen die ene zijde moet zelf stickerkleur hebben (de mediaan over vier
+        # zijden liet onderaan een randje achtergrond staan als alleen die zijde het niet haalde: Queen 2021-sticker).
+        side_in = {}
+        if st_c is not None:
+            for nm in ('T', 'B', 'L', 'R'):
+                os_ = o
+                while os_ > -2 * gap:
+                    b_ = {'T': band(T - os_, T - os_ + 2, xs_.start, xs_.stop), 'B': band(B + os_ - 2, B + os_, xs_.start, xs_.stop),
+                          'L': band(ys_.start, ys_.stop, L - os_, L - os_ + 2), 'R': band(ys_.start, ys_.stop, Rr + os_ - 2, Rr + os_)}[nm]
+                    if len(b_) and float(np.linalg.norm(np.median(b_, 0) - st_c)) < 30:
+                        break
+                    os_ -= 1
+                side_in[nm] = int(round(o - os_))                  # zoveel pixels moet deze zijde verder naar binnen
         o -= 1                                                     # de randpixel is gemengd
         res.update(shape='rectangle with frame' if o > 2 * gap else 'rectangle', edge_from_shape_px=round(o, 1))
         L, T, Rr, B = L - o, T - o, Rr + o, B + o
@@ -235,6 +248,15 @@ def main():
                         cut_ = cv2.dilate((ff == 2).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0   # en de gemengde randpixel
                         mask[y0:y0 + q, x0:x0 + q][cut_] = 0
                 mask = cv2.GaussianBlur(mask, (3, 3), 0)
+        for nm, k_ in side_in.items():
+            if k_ > 0:
+                k_ = min(k_, ch // 4, cw // 4)
+                if nm == 'T': mask[:k_] = 0
+                elif nm == 'B': mask[ch - k_:] = 0
+                elif nm == 'L': mask[:, :k_] = 0
+                else: mask[:, cw - k_:] = 0
+        if any(v > 0 for v in side_in.values()):
+            res['side_trim_px'] = {k: v for k, v in side_in.items() if v > 0}
         crop = np.dstack([crop, mask])
         res['angle'] = round(ang, 2)
         res['area_frac'] = round(crop.shape[0] * crop.shape[1] / (W * H), 4)

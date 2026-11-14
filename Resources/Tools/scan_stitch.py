@@ -450,7 +450,7 @@ GLASS_NODES = (8, 11)  # vakken over het glas (breedte x hoogte, ±27 mm): fijn 
 GLASS_MAX = 0.15       # hooguit 15% correctie door het lichtpatroon
 
 
-GLASS_FOR_RECORDS = False   # nog uit: eerst de naden en groeven (André, 12 nov); doorschijnend vinyl apart bekijken
+GLASS_FOR_RECORDS = os.environ.get('SLEEVE_GLASS_RECORDS') == '1'   # proef 14 nov: lichtpatroon ook op dekkend vinyl (doorschijnend: kleur schijnt door)
 SEAM_LEVEL = False   # uit: verschoof de toon langs de scanranden en daarmee de gevonden hoesrand (Queen-insert,
 if os.environ.get('SLEEVE_SEAM_LEVEL') == '1':
     SEAM_LEVEL = True  # optie 'Level tone across the seams' (0.5.33): alleen voor de pixels, de randen komen uit een gewone run

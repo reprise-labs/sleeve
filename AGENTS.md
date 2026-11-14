@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.40 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.41 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -152,7 +152,14 @@ Extra feiten:
 
 - Indelen (0.5.40): barcode wint van hoesfoto in één stapel; zwakke overlap mag bij een onvolledige stapel als die daardoor ≥ 305 mm wordt (`complete`). US wit herscan (us_new_white_back3, 18 scans) goed ingedeeld.
 
+## 14 nov laat (0.5.41): sneller indelen, Queen nieuw
+- `scan_discogs.matches`: punten van een Discogs-foto één keer (cache op inhoud); `scan_vakken`: verkleinen + barcode in 3 threads. Queen 27 scans 92 → 47 s, uitkomst gelijk.
+- Front: Discogs-foto telt als hoesfoto als de hoes ≥70% van de foto vult; getoonde breedte ≥ `FRONT_MIN_MM` (lp 250, cd 96). Sticker vóór insert/inside. Volgorde op het laatste getal in de naam (`number_key`).
+- `scan_sticker`: na de gezamenlijke stap naar binnen nog per zijde (`side_trim_px`); Queen-sticker had 6-8 px grijs onderaan.
+- Queen 2021 nieuwe scans (`~/Desktop/vinyl/queen_new_scan`, wit vinyl op paars): 7/7 GOED. Kant A: lichte grijze zweem rechtsboven (L 95 tegen 99), niet gemeld.
+
 ## Open
+- **Helderheid langs de rand gelijk trekken (optie, André 14 nov "optie 1"):** gemeten toon tilt een donkere plek naar de rest; structuur blijft; standaard uit, vermeld bij het resultaat. Geen content-aware fill (verzint pixels).
 - ~~Verkeerd gevouwen hoes melden~~: opgelost sinds 0.5.29 (smalle randen per stuk van een zijde bijsnijden); André 14 nov: "De back is perfect".
 - **Blauw vinyl kant A:** TWIJFEL, rand op 11 plekken 1,3-1,7 mm naast de cirkel (doorschijnend vinyl op de witte klep).
 - **Donker vinyl op een gekleurd vel:** `rim_end` kan daar glans voor doorschijnen aanzien; nog niet getest.
