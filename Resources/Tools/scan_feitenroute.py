@@ -38,9 +38,30 @@ def load_decisions(folder):
         return {}
 
 
+def fingerprint(scans):
+    """Grootte en wijzigtijd per scan: een nieuwe scan met dezelfde naam is een ander onderdeel."""
+    out = {}
+    for s in scans:
+        try:
+            st = os.stat(s); out[os.path.basename(s)] = [st.st_size, int(st.st_mtime)]
+        except OSError:
+            out[os.path.basename(s)] = None
+    return out
+
+
+def remembered(folder, scans):
+    """De onthouden beslissing voor precies deze scans. Feit: een beslissing gold voor wat jij zag;
+    is een scan sindsdien vervangen (zelfde naam, andere inhoud), dan geldt hij niet meer
+    (0.5.29: een nieuwe scan kreeg stil 'zo laten' van de oude)."""
+    got = load_decisions(folder).get(key_for(scans), {})
+    if got.get('files') != fingerprint(scans):
+        return {}
+    return got.get('decision', {})
+
+
 def save_decision(folder, scans, part, decision):
     data = load_decisions(folder)
-    data[key_for(scans)] = {'part': part, 'decision': decision}
+    data[key_for(scans)] = {'part': part, 'decision': decision, 'files': fingerprint(scans)}
     try:
         json.dump(data, open(os.path.join(folder, DECISIONS), 'w'), indent=1, ensure_ascii=False)
     except OSError:
@@ -308,9 +329,10 @@ def main():
     p.add_argument('scans', nargs='+'); p.add_argument('--part', required=True)
     p.add_argument('--discogs', default=''); p.add_argument('--out', required=True); p.add_argument('--work', required=True)
     p.add_argument('--decision', default=''); p.add_argument('--variant', default=''); p.add_argument('--format', default=''); p.add_argument('--release-dpi', type=float, default=0.0); p.add_argument('--year', default='')
+    p.add_argument('--target', default='')                 # beslissing: precies dit bestand vervangen (niet een ander onderdeel met dezelfde naam)
     a = p.parse_args()
     folder = os.path.dirname(os.path.abspath(a.scans[0]))
-    decision = json.loads(a.decision) if a.decision else load_decisions(folder).get(key_for(a.scans), {}).get('decision', {})
+    decision = json.loads(a.decision) if a.decision else remembered(folder, a.scans)
     if a.decision:
         save_decision(folder, a.scans, a.part, decision)
     import scan_feiten as SF
@@ -592,6 +614,11 @@ def main():
                     result['applied'] = (result.get('applied', '') + ' upright from readable text').strip()
                 else:
                     why.append('which way is up: no text could be read clearly, and no Discogs photo matches clearly')
+    elif decision.get('rotate') in ROTATE or decision.get('rotate') == 0:
+        # geen tekst om te lezen, maar jij hebt gezegd hoe het moet: dat geldt (0.5.29 negeerde dit)
+        if decision['rotate']:
+            img = cv2.rotate(img, ROTATE[decision['rotate']])
+        result['applied'] = (result.get('applied', '') + f' rotated {decision["rotate"]}').strip()
     else:
         why.append(words_note or 'which way is up: no Discogs release, so no known text to read')
     # kant op het label (feit) tegen het vak
@@ -659,6 +686,10 @@ def main():
     path = os.path.join(a.out, name + '.png'); n = 2
     while os.path.exists(path) and not a.decision:
         path = os.path.join(a.out, f'{name}_{n}.png'); n += 1
+    if a.target:
+        # Feit: een beslissing geldt voor het bestand dat jij zag. Twee inserts hebben dezelfde naam
+        # (_insert en _insert_2); zonder dit overschreef de tweede de eerste (0.5.29).
+        path = a.target
     cv2.imwrite(path, img)
     try:                                                   # dpi in het bestand zetten
         from PIL import Image

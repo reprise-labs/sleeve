@@ -1,3 +1,14 @@
+# 0.5.30 — Five bugs fixed: decisions, rotating, remembered choices, a rare merge crash, record colour
+
+Found in a bug hunt through the facts route (14 November); each one reproduced first, then fixed and checked.
+
+- **A decision on the second insert no longer overwrites the first.** Two inserts of one release get the same name (`_insert` and `_insert_2`). Answering a question on the second one rewrote `_insert.png` with the second image, so one insert was lost. A decision now replaces exactly the file you decided on.
+- **Rotating works without Discogs text.** With no Discogs link (or Discogs not reachable), "which way is up" offered 90/180/270, but the choice was ignored and the same question came back. It is now applied.
+- **A remembered decision belongs to the scans you saw.** Decisions were remembered by file name only. A new scan with the same name in the same folder silently got the old "keep as it is" and was reported GOED. The size and date of each scan are now remembered with it; a replaced scan is judged afresh.
+- **Merging no longer crashes at certain image heights** (new in 0.5.29, about 1 in 250 parts): the last band fell outside the reduced depth map. Results for every other height are identical.
+- **New Release always starts in Process Scans.** After Adjust Color, a new release opened in Adjust Color.
+- **A record side made again after a decision keeps the colour of its other side.** Side A and B are matched once after a run; a side remade after a decision came back with the scanner's colour. It is now matched to the other side (which stays as it is). The colour matching also no longer turns a side black when too little vinyl is visible.
+
 # 0.5.29 — Sharp small text on stitched sleeves, no patchwork on vinyl, light falloff of the glass removed
 
 Found on the Urban Solitude scans on a purple sheet (12–13 November), checked against the full reference test.

@@ -1509,7 +1509,9 @@ def main_with_resources(resources,lease=None):
     depth=[]
     for k in ks:
         mk=cv2.resize(masks[k].astype(np.uint8),(max(1,width//q),max(1,height//q)),interpolation=cv2.INTER_NEAREST)
-        depth.append(cv2.distanceTransform(mk,cv2.DIST_L2,5))
+        # één rij extra onderaan (kopie van de laatste): bij een hoogte net boven een veelvoud van 768
+        # viel de laatste band anders buiten de verkleinde kaart en stopte het samenvoegen (0.5.29)
+        dk=cv2.distanceTransform(mk,cv2.DIST_L2,5);depth.append(np.concatenate([dk,dk[-1:]],0))
     if a.plaat_onderdeel:
         # Plaat: glans in de groeven hangt af van de richting, niet van de scherpte. Alleen sterk detail (label,
         # rand) telt; deze grove drempel (op 1/4 gemeten) gaf schoon vinyl. Met de fijne drempel van papier

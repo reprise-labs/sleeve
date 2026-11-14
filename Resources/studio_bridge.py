@@ -212,7 +212,7 @@ def run_facts(output):
  except (OSError,ValueError,TypeError):pass
  return None
 
-def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0):
+def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0,target=None):
  """Eén onderdeel door de feitenroute (scan_feitenroute.py); geeft de uitkomst."""
  cmd=[sys.executable,str(TOOLS/'scan_feitenroute.py'),'--part',part,'--out',str(output),'--work',str(work),*files]
  if req.get('discogs'):cmd+=['--discogs',release_url(req['discogs'])]
@@ -221,6 +221,7 @@ def feiten_part(req,part,files,output,work,decision=None,fmt='',release_dpi=0.0)
  if str(req.get('year') or '').strip().isdigit():cmd+=['--year',str(req['year']).strip()]
  if fmt:cmd+=['--format',fmt]
  if release_dpi:cmd+=['--release-dpi',str(release_dpi)]
+ if target:cmd+=['--target',str(target)]
  work.mkdir(parents=True,exist_ok=True)
  process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
  OCR_CHILDREN.add(process)
@@ -394,9 +395,19 @@ def feiten_decide(req,work):
  # Feit: een beslissing verandert alleen wat jij kiest. Het onderdeel wordt opnieuw gemaakt met
  # hetzelfde formaat, dezelfde verpakking en dezelfde resolutie als de eerste keer.
  fmt,release_dpi=run_facts(output) or (release_format(req,[part]),0.0)
- result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision,fmt,release_dpi)
+ result=feiten_part(req,part,files,output,work/f'decide-{uuid.uuid4().hex[:8]}',decision,fmt,release_dpi,target=old if old and old.suffix.lower()=='.png' else None)
  if old and result.get('path') and Path(result['path'])!=old and old.exists():
   shutil.move(result['path'],old);result['path']=str(old)
+ # Feit: kant A en B (C en D) zijn dezelfde plaat. Een opnieuw gemaakte kant krijgt weer de kleur van
+ # zijn andere kant (die al gelijkgetrokken is en zo blijft); zonder dit liepen ze na een beslissing uiteen.
+ if result.get('path') and part in ('sidea','sideb','sidec','sided'):
+  other={'sidea':'sideb','sideb':'sidea','sidec':'sided','sided':'sidec'}[part]
+  me=Path(result['path']);mate=me.with_name(re.sub(r'_'+part+r'(?=(_\d+)?$)','_'+other,me.stem)+me.suffix)
+  if mate!=me and mate.exists():
+   try:
+    cp=subprocess.run([sys.executable,str(TOOLS/'scan_kleur_kanten.py'),str(me),str(mate),'--first-only'],capture_output=True,text=True,timeout=600)
+    for line in (cp.stdout+cp.stderr).splitlines()[-3:]:emit('log',message=line)
+   except subprocess.TimeoutExpired:emit('warning',message=f'{part}: matching the colour to {other} took too long; kept as scanned.')
  if result.get('path'):emit('outputs',files=[dict(feiten_file(result),replace=True)])
  emit('complete',message=f'{part}: {result.get("verdict")}'+(f' ({result.get("applied")})' if result.get('applied') else ''))
 

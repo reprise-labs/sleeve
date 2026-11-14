@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 13 nov 2026, versie 0.5.29 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.30 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -116,7 +116,17 @@ Extra feiten:
   - 0.5.30: FAQ en scanwijzer in de app (Help), meldingen in gewone taal met "Hoe los ik dit op?".
   - Queen en HNY: opnieuw scannen op een donker vel (rand van wit/geel vinyl op de witte klep).
 
+## 14 nov (0.5.30): bugjacht
+- Beslissing vervangt precies het eigen bestand: bridge geeft `--target <oud pad>` mee aan de route (twee inserts heetten `_insert`/`_insert_2`; de tweede overschreef de eerste).
+- `rotate` uit een beslissing geldt ook zonder Discogs-tekst (tak `else` in de route).
+- Onthouden beslissingen (`.sleeve-beslissingen.json`) dragen grootte+wijzigtijd per scan (`fingerprint`); een vervangen scan krijgt de oude beslissing niet meer. Oude regels zonder `files` gelden niet meer.
+- Stitch: dieptekaart één rij langer (kopie laatste rij); crashte bij hoogte % 768 in {1,2,3}. Uitkomst elders bit-gelijk.
+- Na een beslissing op een plaatkant: `scan_kleur_kanten.py nieuw ander --first-only` (alleen de nieuwe kant naar de andere). Lege ring of geen alfakanaal: niets aanpassen.
+- Nog open uit de bugjacht: geheugenreservering render bij 1200 dpi (FieldGain niet meegeteld), dubbel rekenwerk bij hoezen in de keuzelus, dode code (`tone_fields`, `seam_level`, `square`).
+
 ## Open
+- **Automatisch indelen (gepland 0.5.31):** scans eerst groeperen op overlap (gedeeld drukwerk), dan elke stapel benoemen op feiten (barcode = back, Discogs-hoesfoto = front, plaat ±30 cm = kant, letter van het label, cd 120 mm). André scant meestal in volgorde front, back, kant A, kant B (±4 deelscans elk): de bestandsvolgorde is een hint ter controle, geen beslissing. Wat niet vaststaat blijft een naamloze stapel die je in één keer in een vak sleept.
+- **Sticker uitsnijden (zijproject, André vergeet het steeds):** vak `sticker` bestaat in de bridge, maar `scan_feiten.py` heeft er geen vorm/maat voor.
 - **Verkeerd gevouwen hoes melden:** Fake back: de voorkant steekt bovenaan 0,4-0,7 mm boven de achterkant uit; Sleeve snijdt op de buitenkant van die strook en zegt GOED. André snijdt dat met de hand bij, maar wil een melding. Kenmerk: een dun wit snijlijntje langs de hele zijde, binnen 1 mm van de snede, met drukwerk erboven dat niet aansluit. Eerst melden (TWIJFEL), pas daarna eventueel zelf snijden; altijd met de vaste toets.
 - **Blauw vinyl kant A:** TWIJFEL, rand op 11 plekken 1,3-1,7 mm naast de cirkel (doorschijnend vinyl op de witte klep).
 - **Donker vinyl op een gekleurd vel:** `rim_end` kan daar glans voor doorschijnen aanzien; nog niet getest.

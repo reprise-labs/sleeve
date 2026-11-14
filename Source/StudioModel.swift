@@ -233,6 +233,7 @@ final class PipeReader: @unchecked Sendable {
         panel=nil;projectID=UUID();projectURL=nil;editionTitle="";runs=[];reviews=[:];projectSaveText="Not saved yet"
         errorMessage=nil;logText="";cancelled=false;startedAt=nil;inputs=[];outputs=[];emptySlots=[];suggestStatus="";selectedID=nil;showResults=false;discogs="";variant="";referenceURL=nil;references=[];proposals=[];colourSelection=[];demo=false;stateText="Ready for a new release";lastJobFolder=nil
         releaseInfo=nil;releaseYear="";packaging="auto";releaseConfirmed=false;releaseStatus="";mediaFormat="auto"
+        mode = .scans   // een nieuwe release begint altijd bij Process Scans (bleef in Adjust Color hangen)
     }
     func pickImages() {
         guard !busy else{return}
