@@ -1,3 +1,9 @@
+# 0.5.36 — Stickers recognised when arranging; strip stickers without a frame
+
+- **A sticker scan gets the Sticker slot by itself.** Fact: a small closed shape with rounded corners, or a circle, on an otherwise empty scan (its plastic sleeve): at most 15% of the scan. A CD booklet or card has sharp corners and a CD is a 120 mm circle, so those are never called sticker. Checked on the reference test: no CD card became a sticker.
+- **Strip stickers without a frame** ("new album"): the cut moves in from the found edge until just inside the cut is the colour of the sticker, not of the background. This also removes the thin strip of background that could stay along a framed sticker. Corners are checked on colour only where a pixel is clearly background.
+- Dark moss-green Music On Vinyl stickers (from 2025): macOS cannot read the text, so they come in doubt; choose the turn yourself.
+
 # 0.5.35 — Stickers
 
 - **A sticker is cut out from its own scan** (Sticker slot; the sticker sits on its plastic sleeve). `scan_sticker.py` works on facts: a closed rectangle with rounded corners (the printed frame of a Music On Vinyl sticker), with the sticker's edge at the same distance all around it (found on all four sides at once, the nearest edge that is clear on every side); or a closed rounded rectangle that is itself the edge (a strip without a frame); or a round edge that runs all around, perpendicular to the radius, measured in 180 directions. The shape of the frame, made larger all around, gives the corners; corners are then checked on colour (the corner of a sticker can be rounder than its frame). Saved with transparent corners and the size in mm.

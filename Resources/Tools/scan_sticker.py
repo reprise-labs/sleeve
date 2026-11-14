@@ -168,7 +168,7 @@ def main():
         crop[sy0 - y0:sy0 - y0 + sub.shape[0], sx0 - x0:sx0 - x0 + sub.shape[1], :3] = sub
         yy, xx = np.mgrid[0:n, 0:n]; d = np.hypot(xx - (cx - x0), yy - (cy - y0))
         crop[:, :, 3] = (np.clip(r - .7 - d + .5, 0, 1) * 255).astype(np.uint8)   # net binnen de rand, zachte rand van één pixel
-        res.update(shape='circle', rim_seen=round(rim, 2))
+        res.update(shape='circle', rim_seen=round(rim, 2), area_frac=round(math.pi * r * r / (W * H), 4))
         if rim < .75:
             res['verdict'] = 'TWIJFEL'; res['why'].append(f'the round edge is visible on only {100 * rim:.0f}% of the circle')
     else:
@@ -177,10 +177,29 @@ def main():
         rotf = cv2.warpAffine(full, R, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
         bp = np.c_[cv2.boxPoints(((rect[0][0] / s, rect[0][1] / s), (rect[1][0] / s, rect[1][1] / s), rect[2])), np.ones(4)] @ R.T
         L, T = bp.min(0); Rr, B = bp.max(0)
-        if off is not None and strength >= .35:
-            o = off / s; res.update(shape='rectangle with frame', frame_to_edge_px=round(o, 1))
-        else:
-            o = 0.0; res.update(shape='rectangle')                 # geen kader: deze gesloten vorm is zelf de rand
+        # Kader of rand? Net buiten een gedrukt kader is het nog sticker (zelfde kleur als binnen); net buiten de
+        # rand van de sticker is het achtergrond. (Strook "new album": geen kader, de gesloten vorm is de rand.)
+        labr = cv2.cvtColor(rotf, cv2.COLOR_BGR2LAB).astype(np.float32)
+        gap = max(3, int(.004 * max(Rr - L, B - T)))
+        xs_ = slice(int(L + .3 * (Rr - L)), int(L + .7 * (Rr - L))); ys_ = slice(int(T + .3 * (B - T)), int(T + .7 * (B - T)))
+        def band(y0, y1, x0, x1):
+            y0, y1, x0, x1 = max(0, int(y0)), min(H, int(y1)), max(0, int(x0)), min(W, int(x1))
+            return labr[y0:y1, x0:x1].reshape(-1, 3)
+        ins = np.concatenate([band(T + 2 * gap, T + 4 * gap, xs_.start, xs_.stop), band(B - 4 * gap, B - 2 * gap, xs_.start, xs_.stop),
+                              band(ys_.start, ys_.stop, L + 2 * gap, L + 4 * gap), band(ys_.start, ys_.stop, Rr - 4 * gap, Rr - 2 * gap)])
+        o = (off / s) if (off is not None and strength >= .35) else 0.0
+        # Feit: net binnen de snede is het sticker, geen achtergrond. Vanaf de gevonden rand naar binnen schuiven tot
+        # de strook net binnen de snede de kleur van de sticker heeft (gemeten verderop binnen); zo valt er geen
+        # randje achtergrond mee, of de gevonden vorm nu het kader was of al de rand (strook "new album").
+        st_c = np.median(ins, 0) if len(ins) else None
+        while st_c is not None and o > -2 * gap:
+            b_ = np.concatenate([band(T - o, T - o + 2, xs_.start, xs_.stop), band(B + o - 2, B + o, xs_.start, xs_.stop),
+                                 band(ys_.start, ys_.stop, L - o, L - o + 2), band(ys_.start, ys_.stop, Rr + o - 2, Rr + o)])
+            if len(b_) and float(np.linalg.norm(np.median(b_, 0) - st_c)) < 30:
+                break
+            o -= 1
+        o -= 1                                                     # de randpixel is gemengd
+        res.update(shape='rectangle with frame' if o > 2 * gap else 'rectangle', edge_from_shape_px=round(o, 1))
         L, T, Rr, B = L - o, T - o, Rr + o, B + o
         crop = rotf[max(0, int(round(T))):int(round(B)), max(0, int(round(L))):int(round(Rr))]
         ch, cw = crop.shape[:2]
@@ -208,7 +227,7 @@ def main():
                 q = int(min(cw, ch) * .12)
                 for (y0, x0) in ((0, 0), (0, cw - q), (ch - q, 0), (ch - q, cw - q)):
                     sub = lc[y0:y0 + q, x0:x0 + q]
-                    is_bg = (np.linalg.norm(sub - bg_c, axis=2) < np.linalg.norm(sub - st_c, axis=2)).astype(np.uint8)
+                    is_bg = (np.linalg.norm(sub - bg_c, axis=2) < .5 * np.linalg.norm(sub - st_c, axis=2)).astype(np.uint8)   # duidelijk achtergrond
                     cy_, cx_ = (0 if y0 == 0 else q - 1), (0 if x0 == 0 else q - 1)
                     if is_bg[cy_, cx_]:
                         ff = is_bg.copy(); m_ = np.zeros((q + 2, q + 2), np.uint8)
@@ -218,6 +237,8 @@ def main():
                 mask = cv2.GaussianBlur(mask, (3, 3), 0)
         crop = np.dstack([crop, mask])
         res['angle'] = round(ang, 2)
+        res['area_frac'] = round(crop.shape[0] * crop.shape[1] / (W * H), 4)
+        res['corner_px'] = round(r_in / s, 1)          # straal van de hoeken van de gevonden vorm (0 = scherpe hoeken)
         if off is not None and strength < .35:
             res['verdict'] = 'TWIJFEL'; res['why'].append('the edge of the sticker is not equally visible on all four sides')
     cv2.imwrite(a.out, crop)

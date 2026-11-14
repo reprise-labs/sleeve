@@ -1,6 +1,6 @@
 # Sleeve – overdracht voor de volgende agent (Codex of Claude)
 
-Stand: 14 nov 2026, versie 0.5.35 (branch `feiten`, github.com/reprise-labs/sleeve).
+Stand: 14 nov 2026, versie 0.5.36 (branch `feiten`, github.com/reprise-labs/sleeve).
 
 > **Werk altijd op branch `feiten`.** Niet op `release/0.4.12` of `backup-local-0.4.23`: dat is de oude route met regels.
 > Controleer bij de start: `git checkout feiten && git pull origin feiten`.
@@ -143,7 +143,7 @@ Extra feiten:
 - `Tests/feiten/snel.py`: voortoets voor wijzigingen in het samenvoegen (keuzekaart op rekenschaal, oud vs nieuw; oude kaarten bewaard in ~/Library/Caches/com.repriselabs.Sleeve/reference/choice). Haak in scan_stitch: `STITCH_CHOICE_ONLY`.
 - `reference.py`: cache van samengevoegde beelden (`SLEEVE_STITCH_CACHE`, route `stitch_cache_get/put`, max 3 GB, alleen bij ≥ 8 GB vrij), `--hoezen`, `--no-cache`. Niet `--keep` gebruiken bij weinig schijfruimte (volle schijf op 14 nov).
 - Naadregel (naad tot 15 mm verleggen waar scans op de naad verschillen; eilandjes opnemen) GEPROBEERD EN WEGGEHAALD: verschoof gevonden randen (Deena back +1,3 mm, Queen-insert −0,8 mm) en gaf dubbele letters waar de naad langs een tekstregel ging. André: "beter scannen ipv verbeteren na afloop".
-- Sticker (0.5.35): `scan_sticker.py` (kader → rand op vaste afstand rondom, eerste duidelijke sprong op alle zijden; of rand zelf; of cirkel in 180 richtingen; hoeken op kleur), route `sticker_route` (rechtop via scan_rechtop, cirkel met --disc). Getest op 7 chatbeelden van André; originele scans met dpi nog nodig. Strook zonder kader nog niet echt gezien. Indelen herkent een sticker nog niet (jij zet hem in het vak Sticker).
+- Sticker (0.5.35): `scan_sticker.py` (kader → rand op vaste afstand rondom, eerste duidelijke sprong op alle zijden; of rand zelf; of cirkel in 180 richtingen; hoeken op kleur), route `sticker_route` (rechtop via scan_rechtop, cirkel met --disc). Getest op 7 chatbeelden van André; originele scans met dpi nog nodig. Strook zonder kader nog niet echt gezien. Indelen herkent een sticker (0.5.36, `is_sticker`: ≤ 15% van de scan, afgeronde hoeken ≥ 1,5 mm of cirkel ≠ 112-125 mm). Snede: vanaf de gevonden rand naar binnen tot net binnen stickerkleur is (strook zonder kader). Mosgroene stickers (2025+) zijn te donker voor de tekstherkenning: André draait zelf.
 
 ## Open
 - ~~Verkeerd gevouwen hoes melden~~: opgelost sinds 0.5.29 (smalle randen per stuk van een zijde bijsnijden); André 14 nov: "De back is perfect".

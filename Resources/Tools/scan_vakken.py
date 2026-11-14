@@ -211,6 +211,28 @@ def record_rim(im):
     return best
 
 
+def is_sticker(scan, work):
+    """Feit: een sticker is een kleine gesloten vorm met afgeronde hoeken (of een cirkel) op een verder lege scan
+    (zijn plastic hoes). Een cd-boekje of kaartje heeft scherpe hoeken; een cd is een cirkel van 120 mm."""
+    out = os.path.join(work, 'sticker_probe.png')
+    try:
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'scan_sticker.py'), scan, '--out', out], capture_output=True, text=True, timeout=180)
+        res = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError, subprocess.TimeoutExpired, OSError):
+        return None
+    if res.get('verdict') == 'FOUT' or not res.get('area_frac') or res['area_frac'] > .15:
+        return None
+    dpi = res.get('dpi') or 0
+    if res.get('shape') == 'circle':
+        d = (res.get('size_mm') or [0])[0]
+        if dpi and 112 <= d <= 125:
+            return None                                     # een cd, geen sticker
+        return 'a round sticker'
+    if dpi and res.get('corner_px', 0) / dpi * 25.4 < 1.5:
+        return None                                         # scherpe hoeken: een kaartje of boekje
+    return 'a small card with rounded corners (a sticker)'
+
+
 def card_size(scan, work):
     """Maat (mm) van het kaartje op één cd-scan, gemeten zoals bij het uitsnijden (scan_feiten, als achterkaart
     van een jewelcase: 136-154 x 114-120 mm). Geeft (breedte, hoogte) of None als zo'n kaart er niet in ligt."""
@@ -407,6 +429,14 @@ def main():
         if len(wide) == 1:
             x, sz = wide[0]
             x[0], x[2] = 'inlay', f'the back is found; this card is {max(sz):.0f} x {min(sz):.0f} mm, the other card of that size in a jewel case: the inlay'
+    # Sticker: een losse scan met een kleine gesloten vorm met afgeronde hoeken of een cirkel (zijn plastic hoes eromheen)
+    if not any(x[0] == 'sticker' for x in named):
+        with tempfile.TemporaryDirectory() as work3:
+            for x in named:
+                if x[0] == 'unknown' and len(x[1]) == 1:
+                    why_ = is_sticker(x[1][0], work3)
+                    if why_:
+                        x[0], x[2] = 'sticker', f'{why_} lies on this scan'
     named = [x[:3] for x in named]
     if fmt == 'cd':                       # één cd-schijf: meer stapels met een cd is geen feit meer
         cds = [x for x in named if x[0] == 'cd']
